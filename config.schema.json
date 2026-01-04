@@ -1,0 +1,136 @@
+{
+  "pluginAlias": "MyLevitonDecoraSmart",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Control your Leviton Decora Smart Wi-Fi switches, dimmers, outlets, and fan controllers through HomeKit.",
+  "footerDisplay": "---\n\n**Need Help?** Check out the [GitHub Repository](https://github.com/tbaur/homebridge-myleviton) for documentation, troubleshooting guides, and to report issues.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "email": {
+        "title": "Username ",
+        "type": "string",
+        "required": true,
+        "format": "email",
+        "placeholder": "you@example.com",
+        "description": "The email address you use to sign in to the My Leviton app",
+        "x-schema-form": {
+          "type": "username"
+        }
+      },
+      "password": {
+        "title": "Password ",
+        "type": "string",
+        "required": true,
+        "placeholder": "••••••••••••",
+        "description": "Your My Leviton account password (stored securely in your Homebridge config)",
+        "x-schema-form": {
+          "type": "password"
+        }
+      },
+      "loglevel": {
+        "title": "Log Level",
+        "type": "string",
+        "default": "info",
+        "oneOf": [
+          { "title": "Debug - Verbose logging for troubleshooting", "enum": ["debug"] },
+          { "title": "Info - Standard operational messages", "enum": ["info"] },
+          { "title": "Warn - Warnings and important notices", "enum": ["warn"] },
+          { "title": "Error - Only errors and critical issues", "enum": ["error"] }
+        ],
+        "description": "Controls how much detail appears in Homebridge logs. Use Debug when troubleshooting issues."
+      },
+      "pollInterval": {
+        "title": "Poll Interval",
+        "type": "integer",
+        "default": 30,
+        "minimum": 10,
+        "maximum": 300,
+        "description": "How often (in seconds) to check device states. Lower values = faster updates but more API calls. Default: 30 seconds."
+      },
+      "excludedModels": {
+        "title": "Excluded Models",
+        "type": "array",
+        "description": "Device models to exclude from HomeKit. Enter the model number (e.g., DW4BC for button controllers). Useful for devices you don't want to control via HomeKit.",
+        "items": {
+          "type": "string",
+          "title": "Model Number",
+          "placeholder": "e.g., DW4BC"
+        }
+      },
+      "excludedSerials": {
+        "title": "Excluded Serial Numbers",
+        "type": "array",
+        "description": "Specific devices to exclude by serial number. Find the serial in the My Leviton app under device settings.",
+        "items": {
+          "type": "string",
+          "title": "Serial Number",
+          "placeholder": "e.g., ABC123DEF456"
+        }
+      },
+      "structuredLogs": {
+        "title": "Enable Structured Logging (JSON)",
+        "type": "boolean",
+        "default": false,
+        "description": "Output logs in JSON format for integration with log management tools like Datadog, Splunk, or ELK stack."
+      }
+    }
+  },
+  "layout": [
+    {
+      "type": "fieldset",
+      "title": "Account Credentials",
+      "description": "Enter your My Leviton account details.",
+      "expandable": false,
+      "items": [
+        "email",
+        "password"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "General Settings",
+      "expandable": true,
+      "expanded": true,
+      "items": [
+        "loglevel",
+        "pollInterval"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Device Exclusions",
+      "description": "Optionally exclude specific device types or individual devices from appearing in HomeKit.",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        {
+          "key": "excludedModels",
+          "type": "array",
+          "buttonText": "Add Model to Exclude",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "key": "excludedSerials", 
+          "type": "array",
+          "buttonText": "Add Serial to Exclude",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Advanced Options",
+      "description": "Settings for power users and developers.",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "structuredLogs"
+      ]
+    }
+  ]
+}
