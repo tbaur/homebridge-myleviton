@@ -22,7 +22,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tbaur/homebridge-myleviton.git"
+    "url": "git+https://github.com/tbaur/homebridge-myleviton.git"
   },
   "bugs": {
     "url": "https://github.com/tbaur/homebridge-myleviton/issues"
