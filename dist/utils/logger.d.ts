@@ -25,6 +25,8 @@ export interface StructuredLoggerConfig {
     includeCorrelationId: boolean;
     /** Include timestamps */
     includeTimestamp: boolean;
+    /** Minimum log level */
+    level: LogLevel;
 }
 /**
  * Default structured logger configuration

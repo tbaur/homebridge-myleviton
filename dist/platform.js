@@ -89,8 +89,11 @@ class LevitonDecoraSmartPlatform {
     constructor(homebridgeLog, config, api) {
         this.config = config;
         this.api = api;
-        // Setup logging
-        this.log = (0, logger_1.createLogger)(homebridgeLog, config?.loglevel || 'info');
+        // Setup logging with optional structured JSON output
+        this.log = (0, logger_1.createStructuredLogger)(homebridgeLog, {
+            structured: config?.structuredLogs || false,
+            level: config?.loglevel || 'info',
+        });
         // Setup API client
         this.client = (0, client_1.getApiClient)({
             timeout: config?.connectionTimeout || 10000,
@@ -480,10 +483,16 @@ class LevitonDecoraSmartPlatform {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     createPowerSetter(device) {
         return async (value, callback) => {
+            const startTime = Date.now();
             try {
                 const token = await this.ensureValidToken();
                 await this.client.setPower(device.id, token, value);
-                this.log.info(`${device.name}: ${value ? 'ON' : 'OFF'}`);
+                const latency = Date.now() - startTime;
+                this.log.info(`${device.name}: ${value ? 'ON' : 'OFF'} (Latency: ${latency}ms)`, {
+                    deviceId: device.id,
+                    operation: 'setPower',
+                    duration: latency,
+                });
                 callback();
             }
             catch (err) {
@@ -513,10 +522,16 @@ class LevitonDecoraSmartPlatform {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     createBrightnessSetter(device) {
         return async (value, callback) => {
+            const startTime = Date.now();
             try {
                 const token = await this.ensureValidToken();
                 await this.client.setBrightness(device.id, token, value);
-                this.log.info(`${device.name}: ${value}%`);
+                const latency = Date.now() - startTime;
+                this.log.info(`${device.name}: ${value}% (Latency: ${latency}ms)`, {
+                    deviceId: device.id,
+                    operation: 'setBrightness',
+                    duration: latency,
+                });
                 callback();
             }
             catch (err) {

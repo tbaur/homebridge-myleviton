@@ -27,6 +27,7 @@ exports.DEFAULT_STRUCTURED_LOGGER_CONFIG = {
     structured: false,
     includeCorrelationId: true,
     includeTimestamp: true,
+    level: exports.DEFAULT_LOG_LEVEL,
 };
 /**
  * Logger wrapper that supports level filtering and structured output
@@ -65,8 +66,9 @@ class StructuredLogger {
     config;
     correlationId = null;
     constructor(log, config = {}) {
-        this.log = log instanceof LeveledLogger ? log : new LeveledLogger(log);
-        this.config = { ...exports.DEFAULT_STRUCTURED_LOGGER_CONFIG, ...config };
+        const mergedConfig = { ...exports.DEFAULT_STRUCTURED_LOGGER_CONFIG, ...config };
+        this.log = log instanceof LeveledLogger ? log : new LeveledLogger(log, mergedConfig.level);
+        this.config = mergedConfig;
     }
     /**
      * Set correlation ID for request tracing
