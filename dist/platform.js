@@ -249,6 +249,7 @@ class LevitonDecoraSmartPlatform {
             return;
         }
         const { id, power, brightness, occupancy, motion } = payload;
+        const device = accessory.context?.device;
         this.log.debug(`WebSocket: ${accessory.displayName} (${id}): ${power} ${brightness ? `${brightness}%` : ''}`);
         // Get service
         const fanService = accessory.getService(hap.Service.Fan);
@@ -260,19 +261,43 @@ class LevitonDecoraSmartPlatform {
             this.log.warn(`No service found for accessory: ${accessory.displayName}`);
             return;
         }
+        // Get current state before updating
+        const currentPower = primaryService.getCharacteristic(hap.Characteristic.On).value;
+        const currentPowerState = currentPower ? POWER_ON : POWER_OFF;
         // Update brightness/rotation speed
         if (brightness !== undefined) {
             const clampedBrightness = Math.max(1, brightness);
+            // Get current brightness for change detection
+            let currentBrightness;
             if (fanService) {
+                currentBrightness = fanService.getCharacteristic(hap.Characteristic.RotationSpeed).value;
                 fanService.getCharacteristic(hap.Characteristic.RotationSpeed).updateValue(clampedBrightness);
             }
             else if (lightService) {
+                currentBrightness = lightService.getCharacteristic(hap.Characteristic.Brightness).value;
                 lightService.getCharacteristic(hap.Characteristic.Brightness).updateValue(clampedBrightness);
+            }
+            // Log brightness change if different
+            if (currentBrightness !== undefined && currentBrightness !== clampedBrightness) {
+                this.log.info(`${accessory.displayName}: ${clampedBrightness}% (external)`, {
+                    deviceId: device?.id,
+                    operation: 'externalBrightnessUpdate',
+                    brightness: clampedBrightness,
+                });
             }
         }
         // Update power state
         if (power !== undefined) {
-            primaryService.getCharacteristic(hap.Characteristic.On).updateValue(power === POWER_ON);
+            const newPowerBool = power === POWER_ON;
+            primaryService.getCharacteristic(hap.Characteristic.On).updateValue(newPowerBool);
+            // Log power change if different
+            if (currentPowerState !== power) {
+                this.log.info(`${accessory.displayName}: ${power} (external)`, {
+                    deviceId: device?.id,
+                    operation: 'externalPowerUpdate',
+                    power,
+                });
+            }
         }
         // Update motion sensor
         const motionService = accessory.getService(hap.Service.MotionSensor);
