@@ -5,7 +5,7 @@
 [![npm downloads](https://img.shields.io/npm/dt/homebridge-myleviton?style=flat-square)](https://www.npmjs.com/package/homebridge-myleviton)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-green)](https://nodejs.org)
 [![Homebridge](https://img.shields.io/badge/homebridge-%3E%3D1.6.0-purple)](https://homebridge.io)
-[![License](https://img.shields.io/github/license/tbaur/homebridge-myleviton)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 Control your **My Leviton Decora Smart** WiFi devices through Apple HomeKit using Homebridge.
 
@@ -85,7 +85,6 @@ Your devices will appear in the Home app automatically.
 | `pollInterval` | | Seconds between state updates (default: 30) |
 | `excludedModels` | | Device models to skip, e.g. `["DW15P"]` |
 | `excludedSerials` | | Device serials to skip |
-| `structuredLogs` | | Enable JSON structured logging (default: false) |
 
 ## Not Working?
 
