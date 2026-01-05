@@ -450,3 +450,213 @@ describe('Device model constants', () => {
   })
 })
 
+describe('Latency logging', () => {
+  let mockLog: jest.Mock
+  let mockAPI: ReturnType<typeof createMockHomebridgeAPI>
+  let mockClient: {
+    login: jest.Mock
+    getResidentialPermissions: jest.Mock
+    getResidentialAccount: jest.Mock
+    getDevices: jest.Mock
+    getResidences: jest.Mock
+    getDeviceStatus: jest.Mock
+    setPower: jest.Mock
+    setBrightness: jest.Mock
+    clearCache: jest.Mock
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    
+    mockLog = jest.fn()
+    mockAPI = createMockHomebridgeAPI()
+    
+    // Initialize HAP
+    registerPlatform(mockAPI)
+    
+    // Setup mock client
+    const { getApiClient } = require('../../src/api/client')
+    mockClient = {
+      login: jest.fn().mockResolvedValue({ id: 'test-token', userId: 'user-123' }),
+      getResidentialPermissions: jest.fn().mockResolvedValue([{ residentialAccountId: 'account-123' }]),
+      getResidentialAccount: jest.fn().mockResolvedValue({ id: 'res-obj-123', primaryResidenceId: 'residence-123' }),
+      getDevices: jest.fn().mockResolvedValue([]),
+      getResidences: jest.fn().mockResolvedValue([]),
+      getDeviceStatus: jest.fn().mockResolvedValue({ power: 'ON', brightness: 50, minLevel: 1, maxLevel: 100 }),
+      setPower: jest.fn().mockResolvedValue({}),
+      setBrightness: jest.fn().mockResolvedValue({}),
+      clearCache: jest.fn(),
+    }
+    getApiClient.mockReturnValue(mockClient)
+    
+    // Setup mock persistence
+    const { getDevicePersistence } = require('../../src/api/persistence')
+    getDevicePersistence.mockReturnValue({
+      load: jest.fn().mockResolvedValue(new Map()),
+      save: jest.fn().mockResolvedValue(undefined),
+      updateDevice: jest.fn(),
+      updateFromStatus: jest.fn(),
+      getDevice: jest.fn().mockReturnValue(null),
+      hasFreshCache: jest.fn().mockReturnValue(false),
+      getCachedStatus: jest.fn().mockReturnValue(null),
+    })
+    
+    // Setup mock websocket
+    const { createWebSocket } = require('../../src/api/websocket')
+    createWebSocket.mockReturnValue({
+      close: jest.fn(),
+      updateToken: jest.fn(),
+      isConnected: jest.fn().mockReturnValue(false),
+    })
+  })
+
+  it('should include latency in power setter log message', async () => {
+    // Add artificial delay to setPower
+    mockClient.setPower.mockImplementation(() => 
+      new Promise(resolve => setTimeout(() => resolve({}), 50)),
+    )
+    
+    const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+    const device = { id: 'dev-1', name: 'Test Light', model: 'DW6HD', serial: 'ABC123' }
+    const accessory = mockAccessory(device)
+    
+    // Configure accessory to setup handlers
+    await platform.configureAccessory(accessory)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    
+    // Get the set handler that was registered
+    const onChar = accessory.getService().getCharacteristic()
+    const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as (value: boolean, callback: () => void) => Promise<void>
+    
+    if (setHandler) {
+      const callback = jest.fn()
+      await setHandler(true, callback)
+      
+      // Check that log was called with latency pattern
+      expect(mockLog).toHaveBeenCalledWith(
+        expect.stringMatching(/Test Light: ON \(Latency: \d+ms\)/),
+      )
+    }
+  })
+
+  it('should include latency in brightness setter log message', async () => {
+    // Add artificial delay to setBrightness
+    mockClient.setBrightness.mockImplementation(() => 
+      new Promise(resolve => setTimeout(() => resolve({}), 50)),
+    )
+    
+    const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+    const device = { id: 'dev-1', name: 'Test Dimmer', model: 'DW6HD', serial: 'ABC123' }
+    const accessory = mockAccessory(device)
+    
+    // Configure accessory to setup handlers
+    await platform.configureAccessory(accessory)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    
+    // For brightness, we need to find the brightness characteristic handler
+    // The mock returns the same characteristic for all calls, so we check all set handlers
+    const onChar = accessory.getService().getCharacteristic()
+    const setHandlers = onChar.on.mock.calls.filter((call: [string, unknown]) => call[0] === 'set')
+    
+    // The second set handler should be for brightness (first is power)
+    if (setHandlers.length >= 2) {
+      const brightnessHandler = setHandlers[1][1] as (value: number, callback: () => void) => Promise<void>
+      const callback = jest.fn()
+      await brightnessHandler(75, callback)
+      
+      // Check that log was called with latency pattern for brightness
+      expect(mockLog).toHaveBeenCalledWith(
+        expect.stringMatching(/Test Dimmer: 75% \(Latency: \d+ms\)/),
+      )
+    }
+  })
+
+  it('should output structured JSON with duration when structuredLogs enabled', async () => {
+    const structuredConfig: LevitonConfig = {
+      ...validConfig,
+      structuredLogs: true,
+    }
+    
+    mockClient.setPower.mockResolvedValue({})
+    
+    const platform = new LevitonDecoraSmartPlatform(mockLog, structuredConfig, mockAPI)
+    const device = { id: 'dev-123', name: 'JSON Test', model: 'DW6HD', serial: 'ABC123' }
+    const accessory = mockAccessory(device)
+    
+    await platform.configureAccessory(accessory)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    
+    const onChar = accessory.getService().getCharacteristic()
+    const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as (value: boolean, callback: () => void) => Promise<void>
+    
+    if (setHandler) {
+      const callback = jest.fn()
+      await setHandler(true, callback)
+      
+      // Find the JSON log call (will be stringified JSON)
+      const jsonLogCall = mockLog.mock.calls.find((call: string[]) => {
+        try {
+          const parsed = JSON.parse(call[0])
+          return parsed.deviceId && parsed.operation && parsed.duration !== undefined
+        } catch {
+          return false
+        }
+      })
+      
+      expect(jsonLogCall).toBeDefined()
+      if (jsonLogCall) {
+        const parsed = JSON.parse(jsonLogCall[0])
+        expect(parsed).toMatchObject({
+          level: 'info',
+          deviceId: 'dev-123',
+          operation: 'setPower',
+          duration: expect.any(Number),
+        })
+        expect(parsed.message).toContain('JSON Test: ON')
+      }
+    }
+  })
+
+  it('should measure actual latency including token refresh', async () => {
+    // Simulate slow token refresh
+    mockClient.login.mockImplementation(() =>
+      new Promise(resolve => setTimeout(() => resolve({ id: 'new-token', userId: 'user-123' }), 30)),
+    )
+    mockClient.setPower.mockImplementation(() =>
+      new Promise(resolve => setTimeout(() => resolve({}), 20)),
+    )
+    
+    const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+    const device = { id: 'dev-1', name: 'Latency Test', model: 'DW15S', serial: 'ABC123' }
+    const accessory = mockAccessory(device)
+    
+    await platform.configureAccessory(accessory)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    
+    const onChar = accessory.getService().getCharacteristic()
+    const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as (value: boolean, callback: () => void) => Promise<void>
+    
+    if (setHandler) {
+      const callback = jest.fn()
+      const startTime = Date.now()
+      await setHandler(false, callback)
+      const elapsed = Date.now() - startTime
+      
+      // Should have logged with latency close to our artificial delays
+      const latencyLogCall = mockLog.mock.calls.find((call: string[]) => 
+        call[0].includes('Latency Test: OFF (Latency:'),
+      )
+      expect(latencyLogCall).toBeDefined()
+      
+      // Extract latency from log message
+      const match = latencyLogCall?.[0].match(/Latency: (\d+)ms/)
+      if (match) {
+        const reportedLatency = parseInt(match[1], 10)
+        // Reported latency should be reasonable (within 100ms of actual elapsed)
+        expect(reportedLatency).toBeGreaterThanOrEqual(20)
+        expect(reportedLatency).toBeLessThanOrEqual(elapsed + 50)
+      }
+    }
+  })
+})
+

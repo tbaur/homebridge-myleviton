@@ -11,7 +11,7 @@ import * as path from 'path'
 import { LevitonApiClient, getApiClient } from './api/client'
 import { LevitonWebSocket, createWebSocket } from './api/websocket'
 import { DevicePersistence, getDevicePersistence } from './api/persistence'
-import { createLogger, LeveledLogger } from './utils/logger'
+import { createStructuredLogger, StructuredLogger } from './utils/logger'
 import { sanitizeError } from './utils/sanitizers'
 import type {
   LevitonConfig,
@@ -56,7 +56,7 @@ export class LevitonDecoraSmartPlatform {
   private readonly config: LevitonConfig
   private readonly api: HomebridgeAPI
   private readonly accessories: PlatformAccessory[] = []
-  private readonly log: LeveledLogger
+  private readonly log: StructuredLogger
   
   // API client
   private client: LevitonApiClient
@@ -86,8 +86,11 @@ export class LevitonDecoraSmartPlatform {
     this.config = config
     this.api = api
     
-    // Setup logging
-    this.log = createLogger(homebridgeLog, config?.loglevel || 'info')
+    // Setup logging with optional structured JSON output
+    this.log = createStructuredLogger(homebridgeLog, {
+      structured: config?.structuredLogs || false,
+      level: config?.loglevel || 'info',
+    })
     
     // Setup API client
     this.client = getApiClient({
@@ -553,10 +556,16 @@ export class LevitonDecoraSmartPlatform {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private createPowerSetter(device: DeviceInfo): any {
     return async (value: boolean, callback: (err?: Error) => void) => {
+      const startTime = Date.now()
       try {
         const token = await this.ensureValidToken()
         await this.client.setPower(device.id, token, value)
-        this.log.info(`${device.name}: ${value ? 'ON' : 'OFF'}`)
+        const latency = Date.now() - startTime
+        this.log.info(`${device.name}: ${value ? 'ON' : 'OFF'} (Latency: ${latency}ms)`, {
+          deviceId: device.id,
+          operation: 'setPower',
+          duration: latency,
+        })
         callback()
       } catch (err) {
         callback(new Error(sanitizeError(err)))
@@ -586,10 +595,16 @@ export class LevitonDecoraSmartPlatform {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private createBrightnessSetter(device: DeviceInfo): any {
     return async (value: number, callback: (err?: Error) => void) => {
+      const startTime = Date.now()
       try {
         const token = await this.ensureValidToken()
         await this.client.setBrightness(device.id, token, value)
-        this.log.info(`${device.name}: ${value}%`)
+        const latency = Date.now() - startTime
+        this.log.info(`${device.name}: ${value}% (Latency: ${latency}ms)`, {
+          deviceId: device.id,
+          operation: 'setBrightness',
+          duration: latency,
+        })
         callback()
       } catch (err) {
         callback(new Error(sanitizeError(err)))

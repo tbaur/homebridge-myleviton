@@ -85,6 +85,7 @@ Your devices will appear in the Home app automatically.
 | `pollInterval` | | Seconds between state updates (default: 30) |
 | `excludedModels` | | Device models to skip, e.g. `["DW15P"]` |
 | `excludedSerials` | | Device serials to skip |
+| `structuredLogs` | | Enable JSON structured logging (default: false) |
 
 ## Not Working?
 

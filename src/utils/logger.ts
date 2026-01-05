@@ -30,6 +30,8 @@ export interface StructuredLoggerConfig {
   includeCorrelationId: boolean
   /** Include timestamps */
   includeTimestamp: boolean
+  /** Minimum log level */
+  level: LogLevel
 }
 
 /**
@@ -39,6 +41,7 @@ export const DEFAULT_STRUCTURED_LOGGER_CONFIG: StructuredLoggerConfig = {
   structured: false,
   includeCorrelationId: true,
   includeTimestamp: true,
+  level: DEFAULT_LOG_LEVEL,
 }
 
 /**
@@ -86,8 +89,9 @@ export class StructuredLogger {
     log: Logger | ((message: string) => void),
     config: Partial<StructuredLoggerConfig> = {},
   ) {
-    this.log = log instanceof LeveledLogger ? log : new LeveledLogger(log)
-    this.config = { ...DEFAULT_STRUCTURED_LOGGER_CONFIG, ...config }
+    const mergedConfig = { ...DEFAULT_STRUCTURED_LOGGER_CONFIG, ...config }
+    this.log = log instanceof LeveledLogger ? log : new LeveledLogger(log, mergedConfig.level)
+    this.config = mergedConfig
   }
 
   /**
