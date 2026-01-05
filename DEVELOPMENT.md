@@ -455,5 +455,4 @@ sudo npm install -g homebridge-myleviton@3.0.0
 
 - [Homebridge Plugin Development](https://developers.homebridge.io/)
 - [HomeKit Accessory Protocol](https://developer.apple.com/homekit/)
-- [Leviton Developer Resources](https://developer.leviton.com/)
 
