@@ -1,8 +1,8 @@
 # homebridge-myleviton
 
 [![Tests](https://github.com/tbaur/homebridge-myleviton/actions/workflows/test.yml/badge.svg)](https://github.com/tbaur/homebridge-myleviton/actions/workflows/test.yml)
-[![npm version](https://img.shields.io/npm/v/homebridge-myleviton)](https://www.npmjs.com/package/homebridge-myleviton)
-[![npm downloads](https://img.shields.io/npm/dt/homebridge-myleviton)](https://www.npmjs.com/package/homebridge-myleviton)
+[![npm version](https://img.shields.io/npm/v/homebridge-myleviton?style=flat-square)](https://www.npmjs.com/package/homebridge-myleviton)
+[![npm downloads](https://img.shields.io/npm/dt/homebridge-myleviton?style=flat-square)](https://www.npmjs.com/package/homebridge-myleviton)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-green)](https://nodejs.org)
 [![Homebridge](https://img.shields.io/badge/homebridge-%3E%3D1.6.0-purple)](https://homebridge.io)
 [![License](https://img.shields.io/github/license/tbaur/homebridge-myleviton)](LICENSE)
