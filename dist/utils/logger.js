@@ -106,22 +106,15 @@ class StructuredLogger {
             }
             return JSON.stringify(entry);
         }
-        // Traditional string format
-        let result = '';
+        // Traditional string format - context is ignored (only used in structured mode)
         if (typeof message === 'object') {
             const { event, ...rest } = message;
             const contextStr = Object.keys(rest).length > 0
                 ? ` ${JSON.stringify((0, sanitizers_1.sanitizeObject)(rest))}`
                 : '';
-            result = `[${event || 'log'}]${contextStr}`;
+            return `[${event || 'log'}]${contextStr}`;
         }
-        else {
-            result = message;
-        }
-        if (context) {
-            result += ` ${JSON.stringify((0, sanitizers_1.sanitizeObject)(context))}`;
-        }
-        return result;
+        return message;
     }
     /**
      * Log debug message
