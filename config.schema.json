@@ -6,11 +6,17 @@
   "footerDisplay": "---\n\n**Need Help?** Check out the [GitHub Repository](https://github.com/tbaur/homebridge-myleviton) for documentation, troubleshooting guides, and to report issues.",
   "schema": {
     "type": "object",
+    "required": ["name", "email", "password"],
     "properties": {
-      "email": {
-        "title": "Username ",
+      "name": {
+        "title": "Name",
         "type": "string",
-        "required": true,
+        "default": "My Leviton",
+        "description": "A name for this plugin instance (shown in Homebridge logs)"
+      },
+      "email": {
+        "title": "Username",
+        "type": "string",
         "format": "email",
         "placeholder": "you@example.com",
         "description": "The email address you use to sign in to the My Leviton app",
@@ -19,9 +25,8 @@
         }
       },
       "password": {
-        "title": "Password ",
+        "title": "Password",
         "type": "string",
-        "required": true,
         "placeholder": "••••••••••••",
         "description": "Your My Leviton account password (stored securely in your Homebridge config)",
         "x-schema-form": {
@@ -83,6 +88,7 @@
       "description": "Enter your My Leviton account details.",
       "expandable": false,
       "items": [
+        "name",
         "email",
         "password"
       ]
