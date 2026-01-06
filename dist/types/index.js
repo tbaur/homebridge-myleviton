@@ -14,6 +14,7 @@ var DeviceModel;
 (function (DeviceModel) {
     // Fan Controllers
     DeviceModel["FAN"] = "DW4SF";
+    DeviceModel["FAN_GEN2"] = "D24SF";
     // Dimmers
     DeviceModel["DIMMER_VOICE"] = "DWVAA";
     DeviceModel["DIMMER_1000W"] = "DW1KD";
@@ -21,6 +22,8 @@ var DeviceModel;
     DeviceModel["DIMMER_600W_GEN2"] = "D26HD";
     DeviceModel["DIMMER_PLUGIN_GEN2"] = "D23LP";
     DeviceModel["DIMMER_PLUGIN"] = "DW3HL";
+    DeviceModel["DIMMER_ELV"] = "D2ELV";
+    DeviceModel["DIMMER_0_10V"] = "D2710";
     // Motion Sensor Dimmers
     DeviceModel["DIMMER_MOTION"] = "D2MSD";
     // Outlets

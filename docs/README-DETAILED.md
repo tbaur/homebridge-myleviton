@@ -104,6 +104,8 @@ Advanced documentation for power users, developers, and troubleshooting.
 | DW3HL | Decora Smart 300W Dimmer | On/Off, Brightness |
 | D23LP | Decora Smart Low Voltage Dimmer | On/Off, Brightness |
 | DWVAA | Decora Smart Voice Dimmer | On/Off, Brightness |
+| D2ELV | Decora Smart ELV/LED Phase Selectable Dimmer | On/Off, Brightness |
+| D2710 | Decora Smart 0-10V Dimmer | On/Off, Brightness |
 
 ### Motion Sensor Dimmers
 
@@ -133,6 +135,7 @@ Advanced documentation for power users, developers, and troubleshooting.
 | Model | Name | HomeKit Features |
 |-------|------|------------------|
 | DW4SF | Decora Smart Fan Controller | On/Off, Speed (25/50/75/100%) |
+| D24SF | Decora Smart Fan Controller (2nd Gen) | On/Off, Speed (25/50/75/100%) |
 
 ---
 

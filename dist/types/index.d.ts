@@ -47,12 +47,15 @@ export type PowerState = 'ON' | 'OFF';
  */
 export declare enum DeviceModel {
     FAN = "DW4SF",
+    FAN_GEN2 = "D24SF",// 2nd Gen Fan Speed Controller
     DIMMER_VOICE = "DWVAA",
     DIMMER_1000W = "DW1KD",
     DIMMER_600W = "DW6HD",
     DIMMER_600W_GEN2 = "D26HD",
     DIMMER_PLUGIN_GEN2 = "D23LP",
     DIMMER_PLUGIN = "DW3HL",
+    DIMMER_ELV = "D2ELV",// ELV/LED Phase Selectable Dimmer
+    DIMMER_0_10V = "D2710",// 0-10V Dimmer Switch
     DIMMER_MOTION = "D2MSD",
     OUTLET_TAMPER = "DW15R",
     OUTLET_PLUGIN_HP = "DW15A",
