@@ -5,12 +5,15 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.1.0] - 2026-01-05
+## [3.1.1] - 2026-01-05
 
 ### Added
 - Support for D2ELV (Decora Smart ELV/LED Phase Selectable Dimmer)
 - Support for D2710 (Decora Smart 0-10V Dimmer Switch)
 - Support for D24SF (Decora Smart Fan Speed Controller, 2nd Gen)
+
+### Note
+- v3.1.0 was unpublished due to release process issue; this release contains the same changes
 
 ---
 
