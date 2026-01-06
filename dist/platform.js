@@ -57,12 +57,12 @@ const UUID_PREFIX = 'myleviton-';
 const POWER_ON = 'ON';
 const POWER_OFF = 'OFF';
 // Device model arrays for type checking
-const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL'];
+const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710'];
 const MOTION_DIMMER_MODELS = ['D2MSD'];
 const OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P', 'D215O']; // D215P is plug-in switch, D215O is outdoor plug-in switch
 const SWITCH_MODELS = ['DW15S', 'D215S'];
 const CONTROLLER_MODELS = ['DW4BC']; // Button controllers - no state, skip
-const FAN_MODEL = 'DW4SF';
+const FAN_MODELS = ['DW4SF', 'D24SF']; // Fan speed controllers
 let hap;
 /**
  * Leviton Decora Smart Platform for Homebridge
@@ -374,7 +374,7 @@ class LevitonDecoraSmartPlatform {
             this.log.debug(`Skipping controller device: ${device.name} (${model})`);
             return;
         }
-        if (model === FAN_MODEL) {
+        if (FAN_MODELS.includes(model)) {
             await this.setupFanService(accessory, device, token);
         }
         else if (MOTION_DIMMER_MODELS.includes(model)) {
