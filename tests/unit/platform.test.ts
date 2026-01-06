@@ -230,6 +230,7 @@ describe('LevitonDecoraSmartPlatform', () => {
       { model: 'DW4SF', expectedService: 'Fan', description: 'fan controller' },
       { model: 'DW15P', expectedService: 'Outlet', description: 'outlet' },
       { model: 'D215P', expectedService: 'Outlet', description: 'plug-in switch' },
+      { model: 'D215O', expectedService: 'Outlet', description: 'outdoor plug-in switch' },
       { model: 'DW15S', expectedService: 'Switch', description: 'switch' },
       { model: 'D215S', expectedService: 'Switch', description: 'switch' },
       { model: 'D2MSD', expectedService: 'Lightbulb', description: 'motion dimmer' },

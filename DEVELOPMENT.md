@@ -113,7 +113,7 @@ handleWebSocketUpdate(payload)    // WebSocket update handler
 ```typescript
 const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL']
 const MOTION_DIMMER_MODELS = ['D2MSD']
-const OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P']
+const OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P', 'D215O']
 const SWITCH_MODELS = ['DW15S', 'D215S']
 const CONTROLLER_MODELS = ['DW4BC']  // Skipped - no controllable state
 const FAN_MODEL = 'DW4SF'
@@ -260,7 +260,7 @@ coverageThreshold: {
 const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'NEW_MODEL']
 
 // For outlets (on/off only)
-const OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P', 'NEW_MODEL']
+const OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P', 'D215O', 'NEW_MODEL']
 
 // For switches (on/off only)
 const SWITCH_MODELS = ['DW15S', 'D215S', 'NEW_MODEL']

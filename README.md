@@ -71,7 +71,7 @@ Your devices will appear in the Home app automatically.
 |------|----------|
 | **Dimmers** | DW6HD, D26HD, DW1KD, DW3HL, D23LP, DWVAA |
 | **Switches** | DW15S, D215S |
-| **Outlets** | DW15P, DW15A, DW15R, D215P |
+| **Outlets** | DW15P, DW15A, DW15R, D215P, D215O |
 | **Fans** | DW4SF |
 | **Motion Dimmers** | D2MSD |
 

@@ -33,7 +33,7 @@ const POWER_OFF: PowerState = 'OFF'
 // Device model arrays for type checking
 const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL']
 const MOTION_DIMMER_MODELS = ['D2MSD']
-const OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P']  // D215P is plug-in switch
+const OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P', 'D215O']  // D215P is plug-in switch, D215O is outdoor plug-in switch
 const SWITCH_MODELS = ['DW15S', 'D215S']
 const CONTROLLER_MODELS = ['DW4BC']  // Button controllers - no state, skip
 const FAN_MODEL = 'DW4SF'

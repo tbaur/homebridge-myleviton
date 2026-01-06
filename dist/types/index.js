@@ -27,6 +27,7 @@ var DeviceModel;
     DeviceModel["OUTLET_TAMPER"] = "DW15R";
     DeviceModel["OUTLET_PLUGIN_HP"] = "DW15A";
     DeviceModel["OUTLET_PLUGIN"] = "DW15P";
+    DeviceModel["OUTLET_OUTDOOR"] = "D215O";
     // Switches
     DeviceModel["SWITCH_15A"] = "DW15S";
     DeviceModel["SWITCH_15A_GEN2"] = "D215S";

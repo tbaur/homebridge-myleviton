@@ -126,6 +126,7 @@ Advanced documentation for power users, developers, and troubleshooting.
 | DW15A | Decora Smart In-Wall Outlet | On/Off |
 | DW15R | Decora Smart Tamper-Resistant Outlet | On/Off |
 | D215P | Decora Smart Plug-in Switch | On/Off |
+| D215O | Decora Smart Outdoor Plug-in Switch | On/Off |
 
 ### Fans
 
