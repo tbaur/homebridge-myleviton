@@ -57,6 +57,7 @@ export declare enum DeviceModel {
     OUTLET_TAMPER = "DW15R",
     OUTLET_PLUGIN_HP = "DW15A",
     OUTLET_PLUGIN = "DW15P",
+    OUTLET_OUTDOOR = "D215O",
     SWITCH_15A = "DW15S",
     SWITCH_15A_GEN2 = "D215S"
 }

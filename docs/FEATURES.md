@@ -23,7 +23,7 @@
 |------|--------|
 | **Dimmers** | DW6HD, D26HD, DW1KD, DW3HL, D23LP, DWVAA |
 | **Motion Sensor Dimmers** | D2MSD (dimmer + motion sensor in HomeKit) |
-| **Outlets** | DW15P, DW15A, DW15R, D215P |
+| **Outlets** | DW15P, DW15A, DW15R, D215P, D215O |
 | **Fans** | DW4SF |
 | **Switches** | DW15S, D215S |
 | **Controllers** | DW4BC (skipped - no controllable state) |
