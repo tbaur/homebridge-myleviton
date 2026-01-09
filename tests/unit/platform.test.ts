@@ -15,12 +15,33 @@ jest.mock('../../src/api/persistence')
 import { LevitonDecoraSmartPlatform, registerPlatform } from '../../src/platform'
 import type { LevitonConfig, LogLevel } from '../../src/types'
 
-// Mock HAP types
-const mockCharacteristic = () => ({
+// Device model constants (matching platform.ts)
+const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL']
+const MOTION_DIMMER_MODELS = ['D2MSD']
+const OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P', 'D215O']
+const SWITCH_MODELS = ['DW15S', 'D215S']
+const CONTROLLER_MODELS = ['DW4BC']
+const FAN_MODEL = 'DW4SF'
+
+// All device models combined
+const ALL_DIMMER_MODELS = [...DIMMER_MODELS, ...MOTION_DIMMER_MODELS]
+const ALL_CONTROLLABLE_MODELS = [...DIMMER_MODELS, ...MOTION_DIMMER_MODELS, FAN_MODEL, ...OUTLET_MODELS, ...SWITCH_MODELS]
+
+// Mock HAP types with flexible value type
+interface MockCharacteristic {
+  on: jest.Mock
+  removeAllListeners: jest.Mock
+  updateValue: jest.Mock
+  setProps: jest.Mock
+  value: boolean | number
+}
+
+const mockCharacteristic = (): MockCharacteristic => ({
   on: jest.fn().mockReturnThis(),
   removeAllListeners: jest.fn().mockReturnThis(),
   updateValue: jest.fn().mockReturnThis(),
   setProps: jest.fn().mockReturnThis(),
+  value: false as boolean | number,
 })
 
 const mockService = () => ({
@@ -72,6 +93,7 @@ const createMockHomebridgeAPI = () => {
         Model: 'Model',
         SerialNumber: 'SerialNumber',
         Name: 'Name',
+        FirmwareRevision: 'FirmwareRevision',
       },
     },
     platformAccessory: jest.fn().mockImplementation((name: string, uuid: string) => ({
@@ -98,72 +120,61 @@ const validConfig: LevitonConfig = {
   loglevel: 'info' as LogLevel,
 }
 
+// Helper to setup common mocks
+const setupMocks = () => {
+  const mockLog = createMockLog()
+  const mockAPI = createMockHomebridgeAPI()
+  registerPlatform(mockAPI)
+  
+  const { getApiClient } = require('../../src/api/client')
+  const mockClient = {
+    login: jest.fn().mockResolvedValue({ id: 'test-token', userId: 'user-123' }),
+    getResidentialPermissions: jest.fn().mockResolvedValue([{ residentialAccountId: 'account-123' }]),
+    getResidentialAccount: jest.fn().mockResolvedValue({ id: 'res-obj-123', primaryResidenceId: 'residence-123' }),
+    getDevices: jest.fn().mockResolvedValue([]),
+    getResidences: jest.fn().mockResolvedValue([]),
+    getDeviceStatus: jest.fn().mockResolvedValue({ power: 'ON', brightness: 50, minLevel: 1, maxLevel: 100 }),
+    setPower: jest.fn().mockResolvedValue({}),
+    setBrightness: jest.fn().mockResolvedValue({}),
+    clearCache: jest.fn(),
+  }
+  getApiClient.mockReturnValue(mockClient)
+  
+  const { getDevicePersistence } = require('../../src/api/persistence')
+  const mockPersistence = {
+    load: jest.fn().mockResolvedValue(new Map()),
+    save: jest.fn().mockResolvedValue(undefined),
+    updateDevice: jest.fn(),
+    updateFromStatus: jest.fn(),
+    getDevice: jest.fn().mockReturnValue(null),
+    hasFreshCache: jest.fn().mockReturnValue(false),
+    getCachedStatus: jest.fn().mockReturnValue(null),
+  }
+  getDevicePersistence.mockReturnValue(mockPersistence)
+  
+  const { createWebSocket } = require('../../src/api/websocket')
+  createWebSocket.mockReturnValue({
+    close: jest.fn(),
+    updateToken: jest.fn(),
+    isConnected: jest.fn().mockReturnValue(false),
+  })
+  
+  return { mockLog, mockAPI, mockClient, mockPersistence }
+}
+
 describe('LevitonDecoraSmartPlatform', () => {
   let mockLog: jest.Mock
   let mockAPI: ReturnType<typeof createMockHomebridgeAPI>
-  let mockClient: {
-    login: jest.Mock
-    getResidentialPermissions: jest.Mock
-    getResidentialAccount: jest.Mock
-    getDevices: jest.Mock
-    getResidences: jest.Mock
-    getDeviceStatus: jest.Mock
-    setPower: jest.Mock
-    setBrightness: jest.Mock
-  }
-  let mockPersistence: {
-    load: jest.Mock
-    save: jest.Mock
-    updateDevice: jest.Mock
-    updateFromStatus: jest.Mock
-    getDevice: jest.Mock
-    hasFreshCache: jest.Mock
-    getCachedStatus: jest.Mock
-  }
+  let mockClient: ReturnType<typeof setupMocks>['mockClient']
+  let mockPersistence: ReturnType<typeof setupMocks>['mockPersistence']
 
   beforeEach(() => {
     jest.clearAllMocks()
-    
-    mockLog = createMockLog()
-    mockAPI = createMockHomebridgeAPI()
-    
-    // Initialize HAP by calling registerPlatform with mock homebridge
-    registerPlatform(mockAPI)
-    
-    // Setup mock client
-    const { getApiClient } = require('../../src/api/client')
-    mockClient = {
-      login: jest.fn().mockResolvedValue({ id: 'test-token', userId: 'user-123' }),
-      getResidentialPermissions: jest.fn().mockResolvedValue([{ residentialAccountId: 'account-123' }]),
-      getResidentialAccount: jest.fn().mockResolvedValue({ id: 'res-obj-123', primaryResidenceId: 'residence-123' }),
-      getDevices: jest.fn().mockResolvedValue([]),
-      getResidences: jest.fn().mockResolvedValue([]),
-      getDeviceStatus: jest.fn().mockResolvedValue({ power: 'ON', brightness: 50, minLevel: 1, maxLevel: 100 }),
-      setPower: jest.fn().mockResolvedValue({}),
-      setBrightness: jest.fn().mockResolvedValue({}),
-    }
-    getApiClient.mockReturnValue(mockClient)
-    
-    // Setup mock persistence
-    const { getDevicePersistence } = require('../../src/api/persistence')
-    mockPersistence = {
-      load: jest.fn().mockResolvedValue(new Map()),
-      save: jest.fn().mockResolvedValue(undefined),
-      updateDevice: jest.fn(),
-      updateFromStatus: jest.fn(),
-      getDevice: jest.fn().mockReturnValue(null),
-      hasFreshCache: jest.fn().mockReturnValue(false),
-      getCachedStatus: jest.fn().mockReturnValue(null),
-    }
-    getDevicePersistence.mockReturnValue(mockPersistence)
-    
-    // Setup mock websocket
-    const { createWebSocket } = require('../../src/api/websocket')
-    createWebSocket.mockReturnValue({
-      close: jest.fn(),
-      updateToken: jest.fn(),
-      isConnected: jest.fn().mockReturnValue(false),
-    })
+    const mocks = setupMocks()
+    mockLog = mocks.mockLog
+    mockAPI = mocks.mockAPI
+    mockClient = mocks.mockClient
+    mockPersistence = mocks.mockPersistence
   })
 
   describe('constructor', () => {
@@ -209,62 +220,106 @@ describe('LevitonDecoraSmartPlatform', () => {
       const accessory = mockAccessory({ id: 'dev-1', name: 'Test Light', model: 'DW6HD', serial: 'ABC123' })
       
       await platform.configureAccessory(accessory)
-      
-      // Accessory should be stored (wait for async operation)
       await new Promise(resolve => setTimeout(resolve, 50))
+      
       expect((platform as unknown as { accessories: unknown[] }).accessories).toContain(accessory)
     })
   })
 
-  describe('device model routing', () => {
+  describe('device model routing - all supported devices', () => {
     let platform: LevitonDecoraSmartPlatform
 
     beforeEach(() => {
       platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
     })
 
-    const testDeviceModels = [
-      { model: 'DW6HD', expectedService: 'Lightbulb', description: 'dimmer' },
-      { model: 'D26HD', expectedService: 'Lightbulb', description: 'dimmer' },
-      { model: 'D23LP', expectedService: 'Lightbulb', description: 'plug-in dimmer' },
-      { model: 'DW4SF', expectedService: 'Fan', description: 'fan controller' },
-      { model: 'DW15P', expectedService: 'Outlet', description: 'outlet' },
-      { model: 'D215P', expectedService: 'Outlet', description: 'plug-in switch' },
-      { model: 'D215O', expectedService: 'Outlet', description: 'outdoor plug-in switch' },
-      { model: 'DW15S', expectedService: 'Switch', description: 'switch' },
-      { model: 'D215S', expectedService: 'Switch', description: 'switch' },
-      { model: 'D2MSD', expectedService: 'Lightbulb', description: 'motion dimmer' },
-      { model: 'UNKNOWN', expectedService: 'Switch', description: 'unknown model' },
-    ]
-
-    testDeviceModels.forEach(({ model, expectedService, description }) => {
-      it(`should route ${model} (${description}) to ${expectedService} service`, async () => {
-        const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
+    // Test all dimmer models
+    DIMMER_MODELS.forEach(model => {
+      it(`should route ${model} dimmer to Lightbulb service`, async () => {
+        const device = { id: 'dev-1', name: 'Test Dimmer', model, serial: 'ABC123' }
         const accessory = mockAccessory(device)
         
-        // Configure accessory to trigger service setup
-        platform.configureAccessory(accessory)
+        await platform.configureAccessory(accessory)
+        await new Promise(resolve => setTimeout(resolve, 50))
         
-        // Wait for async setup
-        await new Promise(resolve => setTimeout(resolve, 10))
-        
-        // For controller models, no service should be added
-        if (model === 'DW4BC') {
-          expect(accessory.addService).not.toHaveBeenCalled()
-        }
+        expect(accessory.getService).toHaveBeenCalledWith('Lightbulb', device.name)
       })
     })
 
-    it('should skip DW4BC controller devices', async () => {
-      const device = { id: 'dev-1', name: 'Test Controller', model: 'DW4BC', serial: 'ABC123' }
+    // Test motion dimmer
+    MOTION_DIMMER_MODELS.forEach(model => {
+      it(`should route ${model} motion dimmer to Lightbulb and MotionSensor services`, async () => {
+        const device = { id: 'dev-1', name: 'Motion Dimmer', model, serial: 'ABC123' }
+        const accessory = mockAccessory(device)
+        
+        await platform.configureAccessory(accessory)
+        await new Promise(resolve => setTimeout(resolve, 50))
+        
+        expect(accessory.getService).toHaveBeenCalledWith('Lightbulb', device.name)
+        // Platform calls getService('MotionSensor') first to check if it exists
+        expect(accessory.getService).toHaveBeenCalledWith('MotionSensor')
+      })
+    })
+
+    // Test fan controller
+    it(`should route ${FAN_MODEL} fan controller to Fan service`, async () => {
+      const device = { id: 'dev-1', name: 'Test Fan', model: FAN_MODEL, serial: 'ABC123' }
       const accessory = mockAccessory(device)
       
       await platform.configureAccessory(accessory)
       await new Promise(resolve => setTimeout(resolve, 50))
       
-      // Controller devices should be skipped - no service should be configured on the accessory
-      // The addService should not be called for DW4BC
-      expect(accessory.addService).not.toHaveBeenCalled()
+      expect(accessory.getService).toHaveBeenCalledWith('Fan', device.name)
+    })
+
+    // Test all outlet models
+    OUTLET_MODELS.forEach(model => {
+      it(`should route ${model} outlet to Outlet service`, async () => {
+        const device = { id: 'dev-1', name: 'Test Outlet', model, serial: 'ABC123' }
+        const accessory = mockAccessory(device)
+        
+        await platform.configureAccessory(accessory)
+        await new Promise(resolve => setTimeout(resolve, 50))
+        
+        expect(accessory.getService).toHaveBeenCalledWith('Outlet', device.name)
+      })
+    })
+
+    // Test all switch models
+    SWITCH_MODELS.forEach(model => {
+      it(`should route ${model} switch to Switch service`, async () => {
+        const device = { id: 'dev-1', name: 'Test Switch', model, serial: 'ABC123' }
+        const accessory = mockAccessory(device)
+        
+        await platform.configureAccessory(accessory)
+        await new Promise(resolve => setTimeout(resolve, 50))
+        
+        expect(accessory.getService).toHaveBeenCalledWith('Switch', device.name)
+      })
+    })
+
+    // Test controller models are skipped
+    CONTROLLER_MODELS.forEach(model => {
+      it(`should skip ${model} controller device (no controllable state)`, async () => {
+        const device = { id: 'dev-1', name: 'Test Controller', model, serial: 'ABC123' }
+        const accessory = mockAccessory(device)
+        
+        await platform.configureAccessory(accessory)
+        await new Promise(resolve => setTimeout(resolve, 50))
+        
+        expect(accessory.addService).not.toHaveBeenCalled()
+      })
+    })
+
+    // Test unknown model defaults to switch
+    it('should route unknown model to Switch service', async () => {
+      const device = { id: 'dev-1', name: 'Unknown Device', model: 'UNKNOWN', serial: 'ABC123' }
+      const accessory = mockAccessory(device)
+      
+      await platform.configureAccessory(accessory)
+      await new Promise(resolve => setTimeout(resolve, 50))
+      
+      expect(accessory.getService).toHaveBeenCalledWith('Switch', device.name)
     })
   })
 
@@ -276,11 +331,8 @@ describe('LevitonDecoraSmartPlatform', () => {
       ])
       
       new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
-      
-      // Trigger didFinishLaunching
       mockAPI.emit('didFinishLaunching')
       
-      // Wait for async initialization
       await new Promise(resolve => setTimeout(resolve, 50))
       
       expect(mockClient.login).toHaveBeenCalledWith(
@@ -318,7 +370,6 @@ describe('LevitonDecoraSmartPlatform', () => {
       
       await new Promise(resolve => setTimeout(resolve, 50))
       
-      // Should log that 1 device was excluded
       expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('1 excluded'))
     })
 
@@ -346,7 +397,7 @@ describe('LevitonDecoraSmartPlatform', () => {
     it('should clamp brightness to minLevel', async () => {
       mockClient.getDeviceStatus.mockResolvedValue({
         power: 'ON',
-        brightness: 0, // Below minLevel
+        brightness: 0,
         minLevel: 5,
         maxLevel: 100,
       })
@@ -355,11 +406,9 @@ describe('LevitonDecoraSmartPlatform', () => {
       const device = { id: 'dev-1', name: 'Test Light', model: 'DW6HD', serial: 'ABC123' }
       const accessory = mockAccessory(device)
       
-      platform.configureAccessory(accessory)
-      
+      await platform.configureAccessory(accessory)
       await new Promise(resolve => setTimeout(resolve, 50))
       
-      // Service should be configured with clamped brightness
       const service = accessory.getService()
       expect(service.getCharacteristic).toHaveBeenCalledWith('Brightness')
     })
@@ -374,10 +423,8 @@ describe('LevitonDecoraSmartPlatform', () => {
       new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
       mockAPI.emit('didFinishLaunching')
       
-      // Wait for async initialization
       await new Promise(resolve => setTimeout(resolve, 100))
       
-      // Should have logged Platform ready
       expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('Platform ready'))
     })
   })
@@ -389,14 +436,421 @@ describe('LevitonDecoraSmartPlatform', () => {
       new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
       mockAPI.emit('didFinishLaunching')
       
-      // Wait for async initialization
       await new Promise(resolve => setTimeout(resolve, 100))
       
-      // Trigger shutdown
       mockAPI.emit('shutdown')
       
-      // Should save device states
       expect(mockPersistence.save).toHaveBeenCalled()
+    })
+  })
+})
+
+describe('Service setup for all device types', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    setupMocks()
+  })
+
+  describe('Dimmer service setup', () => {
+    DIMMER_MODELS.forEach(model => {
+      it(`should setup Lightbulb service with On and Brightness characteristics for ${model}`, async () => {
+        const { mockLog, mockAPI, mockClient } = setupMocks()
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const device = { id: 'dev-1', name: 'Test Dimmer', model, serial: 'ABC123' }
+        const accessory = mockAccessory(device)
+        
+        await platform.configureAccessory(accessory)
+        await new Promise(resolve => setTimeout(resolve, 50))
+        
+        const service = accessory.getService()
+        expect(service.getCharacteristic).toHaveBeenCalledWith('On')
+        expect(service.getCharacteristic).toHaveBeenCalledWith('Brightness')
+        expect(mockClient.getDeviceStatus).toHaveBeenCalledWith(device.id, 'test-token')
+      })
+    })
+  })
+
+  describe('Motion dimmer service setup', () => {
+    MOTION_DIMMER_MODELS.forEach(model => {
+      it(`should setup Lightbulb and MotionSensor services for ${model}`, async () => {
+        const { mockLog, mockAPI } = setupMocks()
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const device = { id: 'dev-1', name: 'Motion Dimmer', model, serial: 'ABC123' }
+        const accessory = mockAccessory(device)
+        
+        await platform.configureAccessory(accessory)
+        await new Promise(resolve => setTimeout(resolve, 50))
+        
+        expect(accessory.getService).toHaveBeenCalledWith('Lightbulb', device.name)
+        // Platform calls getService('MotionSensor') first to check if service exists
+        expect(accessory.getService).toHaveBeenCalledWith('MotionSensor')
+      })
+    })
+  })
+
+  describe('Fan service setup', () => {
+    it(`should setup Fan service with On and RotationSpeed characteristics for ${FAN_MODEL}`, async () => {
+      const { mockLog, mockAPI, mockClient } = setupMocks()
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const device = { id: 'dev-1', name: 'Test Fan', model: FAN_MODEL, serial: 'ABC123' }
+      const accessory = mockAccessory(device)
+      
+      await platform.configureAccessory(accessory)
+      await new Promise(resolve => setTimeout(resolve, 50))
+      
+      const service = accessory.getService()
+      expect(service.getCharacteristic).toHaveBeenCalledWith('On')
+      expect(service.getCharacteristic).toHaveBeenCalledWith('RotationSpeed')
+      expect(mockClient.getDeviceStatus).toHaveBeenCalledWith(device.id, 'test-token')
+    })
+  })
+
+  describe('Outlet service setup', () => {
+    OUTLET_MODELS.forEach(model => {
+      it(`should setup Outlet service with On characteristic for ${model}`, async () => {
+        const { mockLog, mockAPI, mockClient } = setupMocks()
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const device = { id: 'dev-1', name: 'Test Outlet', model, serial: 'ABC123' }
+        const accessory = mockAccessory(device)
+        
+        await platform.configureAccessory(accessory)
+        await new Promise(resolve => setTimeout(resolve, 50))
+        
+        const service = accessory.getService()
+        expect(service.getCharacteristic).toHaveBeenCalledWith('On')
+        expect(mockClient.getDeviceStatus).toHaveBeenCalledWith(device.id, 'test-token')
+      })
+    })
+  })
+
+  describe('Switch service setup', () => {
+    SWITCH_MODELS.forEach(model => {
+      it(`should setup Switch service with On characteristic for ${model}`, async () => {
+        const { mockLog, mockAPI, mockClient } = setupMocks()
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const device = { id: 'dev-1', name: 'Test Switch', model, serial: 'ABC123' }
+        const accessory = mockAccessory(device)
+        
+        await platform.configureAccessory(accessory)
+        await new Promise(resolve => setTimeout(resolve, 50))
+        
+        const service = accessory.getService()
+        expect(service.getCharacteristic).toHaveBeenCalledWith('On')
+        expect(mockClient.getDeviceStatus).toHaveBeenCalledWith(device.id, 'test-token')
+      })
+    })
+  })
+})
+
+describe('Characteristic handlers for all device types', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  describe('Power getter for all device types', () => {
+    ALL_CONTROLLABLE_MODELS.forEach(model => {
+      it(`should get power state for ${model}`, async () => {
+        const { mockLog, mockAPI, mockClient } = setupMocks()
+        mockClient.getDeviceStatus.mockResolvedValue({ power: 'ON', brightness: 50 })
+        
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
+        const accessory = mockAccessory(device)
+        
+        await platform.configureAccessory(accessory)
+        await new Promise(resolve => setTimeout(resolve, 50))
+        
+        const service = accessory.getService()
+        const onChar = service.getCharacteristic()
+        const getHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'get')?.[1] as (callback: (err: Error | null, value?: boolean) => void) => Promise<void>
+        
+        if (getHandler) {
+          const callback = jest.fn()
+          await getHandler(callback)
+          
+          expect(mockClient.getDeviceStatus).toHaveBeenCalledWith(device.id, 'test-token')
+          expect(callback).toHaveBeenCalledWith(null, true)
+        }
+      })
+    })
+  })
+
+  describe('Power setter for all device types', () => {
+    ALL_CONTROLLABLE_MODELS.forEach(model => {
+      it(`should set power state for ${model}`, async () => {
+        const { mockLog, mockAPI, mockClient } = setupMocks()
+        
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
+        const accessory = mockAccessory(device)
+        
+        await platform.configureAccessory(accessory)
+        await new Promise(resolve => setTimeout(resolve, 50))
+        
+        const service = accessory.getService()
+        const onChar = service.getCharacteristic()
+        const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as (value: boolean, callback: () => void) => Promise<void>
+        
+        if (setHandler) {
+          const callback = jest.fn()
+          await setHandler(true, callback)
+          
+          expect(mockClient.setPower).toHaveBeenCalledWith(device.id, 'test-token', true)
+          expect(callback).toHaveBeenCalled()
+        }
+      })
+    })
+  })
+
+  describe('Brightness getter for dimmers and fan', () => {
+    const modelsWithBrightness = [...ALL_DIMMER_MODELS, FAN_MODEL]
+    
+    modelsWithBrightness.forEach(model => {
+      it(`should register brightness getter for ${model}`, async () => {
+        const { mockLog, mockAPI, mockClient } = setupMocks()
+        mockClient.getDeviceStatus.mockResolvedValue({ power: 'ON', brightness: 75, minLevel: 1, maxLevel: 100 })
+        
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
+        const accessory = mockAccessory(device)
+        
+        await platform.configureAccessory(accessory)
+        await new Promise(resolve => setTimeout(resolve, 50))
+        
+        const service = accessory.getService()
+        const brightnessChar = service.getCharacteristic()
+        
+        // Verify a 'get' handler was registered
+        const getHandlerCalls = brightnessChar.on.mock.calls.filter((call: [string, unknown]) => call[0] === 'get')
+        expect(getHandlerCalls.length).toBeGreaterThan(0)
+        expect(mockClient.getDeviceStatus).toHaveBeenCalledWith(device.id, 'test-token')
+      })
+    })
+  })
+
+  describe('Brightness setter for dimmers and fan', () => {
+    const modelsWithBrightness = [...ALL_DIMMER_MODELS, FAN_MODEL]
+    
+    modelsWithBrightness.forEach(model => {
+      it(`should set brightness for ${model}`, async () => {
+        const { mockLog, mockAPI, mockClient } = setupMocks()
+        
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
+        const accessory = mockAccessory(device)
+        
+        await platform.configureAccessory(accessory)
+        await new Promise(resolve => setTimeout(resolve, 50))
+        
+        const service = accessory.getService()
+        const brightnessChar = service.getCharacteristic()
+        const setHandlers = brightnessChar.on.mock.calls.filter((call: [string, unknown]) => call[0] === 'set')
+        const brightnessSetHandler = setHandlers.length >= 2 ? setHandlers[1][1] as (value: number, callback: () => void) => Promise<void> : null
+        
+        if (brightnessSetHandler) {
+          const callback = jest.fn()
+          await brightnessSetHandler(75, callback)
+          
+          expect(mockClient.setBrightness).toHaveBeenCalledWith(device.id, 'test-token', 75)
+          expect(callback).toHaveBeenCalled()
+        }
+      })
+    })
+  })
+})
+
+describe('Motion sensor functionality', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('should initialize motion sensor with occupancy state from status', async () => {
+    const { mockLog, mockAPI, mockClient } = setupMocks()
+    mockClient.getDeviceStatus.mockResolvedValue({
+      power: 'ON',
+      brightness: 50,
+      occupancy: true,
+      motion: false,
+    })
+    
+    const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+    const device = { id: 'dev-1', name: 'Motion Dimmer', model: 'D2MSD', serial: 'ABC123' }
+    const accessory = mockAccessory(device)
+    
+    await platform.configureAccessory(accessory)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    
+    // Platform calls getService('MotionSensor') first, then addService if not found
+    expect(accessory.getService).toHaveBeenCalledWith('MotionSensor')
+  })
+
+  it('should handle motion detection from occupancy field', async () => {
+    const { mockLog, mockAPI, mockClient } = setupMocks()
+    mockClient.getDeviceStatus.mockResolvedValue({
+      power: 'ON',
+      brightness: 50,
+      occupancy: true,
+    })
+    
+    const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+    const device = { id: 'dev-1', name: 'Motion Dimmer', model: 'D2MSD', serial: 'ABC123' }
+    const accessory = mockAccessory(device)
+    
+    await platform.configureAccessory(accessory)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    
+    const motionService = accessory.getService('MotionSensor', 'Motion Dimmer Motion')
+    expect(motionService).toBeDefined()
+  })
+
+  it('should handle motion detection from motion field', async () => {
+    const { mockLog, mockAPI, mockClient } = setupMocks()
+    mockClient.getDeviceStatus.mockResolvedValue({
+      power: 'ON',
+      brightness: 50,
+      motion: true,
+    })
+    
+    const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+    const device = { id: 'dev-1', name: 'Motion Dimmer', model: 'D2MSD', serial: 'ABC123' }
+    const accessory = mockAccessory(device)
+    
+    await platform.configureAccessory(accessory)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    
+    const motionService = accessory.getService('MotionSensor', 'Motion Dimmer Motion')
+    expect(motionService).toBeDefined()
+  })
+})
+
+describe('WebSocket update handling for all device types', () => {
+  let platform: LevitonDecoraSmartPlatform
+
+  const createAccessoryWithService = (device: { id: string; name: string; model: string; serial: string }, serviceType: string) => {
+    const accessory = mockAccessory(device)
+    const service = mockService()
+    const characteristic = mockCharacteristic()
+    
+    accessory.getService = jest.fn((type: string) => {
+      if (type === serviceType || type === 'AccessoryInformation') {
+        return service
+      }
+      return null
+    })
+    
+    service.getCharacteristic = jest.fn(() => characteristic)
+    
+    return { accessory, service, characteristic }
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    const mocks = setupMocks()
+    platform = new LevitonDecoraSmartPlatform(mocks.mockLog, validConfig, mocks.mockAPI)
+  })
+
+  describe('Power updates via WebSocket', () => {
+    ALL_CONTROLLABLE_MODELS.forEach(model => {
+      it(`should update power state for ${model} via WebSocket`, () => {
+        const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
+        const serviceType = model === FAN_MODEL ? 'Fan' : 
+                           OUTLET_MODELS.includes(model) ? 'Outlet' :
+                           SWITCH_MODELS.includes(model) ? 'Switch' : 'Lightbulb'
+        
+        const { accessory, characteristic } = createAccessoryWithService(device, serviceType)
+        
+        // Add accessory to platform
+        const platformAccessories = (platform as unknown as { accessories: unknown[] }).accessories
+        platformAccessories.push(accessory)
+        
+        // Call handleWebSocketUpdate with proper binding
+        const handleUpdate = (platform as unknown as { handleWebSocketUpdate: (payload: { id: string; power: string }) => void }).handleWebSocketUpdate.bind(platform)
+        handleUpdate({ id: device.id, power: 'ON' })
+        
+        expect(characteristic.updateValue).toHaveBeenCalledWith(true)
+      })
+    })
+  })
+
+  describe('Brightness updates via WebSocket', () => {
+    const modelsWithBrightness = [...ALL_DIMMER_MODELS, FAN_MODEL]
+    
+    modelsWithBrightness.forEach(model => {
+      it(`should update brightness for ${model} via WebSocket`, () => {
+        const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
+        const serviceType = model === FAN_MODEL ? 'Fan' : 'Lightbulb'
+        
+        const { accessory, characteristic } = createAccessoryWithService(device, serviceType)
+        characteristic.value = 50
+        
+        // Add accessory to platform
+        const platformAccessories = (platform as unknown as { accessories: unknown[] }).accessories
+        platformAccessories.push(accessory)
+        
+        // Call handleWebSocketUpdate with proper binding
+        const handleUpdate = (platform as unknown as { handleWebSocketUpdate: (payload: { id: string; brightness: number }) => void }).handleWebSocketUpdate.bind(platform)
+        handleUpdate({ id: device.id, brightness: 75 })
+        
+        expect(characteristic.updateValue).toHaveBeenCalledWith(75)
+      })
+    })
+  })
+
+  describe('Motion updates via WebSocket for D2MSD', () => {
+    it('should update motion sensor state via WebSocket', () => {
+      const device = { id: 'dev-1', name: 'Motion Dimmer', model: 'D2MSD', serial: 'ABC123' }
+      const { accessory } = createAccessoryWithService(device, 'Lightbulb')
+      
+      const motionService = mockService()
+      const motionChar = mockCharacteristic()
+      motionService.getCharacteristic = jest.fn(() => motionChar)
+      accessory.getService = jest.fn((type: string) => {
+        if (type === 'Lightbulb' || type === 'AccessoryInformation') {
+          return mockService()
+        }
+        if (type === 'MotionSensor') {
+          return motionService
+        }
+        return null
+      })
+      
+      // Add accessory to platform
+      const platformAccessories = (platform as unknown as { accessories: unknown[] }).accessories
+      platformAccessories.push(accessory)
+      
+      // Call handleWebSocketUpdate with proper binding
+      const handleUpdate = (platform as unknown as { handleWebSocketUpdate: (payload: { id: string; motion: boolean }) => void }).handleWebSocketUpdate.bind(platform)
+      handleUpdate({ id: device.id, motion: true })
+      
+      expect(motionChar.updateValue).toHaveBeenCalledWith(true)
+    })
+
+    it('should update motion sensor state from occupancy field', () => {
+      const device = { id: 'dev-1', name: 'Motion Dimmer', model: 'D2MSD', serial: 'ABC123' }
+      const { accessory } = createAccessoryWithService(device, 'Lightbulb')
+      
+      const motionService = mockService()
+      const motionChar = mockCharacteristic()
+      motionService.getCharacteristic = jest.fn(() => motionChar)
+      accessory.getService = jest.fn((type: string) => {
+        if (type === 'Lightbulb' || type === 'AccessoryInformation') {
+          return mockService()
+        }
+        if (type === 'MotionSensor') {
+          return motionService
+        }
+        return null
+      })
+      
+      // Add accessory to platform
+      const platformAccessories = (platform as unknown as { accessories: unknown[] }).accessories
+      platformAccessories.push(accessory)
+      
+      // Call handleWebSocketUpdate with proper binding
+      const handleUpdate = (platform as unknown as { handleWebSocketUpdate: (payload: { id: string; occupancy: boolean }) => void }).handleWebSocketUpdate.bind(platform)
+      handleUpdate({ id: device.id, occupancy: true })
+      
+      expect(motionChar.updateValue).toHaveBeenCalledWith(true)
     })
   })
 })
@@ -424,95 +878,43 @@ describe('registerPlatform', () => {
 })
 
 describe('Device model constants', () => {
-  // Test that model arrays are properly defined
   it('should have correct dimmer models', () => {
-    // These are tested indirectly through device routing
-    // The platform file defines: DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL']
-    const dimmerModels = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL']
-    expect(dimmerModels.length).toBe(6)
+    expect(DIMMER_MODELS).toEqual(['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL'])
+    expect(DIMMER_MODELS.length).toBe(6)
+  })
+
+  it('should have correct motion dimmer models', () => {
+    expect(MOTION_DIMMER_MODELS).toEqual(['D2MSD'])
+    expect(MOTION_DIMMER_MODELS.length).toBe(1)
   })
 
   it('should have correct outlet models', () => {
-    // OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P']
-    const outletModels = ['DW15R', 'DW15A', 'DW15P', 'D215P']
-    expect(outletModels.length).toBe(4)
+    expect(OUTLET_MODELS).toEqual(['DW15R', 'DW15A', 'DW15P', 'D215P', 'D215O'])
+    expect(OUTLET_MODELS.length).toBe(5)
   })
 
   it('should have correct switch models', () => {
-    // SWITCH_MODELS = ['DW15S', 'D215S']
-    const switchModels = ['DW15S', 'D215S']
-    expect(switchModels.length).toBe(2)
+    expect(SWITCH_MODELS).toEqual(['DW15S', 'D215S'])
+    expect(SWITCH_MODELS.length).toBe(2)
   })
 
   it('should have correct controller models', () => {
-    // CONTROLLER_MODELS = ['DW4BC']
-    const controllerModels = ['DW4BC']
-    expect(controllerModels.length).toBe(1)
+    expect(CONTROLLER_MODELS).toEqual(['DW4BC'])
+    expect(CONTROLLER_MODELS.length).toBe(1)
+  })
+
+  it('should have correct fan model', () => {
+    expect(FAN_MODEL).toBe('DW4SF')
   })
 })
 
 describe('Latency logging', () => {
-  let mockLog: jest.Mock
-  let mockAPI: ReturnType<typeof createMockHomebridgeAPI>
-  let mockClient: {
-    login: jest.Mock
-    getResidentialPermissions: jest.Mock
-    getResidentialAccount: jest.Mock
-    getDevices: jest.Mock
-    getResidences: jest.Mock
-    getDeviceStatus: jest.Mock
-    setPower: jest.Mock
-    setBrightness: jest.Mock
-    clearCache: jest.Mock
-  }
-
   beforeEach(() => {
     jest.clearAllMocks()
-    
-    mockLog = jest.fn()
-    mockAPI = createMockHomebridgeAPI()
-    
-    // Initialize HAP
-    registerPlatform(mockAPI)
-    
-    // Setup mock client
-    const { getApiClient } = require('../../src/api/client')
-    mockClient = {
-      login: jest.fn().mockResolvedValue({ id: 'test-token', userId: 'user-123' }),
-      getResidentialPermissions: jest.fn().mockResolvedValue([{ residentialAccountId: 'account-123' }]),
-      getResidentialAccount: jest.fn().mockResolvedValue({ id: 'res-obj-123', primaryResidenceId: 'residence-123' }),
-      getDevices: jest.fn().mockResolvedValue([]),
-      getResidences: jest.fn().mockResolvedValue([]),
-      getDeviceStatus: jest.fn().mockResolvedValue({ power: 'ON', brightness: 50, minLevel: 1, maxLevel: 100 }),
-      setPower: jest.fn().mockResolvedValue({}),
-      setBrightness: jest.fn().mockResolvedValue({}),
-      clearCache: jest.fn(),
-    }
-    getApiClient.mockReturnValue(mockClient)
-    
-    // Setup mock persistence
-    const { getDevicePersistence } = require('../../src/api/persistence')
-    getDevicePersistence.mockReturnValue({
-      load: jest.fn().mockResolvedValue(new Map()),
-      save: jest.fn().mockResolvedValue(undefined),
-      updateDevice: jest.fn(),
-      updateFromStatus: jest.fn(),
-      getDevice: jest.fn().mockReturnValue(null),
-      hasFreshCache: jest.fn().mockReturnValue(false),
-      getCachedStatus: jest.fn().mockReturnValue(null),
-    })
-    
-    // Setup mock websocket
-    const { createWebSocket } = require('../../src/api/websocket')
-    createWebSocket.mockReturnValue({
-      close: jest.fn(),
-      updateToken: jest.fn(),
-      isConnected: jest.fn().mockReturnValue(false),
-    })
   })
 
   it('should include latency in power setter log message', async () => {
-    // Add artificial delay to setPower
+    const { mockLog, mockAPI, mockClient } = setupMocks()
     mockClient.setPower.mockImplementation(() => 
       new Promise(resolve => setTimeout(() => resolve({}), 50)),
     )
@@ -521,11 +923,9 @@ describe('Latency logging', () => {
     const device = { id: 'dev-1', name: 'Test Light', model: 'DW6HD', serial: 'ABC123' }
     const accessory = mockAccessory(device)
     
-    // Configure accessory to setup handlers
     await platform.configureAccessory(accessory)
     await new Promise(resolve => setTimeout(resolve, 50))
     
-    // Get the set handler that was registered
     const onChar = accessory.getService().getCharacteristic()
     const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as (value: boolean, callback: () => void) => Promise<void>
     
@@ -533,7 +933,6 @@ describe('Latency logging', () => {
       const callback = jest.fn()
       await setHandler(true, callback)
       
-      // Check that log was called with latency pattern
       expect(mockLog).toHaveBeenCalledWith(
         expect.stringMatching(/Test Light: ON \(Latency: \d+ms\)/),
       )
@@ -541,7 +940,7 @@ describe('Latency logging', () => {
   })
 
   it('should include latency in brightness setter log message', async () => {
-    // Add artificial delay to setBrightness
+    const { mockLog, mockAPI, mockClient } = setupMocks()
     mockClient.setBrightness.mockImplementation(() => 
       new Promise(resolve => setTimeout(() => resolve({}), 50)),
     )
@@ -550,22 +949,17 @@ describe('Latency logging', () => {
     const device = { id: 'dev-1', name: 'Test Dimmer', model: 'DW6HD', serial: 'ABC123' }
     const accessory = mockAccessory(device)
     
-    // Configure accessory to setup handlers
     await platform.configureAccessory(accessory)
     await new Promise(resolve => setTimeout(resolve, 50))
     
-    // For brightness, we need to find the brightness characteristic handler
-    // The mock returns the same characteristic for all calls, so we check all set handlers
     const onChar = accessory.getService().getCharacteristic()
     const setHandlers = onChar.on.mock.calls.filter((call: [string, unknown]) => call[0] === 'set')
     
-    // The second set handler should be for brightness (first is power)
     if (setHandlers.length >= 2) {
       const brightnessHandler = setHandlers[1][1] as (value: number, callback: () => void) => Promise<void>
       const callback = jest.fn()
       await brightnessHandler(75, callback)
       
-      // Check that log was called with latency pattern for brightness
       expect(mockLog).toHaveBeenCalledWith(
         expect.stringMatching(/Test Dimmer: 75% \(Latency: \d+ms\)/),
       )
@@ -573,6 +967,7 @@ describe('Latency logging', () => {
   })
 
   it('should output structured JSON with duration when structuredLogs enabled', async () => {
+    const { mockLog, mockAPI, mockClient } = setupMocks()
     const structuredConfig: LevitonConfig = {
       ...validConfig,
       structuredLogs: true,
@@ -594,7 +989,6 @@ describe('Latency logging', () => {
       const callback = jest.fn()
       await setHandler(true, callback)
       
-      // Find the JSON log call (will be stringified JSON)
       const jsonLogCall = mockLog.mock.calls.find((call: string[]) => {
         try {
           const parsed = JSON.parse(call[0])
@@ -619,7 +1013,7 @@ describe('Latency logging', () => {
   })
 
   it('should measure actual latency including token refresh', async () => {
-    // Simulate slow token refresh
+    const { mockLog, mockAPI, mockClient } = setupMocks()
     mockClient.login.mockImplementation(() =>
       new Promise(resolve => setTimeout(() => resolve({ id: 'new-token', userId: 'user-123' }), 30)),
     )
@@ -643,21 +1037,17 @@ describe('Latency logging', () => {
       await setHandler(false, callback)
       const elapsed = Date.now() - startTime
       
-      // Should have logged with latency close to our artificial delays
       const latencyLogCall = mockLog.mock.calls.find((call: string[]) => 
         call[0].includes('Latency Test: OFF (Latency:'),
       )
       expect(latencyLogCall).toBeDefined()
       
-      // Extract latency from log message
       const match = latencyLogCall?.[0].match(/Latency: (\d+)ms/)
       if (match) {
         const reportedLatency = parseInt(match[1], 10)
-        // Reported latency should be reasonable (within 100ms of actual elapsed)
         expect(reportedLatency).toBeGreaterThanOrEqual(20)
         expect(reportedLatency).toBeLessThanOrEqual(elapsed + 50)
       }
     }
   })
 })
-
