@@ -158,10 +158,11 @@ Advanced documentation for power users, developers, and troubleshooting.
 
 ### Real-Time Updates
 
-1. Establishes WebSocket connection per residence
-2. Subscribes to device state changes
+1. Establishes WebSocket connection to My Leviton
+2. Subscribes to all device state changes
 3. Instantly updates HomeKit when device state changes
 4. Auto-reconnects with exponential backoff on disconnect
+5. Falls back to polling if WebSocket is unavailable
 
 ### State Persistence
 
@@ -308,7 +309,7 @@ homebridge-myleviton/
 │   └── types/            # Type definitions
 ├── dist/                 # Compiled JavaScript
 ├── tests/
-│   └── unit/*.test.ts    # Unit tests (306 tests)
+│   └── unit/*.test.ts    # Unit tests (400+ tests)
 └── config.schema.json    # Homebridge UI config schema
 ```
 

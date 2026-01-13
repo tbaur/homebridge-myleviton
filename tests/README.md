@@ -102,7 +102,7 @@ npx jest --verbose
 
 ### Network Isolation
 - All `fetch` calls are mocked
-- All `sockjs-client` WebSocket connections are mocked
+- All WebSocket (`ws`) connections are mocked
 - No real HTTP requests are made during tests
 
 ### Homebridge Isolation

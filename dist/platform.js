@@ -75,7 +75,7 @@ class LevitonDecoraSmartPlatform {
     // API client
     client;
     // Token management
-    currentToken = null;
+    currentLoginResponse = null;
     tokenRefreshInProgress = false;
     // WebSocket connection
     webSocket = null;
@@ -149,8 +149,8 @@ class LevitonDecoraSmartPlatform {
     async initialize() {
         this.log.info('Starting My Leviton Decora Smart platform...');
         try {
-            const { devices, token, residenceId } = await this.discoverDevices();
-            this.currentToken = token;
+            const { devices, loginResponse, residenceId } = await this.discoverDevices();
+            this.currentLoginResponse = loginResponse;
             this.residenceId = residenceId;
             if (devices.length === 0) {
                 this.log.error('No devices found in your My Leviton account');
@@ -170,7 +170,7 @@ class LevitonDecoraSmartPlatform {
                     cachedCount++;
                 }
                 else {
-                    await this.addAccessory(device, token);
+                    await this.addAccessory(device, loginResponse.id);
                     newDevices++;
                 }
             }
@@ -190,9 +190,9 @@ class LevitonDecoraSmartPlatform {
         const debugLog = (msg) => this.log.debug(msg);
         // Login
         this.log.info('Connecting to My Leviton...');
-        const login = await this.client.login(this.config.email, this.config.password, debugLog);
-        const token = login.id;
-        const personId = login.userId;
+        const loginResponse = await this.client.login(this.config.email, this.config.password, debugLog);
+        const token = loginResponse.id;
+        const personId = loginResponse.userId;
         this.log.info('Authentication successful');
         // Get residential permissions
         this.log.info('Loading residence information...');
@@ -221,9 +221,8 @@ class LevitonDecoraSmartPlatform {
             }
         }
         // Setup WebSocket for real-time updates
-        this.log.info('Connecting to real-time updates...');
         try {
-            this.webSocket = (0, websocket_1.createWebSocket)(token, devices, this.handleWebSocketUpdate.bind(this), {
+            this.webSocket = (0, websocket_1.createWebSocket)(loginResponse, devices, this.handleWebSocketUpdate.bind(this), {
                 debug: (msg) => this.log.debug(msg),
                 info: (msg) => this.log.info(msg),
                 warn: (msg) => this.log.warn(msg),
@@ -231,9 +230,9 @@ class LevitonDecoraSmartPlatform {
             });
         }
         catch (err) {
-            this.log.warn(`Real-time updates unavailable: ${(0, sanitizers_1.sanitizeError)(err)}`);
+            this.log.warn(`WebSocket unavailable, using polling: ${(0, sanitizers_1.sanitizeError)(err)}`);
         }
-        return { devices, token, residenceId };
+        return { devices, loginResponse, residenceId };
     }
     /**
      * Handles WebSocket update messages
@@ -568,10 +567,11 @@ class LevitonDecoraSmartPlatform {
      * Ensures a valid token is available
      */
     async ensureValidToken() {
-        if (this.currentToken) {
-            return this.currentToken;
+        if (this.currentLoginResponse) {
+            return this.currentLoginResponse.id;
         }
-        return this.refreshToken();
+        const loginResponse = await this.refreshToken();
+        return loginResponse.id;
     }
     /**
      * Refreshes the authentication token
@@ -579,20 +579,24 @@ class LevitonDecoraSmartPlatform {
     async refreshToken() {
         if (this.tokenRefreshInProgress) {
             await new Promise(resolve => setTimeout(resolve, 2000));
-            return this.currentToken;
+            return this.currentLoginResponse;
         }
         this.tokenRefreshInProgress = true;
         try {
-            const login = await this.client.login(this.config.email, this.config.password);
-            this.currentToken = login.id;
+            const loginResponse = await this.client.login(this.config.email, this.config.password);
+            this.currentLoginResponse = loginResponse;
             // Update token in all accessory contexts
             this.accessories.forEach(acc => {
                 if (acc.context) {
-                    acc.context.token = this.currentToken;
+                    acc.context.token = loginResponse.id;
                 }
             });
+            // Update WebSocket with new login response
+            if (this.webSocket) {
+                this.webSocket.updateLoginResponse(loginResponse);
+            }
             this.log.info('Token refreshed successfully');
-            return this.currentToken;
+            return loginResponse;
         }
         finally {
             this.tokenRefreshInProgress = false;
@@ -610,11 +614,11 @@ class LevitonDecoraSmartPlatform {
      * Polls all devices for updates
      */
     async pollDevices() {
-        if (!this.residenceId || !this.currentToken) {
+        if (!this.residenceId || !this.currentLoginResponse) {
             return;
         }
         try {
-            const devices = await this.client.getDevices(this.residenceId, this.currentToken);
+            const devices = await this.client.getDevices(this.residenceId, this.currentLoginResponse.id);
             for (const device of devices) {
                 if (device?.id) {
                     this.handleWebSocketUpdate({

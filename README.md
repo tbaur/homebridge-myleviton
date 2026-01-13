@@ -19,7 +19,8 @@ Control your **My Leviton Decora Smart** WiFi devices through Apple HomeKit usin
 - **Motion Sensors** — D2MSD motion dimmers expose both dimmer and motion sensor
 
 ### Reliability
-- **Automatic State Sync** — Polls device state every 30 seconds (configurable)
+- **Real-Time Updates** — Instant state sync via WebSocket
+- **Polling Fallback** — Polls device state every 30 seconds if needed
 - **Rate Limiting** — Prevents API throttling (300 requests/minute)
 - **Circuit Breaker** — Graceful degradation during API outages
 - **Auto-Reconnect** — Automatically recovers from connection issues
@@ -27,7 +28,7 @@ Control your **My Leviton Decora Smart** WiFi devices through Apple HomeKit usin
 - **Token Auto-Refresh** — Seamless authentication management
 
 ### Quality
-- **300+ Tests** — Comprehensive test suite with 95%+ code coverage
+- **400+ Tests** — Comprehensive test suite with 95%+ code coverage
 - **Child Bridge Support** — Run as isolated bridge for maximum stability
 - **Flexible Logging** — Debug, info, warn, error levels + JSON structured logs
 - **No Analytics** — Zero tracking or data collection

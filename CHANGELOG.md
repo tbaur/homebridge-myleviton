@@ -5,6 +5,20 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0] - 2026-01-13
+
+### Added
+- **Real-time WebSocket updates** — Device state changes now sync instantly
+  - Uses native WebSocket connection to `wss://my.leviton.com/socket/websocket`
+  - Automatically reconnects with exponential backoff
+  - Falls back to polling when WebSocket is unavailable
+
+### Changed
+- Replaced SockJS with native WebSocket (`ws` package)
+- Polling is now a fallback mechanism rather than primary update method
+
+---
+
 ## [3.1.1] - 2026-01-05
 
 ### Added
