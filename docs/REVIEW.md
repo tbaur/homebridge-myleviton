@@ -48,7 +48,7 @@
 | Area | Status | Details |
 |------|--------|---------|
 | **TypeScript** | ✅ Pass | Full TypeScript with strict types |
-| **Test Coverage** | ✅ Pass | **306 tests, 95.86% line coverage** |
+| **Test Coverage** | ✅ Pass | **409 tests, 95%+ line coverage** |
 | **Code Organization** | ✅ Pass | Clean separation: `api/`, `utils/`, `errors/`, `types/` |
 | **Documentation** | ✅ Pass | README, DEVELOPMENT.md, FEATURES.md, CHANGELOG |
 | **Linting** | ✅ Pass | ESLint 9 with TypeScript rules, no errors |
@@ -72,7 +72,7 @@
 | **WebSocket Status** | ✅ Pass | `ws.getStatus()` returns connection state |
 | **Persistence Stats** | ✅ Pass | `persistence.getStats()` returns device count, dirty flag |
 | **Error Timestamps** | ✅ Pass | All errors include `timestamp` field |
-| **Debug Scripts** | ✅ Pass | `scripts/test-websocket.js`, `scripts/debug-websocket-auth.js` |
+| **Debug Scripts** | ✅ Pass | `scripts/test-websocket.js` for connectivity testing |
 | **Child Bridge Support** | ✅ Pass | Isolates plugin in separate process |
 | **GitHub Actions** | ✅ Pass | Automated testing on Node 20.x, 22.x |
 | **Coverage Reports** | ✅ Pass | Uploaded to GitHub artifacts |
@@ -93,8 +93,8 @@
 ### Overall: Production Ready ✅
 
 ```
-Tests:       306 passed
-Coverage:    95.86%
+Tests:       409 passed
+Coverage:    95%+
 Lint:        0 errors
 Audit:       0 vulnerabilities
 ```

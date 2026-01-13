@@ -1,11 +1,12 @@
 # Features
 
-**homebridge-myleviton v3.0.0**
+**homebridge-myleviton v3.2.0**
 
 ## Core Features
 
 - ✅ Automatic device discovery from My Leviton cloud
-- ⚠️ WebSocket real-time updates (currently blocked by Leviton server - see note below)
+- ✅ Real-time WebSocket updates for instant state sync
+- ✅ Polling fallback (30s default, configurable)
 - ✅ Rate limiting for write operations (300/min)
 - ✅ Response caching (2s TTL)
 - ✅ Request deduplication
@@ -35,7 +36,7 @@ homebridge-myleviton/
 ├── src/
 │   ├── index.ts          # Homebridge entry point
 │   ├── platform.ts       # Platform plugin (device discovery, HomeKit services)
-│   ├── api/              # API client, cache, rate-limiter, circuit-breaker
+│   ├── api/              # API client, cache, rate-limiter, circuit-breaker, websocket
 │   ├── utils/            # Validators, sanitizers, retry, logger
 │   ├── errors/           # Structured error hierarchy
 │   └── types/            # TypeScript type definitions
@@ -46,25 +47,8 @@ homebridge-myleviton/
 
 ## Quality
 
-- 306 tests passing
+- 400+ tests passing
 - 95%+ code coverage
 - ESLint with zero warnings
 - TypeScript strict mode
 - Full JSDoc documentation
-
-## Known Limitations
-
-### WebSocket Real-Time Updates
-
-The plugin includes WebSocket support for real-time device updates, but Leviton's server currently rejects the authentication. The REST API token is not accepted for WebSocket connections.
-
-**Impact:** Device control works perfectly via REST API. Changes made in HomeKit are reflected immediately. However, changes made in the My Leviton app may take a few seconds to appear in HomeKit.
-
-**Status:** Leviton support has been contacted for WebSocket API documentation.
-
-## Future Considerations
-
-- WebSocket authentication (pending Leviton support response)
-- Additional device model support as Leviton releases new products
-- Performance profiling and optimization
-

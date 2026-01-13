@@ -5,17 +5,22 @@
  * See LICENSE file for full license text
  *
  * @fileoverview WebSocket client for real-time device updates
+ * 
+ * Key implementation details:
+ * 1. Use native WebSocket at wss://my.leviton.com/socket/websocket (NOT SockJS)
+ * 2. Send the ENTIRE login response as token, not just the id
+ * 3. Include Origin header for authentication
  */
 
-import SockJS from 'sockjs-client'
+import WebSocket from 'ws'
 import { maskToken } from '../utils/sanitizers'
-import type { WebSocketPayload, DeviceInfo, Logger } from '../types'
+import type { WebSocketPayload, DeviceInfo, Logger, LoginResponse } from '../types'
 
 /**
  * WebSocket configuration
  */
 export interface WebSocketConfig {
-  /** Socket URL */
+  /** Socket URL - must be native WebSocket endpoint */
   socketUrl: string
   /** Connection timeout in ms */
   connectionTimeout: number
@@ -29,9 +34,10 @@ export interface WebSocketConfig {
 
 /**
  * Default WebSocket configuration
+ * Note: Uses native WebSocket endpoint, NOT SockJS
  */
 export const DEFAULT_WEBSOCKET_CONFIG: WebSocketConfig = {
-  socketUrl: 'https://my.leviton.com/socket',
+  socketUrl: 'wss://my.leviton.com/socket/websocket',
   connectionTimeout: 10000,
   maxReconnectAttempts: 10,
   initialReconnectDelay: 1000,
@@ -64,13 +70,15 @@ interface WebSocketLogger {
 
 /**
  * WebSocket connection for real-time updates
+ * 
+ * Uses native WebSocket (not SockJS) and sends full login response for auth.
  */
 export class LevitonWebSocket {
   private readonly config: WebSocketConfig
   private readonly logger: WebSocketLogger
 
-  private ws: ReturnType<typeof SockJS> | null = null
-  private token: string
+  private ws: WebSocket | null = null
+  private loginResponse: LoginResponse
   private devices: DeviceInfo[]
   private callback: (payload: WebSocketPayload) => void
 
@@ -79,8 +87,17 @@ export class LevitonWebSocket {
   private isConnecting = false
   private isClosed = false
 
+  /**
+   * Create a new WebSocket connection
+   * 
+   * @param loginResponse - The FULL login response from the API (not just the token id!)
+   * @param devices - Array of devices to subscribe to
+   * @param callback - Callback for device updates
+   * @param logger - Logger instance
+   * @param config - Optional configuration overrides
+   */
   constructor(
-    token: string,
+    loginResponse: LoginResponse,
     devices: DeviceInfo[],
     callback: (payload: WebSocketPayload) => void,
     logger: WebSocketLogger | Logger,
@@ -88,7 +105,7 @@ export class LevitonWebSocket {
   ) {
     this.config = { ...DEFAULT_WEBSOCKET_CONFIG, ...config }
     this.logger = this.normalizeLogger(logger)
-    this.token = token
+    this.loginResponse = loginResponse
     this.devices = devices
     this.callback = callback
   }
@@ -111,10 +128,22 @@ export class LevitonWebSocket {
   }
 
   /**
-   * Update token (after refresh)
+   * Update login response (after token refresh)
+   * 
+   * @param loginResponse - The new full login response
+   */
+  updateLoginResponse(loginResponse: LoginResponse): void {
+    this.loginResponse = loginResponse
+  }
+
+  /**
+   * Legacy method for compatibility - prefer updateLoginResponse
+   * @deprecated Use updateLoginResponse instead
    */
   updateToken(token: string): void {
-    this.token = token
+    // For backward compatibility, update just the id
+    // But ideally callers should use updateLoginResponse with full object
+    this.loginResponse = { ...this.loginResponse, id: token }
   }
 
   /**
@@ -126,11 +155,16 @@ export class LevitonWebSocket {
     }
 
     this.isConnecting = true
-    this.logger.debug('Connecting to WebSocket...')
+    this.logger.debug(`Connecting to WebSocket: ${this.config.socketUrl}`)
 
     try {
-      this.ws = new SockJS(this.config.socketUrl, undefined, {
-        transports: ['websocket', 'xhr-streaming', 'xhr-polling'],
+      // Native WebSocket with required headers
+      this.ws = new WebSocket(this.config.socketUrl, {
+        headers: {
+          'Origin': 'https://my.leviton.com',
+          'Pragma': 'no-cache',
+          'Cache-Control': 'no-cache',
+        },
       })
 
       this.setupEventHandlers()
@@ -162,32 +196,31 @@ export class LevitonWebSocket {
     }, this.config.connectionTimeout)
     this.timers.push(connectionTimeout)
 
-    this.ws.onopen = () => {
+    this.ws.on('open', () => {
       clearTimeout(connectionTimeout)
       this.removeTimer(connectionTimeout)
       isOpen = true
       this.isConnecting = false
       this.reconnectAttempt = 0
-      this.logger.debug(`WebSocket connected (token: ${maskToken(this.token)})`)
-    }
+      this.logger.debug(`WebSocket connected (token: ${maskToken(this.loginResponse.id)})`)
+    })
 
-    this.ws.onclose = (event: { code?: number; wasClean?: boolean }) => {
+    this.ws.on('close', (code: number, reason: Buffer) => {
       this.clearTimers()
       isOpen = false
       this.isConnecting = false
 
-      const code = event?.code
-      const wasClean = event?.wasClean
+      const reasonStr = reason?.toString() || ''
 
       // Normal close
-      if (wasClean && code === 1000) {
+      if (code === 1000) {
         this.logger.debug('WebSocket closed normally')
         return
       }
 
       // Auth failure - don't reconnect
       if (code === 401) {
-        this.logger.info('WebSocket auth failed (expected - device control still works)')
+        this.logger.warn(`WebSocket auth failed: ${reasonStr}`)
         return
       }
 
@@ -197,31 +230,31 @@ export class LevitonWebSocket {
         return
       }
 
-      this.logger.debug(`WebSocket closed: code=${code} wasClean=${wasClean}`)
+      this.logger.debug(`WebSocket closed: code=${code} reason=${reasonStr}`)
       this.scheduleReconnect()
-    }
+    })
 
-    this.ws.onerror = (error: { message?: string }) => {
+    this.ws.on('error', (error: Error) => {
       clearTimeout(connectionTimeout)
       this.removeTimer(connectionTimeout)
-      this.logger.error(`WebSocket error: ${(error as Error).message || 'Unknown error'}`)
-    }
+      this.logger.error(`WebSocket error: ${error.message || 'Unknown error'}`)
+    })
 
-    this.ws.onmessage = (message: { data: string }) => {
-      this.handleMessage(message)
-    }
+    this.ws.on('message', (data: WebSocket.RawData) => {
+      this.handleMessage(data.toString())
+    })
   }
 
   /**
    * Handle incoming message
    */
-  private handleMessage(message: { data: string }): void {
+  private handleMessage(message: string): void {
     let data: Record<string, unknown>
 
     try {
-      data = JSON.parse(message.data)
+      data = JSON.parse(message)
     } catch {
-      this.logger.error(`Failed to parse WebSocket message: ${message.data}`)
+      this.logger.error(`Failed to parse WebSocket message: ${message}`)
       return
     }
 
@@ -229,16 +262,17 @@ export class LevitonWebSocket {
       return
     }
 
-    // Handle challenge
+    // Handle challenge - send FULL login response as token
     if (data.type === MessageType.CHALLENGE) {
-      this.logger.debug(`Received challenge, responding with token: ${maskToken(this.token)}`)
-      this.ws?.send(JSON.stringify([{ token: this.token }]))
+      this.logger.debug(`Received challenge, responding with full login token`)
+      // KEY: Send the entire login response object, not just the id!
+      this.ws?.send(JSON.stringify({ token: this.loginResponse }))
       return
     }
 
     // Handle ready status
     if (data.type === MessageType.STATUS && data.status === STATUS_READY) {
-      this.logger.debug('WebSocket ready, subscribing to devices')
+      this.logger.info('WebSocket authenticated and ready')
       this.subscribeToDevices()
       return
     }
@@ -253,15 +287,17 @@ export class LevitonWebSocket {
    * Subscribe to device updates
    */
   private subscribeToDevices(): void {
+    this.logger.debug(`Subscribing to ${this.devices.length} device(s)`)
     for (const device of this.devices) {
       if (device?.id) {
-        this.ws?.send(JSON.stringify([{
+        // Native WebSocket - no array wrapping needed
+        this.ws?.send(JSON.stringify({
           type: 'subscribe',
           subscription: {
             modelName: 'IotSwitch',
             modelId: device.id,
           },
-        }]))
+        }))
       }
     }
   }
@@ -276,13 +312,14 @@ export class LevitonWebSocket {
     }
 
     const notificationData = notification.data as Record<string, unknown>
-    if (!notificationData.power) {
-      return
+    
+    // Build payload - include power if present, but also handle other updates
+    const payload: WebSocketPayload = {
+      id: String(notification.modelId),
     }
 
-    const payload: WebSocketPayload = {
-      id: notification.modelId as string,
-      power: notificationData.power as 'ON' | 'OFF',
+    if (notificationData.power !== undefined) {
+      payload.power = notificationData.power as 'ON' | 'OFF'
     }
 
     if (notificationData.brightness !== undefined) {
@@ -293,7 +330,11 @@ export class LevitonWebSocket {
       payload.occupancy = notificationData.occupancy as boolean
     }
 
-    this.callback(payload)
+    // Only callback if we have meaningful data
+    if (payload.power !== undefined || payload.brightness !== undefined || payload.occupancy !== undefined) {
+      this.logger.debug(`Device update: ${payload.id} power=${payload.power} brightness=${payload.brightness}`)
+      this.callback(payload)
+    }
   }
 
   /**
@@ -363,7 +404,7 @@ export class LevitonWebSocket {
    * Check if connected
    */
   get isConnected(): boolean {
-    return this.ws?.readyState === SockJS.OPEN
+    return this.ws?.readyState === WebSocket.OPEN
   }
 
   /**
@@ -386,16 +427,21 @@ export class LevitonWebSocket {
 
 /**
  * Create and connect a WebSocket
+ * 
+ * @param loginResponse - The FULL login response from the API
+ * @param devices - Array of devices to subscribe to
+ * @param callback - Callback for device updates
+ * @param logger - Logger instance
+ * @param config - Optional configuration overrides
  */
 export function createWebSocket(
-  token: string,
+  loginResponse: LoginResponse,
   devices: DeviceInfo[],
   callback: (payload: WebSocketPayload) => void,
   logger: WebSocketLogger | Logger,
   config?: Partial<WebSocketConfig>,
 ): LevitonWebSocket {
-  const ws = new LevitonWebSocket(token, devices, callback, logger, config)
+  const ws = new LevitonWebSocket(loginResponse, devices, callback, logger, config)
   ws.connect()
   return ws
 }
-

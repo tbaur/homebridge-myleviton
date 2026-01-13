@@ -6,6 +6,11 @@
  * See LICENSE file for full license text
  *
  * @fileoverview WebSocket client for real-time device updates
+ *
+ * Key implementation details:
+ * 1. Use native WebSocket at wss://my.leviton.com/socket/websocket (NOT SockJS)
+ * 2. Send the ENTIRE login response as token, not just the id
+ * 3. Include Origin header for authentication
  */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
@@ -13,13 +18,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.LevitonWebSocket = exports.DEFAULT_WEBSOCKET_CONFIG = void 0;
 exports.createWebSocket = createWebSocket;
-const sockjs_client_1 = __importDefault(require("sockjs-client"));
+const ws_1 = __importDefault(require("ws"));
 const sanitizers_1 = require("../utils/sanitizers");
 /**
  * Default WebSocket configuration
+ * Note: Uses native WebSocket endpoint, NOT SockJS
  */
 exports.DEFAULT_WEBSOCKET_CONFIG = {
-    socketUrl: 'https://my.leviton.com/socket',
+    socketUrl: 'wss://my.leviton.com/socket/websocket',
     connectionTimeout: 10000,
     maxReconnectAttempts: 10,
     initialReconnectDelay: 1000,
@@ -40,22 +46,33 @@ var MessageType;
 const STATUS_READY = 'ready';
 /**
  * WebSocket connection for real-time updates
+ *
+ * Uses native WebSocket (not SockJS) and sends full login response for auth.
  */
 class LevitonWebSocket {
     config;
     logger;
     ws = null;
-    token;
+    loginResponse;
     devices;
     callback;
     reconnectAttempt = 0;
     timers = [];
     isConnecting = false;
     isClosed = false;
-    constructor(token, devices, callback, logger, config = {}) {
+    /**
+     * Create a new WebSocket connection
+     *
+     * @param loginResponse - The FULL login response from the API (not just the token id!)
+     * @param devices - Array of devices to subscribe to
+     * @param callback - Callback for device updates
+     * @param logger - Logger instance
+     * @param config - Optional configuration overrides
+     */
+    constructor(loginResponse, devices, callback, logger, config = {}) {
         this.config = { ...exports.DEFAULT_WEBSOCKET_CONFIG, ...config };
         this.logger = this.normalizeLogger(logger);
-        this.token = token;
+        this.loginResponse = loginResponse;
         this.devices = devices;
         this.callback = callback;
     }
@@ -76,10 +93,21 @@ class LevitonWebSocket {
         };
     }
     /**
-     * Update token (after refresh)
+     * Update login response (after token refresh)
+     *
+     * @param loginResponse - The new full login response
+     */
+    updateLoginResponse(loginResponse) {
+        this.loginResponse = loginResponse;
+    }
+    /**
+     * Legacy method for compatibility - prefer updateLoginResponse
+     * @deprecated Use updateLoginResponse instead
      */
     updateToken(token) {
-        this.token = token;
+        // For backward compatibility, update just the id
+        // But ideally callers should use updateLoginResponse with full object
+        this.loginResponse = { ...this.loginResponse, id: token };
     }
     /**
      * Connect to WebSocket
@@ -89,10 +117,15 @@ class LevitonWebSocket {
             return;
         }
         this.isConnecting = true;
-        this.logger.debug('Connecting to WebSocket...');
+        this.logger.debug(`Connecting to WebSocket: ${this.config.socketUrl}`);
         try {
-            this.ws = new sockjs_client_1.default(this.config.socketUrl, undefined, {
-                transports: ['websocket', 'xhr-streaming', 'xhr-polling'],
+            // Native WebSocket with required headers
+            this.ws = new ws_1.default(this.config.socketUrl, {
+                headers: {
+                    'Origin': 'https://my.leviton.com',
+                    'Pragma': 'no-cache',
+                    'Cache-Control': 'no-cache',
+                },
             });
             this.setupEventHandlers();
         }
@@ -123,28 +156,27 @@ class LevitonWebSocket {
             }
         }, this.config.connectionTimeout);
         this.timers.push(connectionTimeout);
-        this.ws.onopen = () => {
+        this.ws.on('open', () => {
             clearTimeout(connectionTimeout);
             this.removeTimer(connectionTimeout);
             isOpen = true;
             this.isConnecting = false;
             this.reconnectAttempt = 0;
-            this.logger.debug(`WebSocket connected (token: ${(0, sanitizers_1.maskToken)(this.token)})`);
-        };
-        this.ws.onclose = (event) => {
+            this.logger.debug(`WebSocket connected (token: ${(0, sanitizers_1.maskToken)(this.loginResponse.id)})`);
+        });
+        this.ws.on('close', (code, reason) => {
             this.clearTimers();
             isOpen = false;
             this.isConnecting = false;
-            const code = event?.code;
-            const wasClean = event?.wasClean;
+            const reasonStr = reason?.toString() || '';
             // Normal close
-            if (wasClean && code === 1000) {
+            if (code === 1000) {
                 this.logger.debug('WebSocket closed normally');
                 return;
             }
             // Auth failure - don't reconnect
             if (code === 401) {
-                this.logger.info('WebSocket auth failed (expected - device control still works)');
+                this.logger.warn(`WebSocket auth failed: ${reasonStr}`);
                 return;
             }
             // Closed externally
@@ -152,17 +184,17 @@ class LevitonWebSocket {
                 this.logger.debug('WebSocket closed by user');
                 return;
             }
-            this.logger.debug(`WebSocket closed: code=${code} wasClean=${wasClean}`);
+            this.logger.debug(`WebSocket closed: code=${code} reason=${reasonStr}`);
             this.scheduleReconnect();
-        };
-        this.ws.onerror = (error) => {
+        });
+        this.ws.on('error', (error) => {
             clearTimeout(connectionTimeout);
             this.removeTimer(connectionTimeout);
             this.logger.error(`WebSocket error: ${error.message || 'Unknown error'}`);
-        };
-        this.ws.onmessage = (message) => {
-            this.handleMessage(message);
-        };
+        });
+        this.ws.on('message', (data) => {
+            this.handleMessage(data.toString());
+        });
     }
     /**
      * Handle incoming message
@@ -170,24 +202,25 @@ class LevitonWebSocket {
     handleMessage(message) {
         let data;
         try {
-            data = JSON.parse(message.data);
+            data = JSON.parse(message);
         }
         catch {
-            this.logger.error(`Failed to parse WebSocket message: ${message.data}`);
+            this.logger.error(`Failed to parse WebSocket message: ${message}`);
             return;
         }
         if (!data || typeof data !== 'object') {
             return;
         }
-        // Handle challenge
+        // Handle challenge - send FULL login response as token
         if (data.type === MessageType.CHALLENGE) {
-            this.logger.debug(`Received challenge, responding with token: ${(0, sanitizers_1.maskToken)(this.token)}`);
-            this.ws?.send(JSON.stringify([{ token: this.token }]));
+            this.logger.debug(`Received challenge, responding with full login token`);
+            // KEY: Send the entire login response object, not just the id!
+            this.ws?.send(JSON.stringify({ token: this.loginResponse }));
             return;
         }
         // Handle ready status
         if (data.type === MessageType.STATUS && data.status === STATUS_READY) {
-            this.logger.debug('WebSocket ready, subscribing to devices');
+            this.logger.info('WebSocket authenticated and ready');
             this.subscribeToDevices();
             return;
         }
@@ -200,15 +233,17 @@ class LevitonWebSocket {
      * Subscribe to device updates
      */
     subscribeToDevices() {
+        this.logger.debug(`Subscribing to ${this.devices.length} device(s)`);
         for (const device of this.devices) {
             if (device?.id) {
-                this.ws?.send(JSON.stringify([{
-                        type: 'subscribe',
-                        subscription: {
-                            modelName: 'IotSwitch',
-                            modelId: device.id,
-                        },
-                    }]));
+                // Native WebSocket - no array wrapping needed
+                this.ws?.send(JSON.stringify({
+                    type: 'subscribe',
+                    subscription: {
+                        modelName: 'IotSwitch',
+                        modelId: device.id,
+                    },
+                }));
             }
         }
     }
@@ -221,20 +256,24 @@ class LevitonWebSocket {
             return;
         }
         const notificationData = notification.data;
-        if (!notificationData.power) {
-            return;
-        }
+        // Build payload - include power if present, but also handle other updates
         const payload = {
-            id: notification.modelId,
-            power: notificationData.power,
+            id: String(notification.modelId),
         };
+        if (notificationData.power !== undefined) {
+            payload.power = notificationData.power;
+        }
         if (notificationData.brightness !== undefined) {
             payload.brightness = notificationData.brightness;
         }
         if (notificationData.occupancy !== undefined) {
             payload.occupancy = notificationData.occupancy;
         }
-        this.callback(payload);
+        // Only callback if we have meaningful data
+        if (payload.power !== undefined || payload.brightness !== undefined || payload.occupancy !== undefined) {
+            this.logger.debug(`Device update: ${payload.id} power=${payload.power} brightness=${payload.brightness}`);
+            this.callback(payload);
+        }
     }
     /**
      * Schedule reconnection
@@ -293,7 +332,7 @@ class LevitonWebSocket {
      * Check if connected
      */
     get isConnected() {
-        return this.ws?.readyState === sockjs_client_1.default.OPEN;
+        return this.ws?.readyState === ws_1.default.OPEN;
     }
     /**
      * Get connection status
@@ -310,9 +349,15 @@ class LevitonWebSocket {
 exports.LevitonWebSocket = LevitonWebSocket;
 /**
  * Create and connect a WebSocket
+ *
+ * @param loginResponse - The FULL login response from the API
+ * @param devices - Array of devices to subscribe to
+ * @param callback - Callback for device updates
+ * @param logger - Logger instance
+ * @param config - Optional configuration overrides
  */
-function createWebSocket(token, devices, callback, logger, config) {
-    const ws = new LevitonWebSocket(token, devices, callback, logger, config);
+function createWebSocket(loginResponse, devices, callback, logger, config) {
+    const ws = new LevitonWebSocket(loginResponse, devices, callback, logger, config);
     ws.connect();
     return ws;
 }

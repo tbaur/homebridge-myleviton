@@ -438,14 +438,14 @@ sudo npm install -g homebridge-myleviton@3.0.0
 ## Dependencies
 
 ### Runtime
-- `sockjs-client` - WebSocket client for real-time updates
+- `ws` - WebSocket client for real-time updates
 
 ### Development
 - `typescript` - TypeScript compiler
 - `ts-jest` - TypeScript Jest transformer
 - `@types/node` - Node.js type definitions
 - `@types/jest` - Jest type definitions
-- `@types/sockjs-client` - SockJS type definitions
+- `@types/ws` - WebSocket type definitions
 - `jest` - Testing framework
 - `eslint` - Linting
 - `nock` - HTTP mocking

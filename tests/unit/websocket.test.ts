@@ -5,68 +5,60 @@
  * See LICENSE file for full license text
  */
 
-// Create a mock SockJS class
-class MockSockJS {
+import { EventEmitter } from 'events'
+
+// Create a mock WebSocket class that extends EventEmitter for event handling
+class MockWebSocket extends EventEmitter {
   static OPEN = 1
   static CLOSED = 3
-  static instances: MockSockJS[] = []
+  static instances: MockWebSocket[] = []
   static mockConstructor = jest.fn()
 
-  onopen: ((ev: unknown) => void) | null = null
-  onclose: ((ev: unknown) => void) | null = null
-  onerror: ((ev: unknown) => void) | null = null
-  onmessage: ((ev: unknown) => void) | null = null
   readyState = 0
   send = jest.fn()
   close = jest.fn()
 
-  constructor() {
-    MockSockJS.mockConstructor()
-    MockSockJS.instances.push(this)
+  constructor(_url: string, _options?: unknown) {
+    super()
+    MockWebSocket.mockConstructor()
+    MockWebSocket.instances.push(this)
   }
 
   setOpen() {
-    this.readyState = MockSockJS.OPEN
+    this.readyState = MockWebSocket.OPEN
   }
 
   setClosed() {
-    this.readyState = MockSockJS.CLOSED
+    this.readyState = MockWebSocket.CLOSED
   }
 
   triggerOpen() {
-    this.readyState = MockSockJS.OPEN
-    if (this.onopen) {this.onopen({ type: 'open' })}
+    this.readyState = MockWebSocket.OPEN
+    this.emit('open')
   }
 
-  triggerClose(code = 1000, wasClean = true) {
-    if (this.onclose) {
-      this.onclose({ code, wasClean, reason: '' })
-    }
+  triggerClose(code = 1000, reason = '') {
+    this.emit('close', code, Buffer.from(reason))
   }
 
   triggerError(message = 'Connection error') {
-    if (this.onerror) {
-      this.onerror({ message })
-    }
+    this.emit('error', new Error(message))
   }
 
   triggerMessage(data: unknown) {
-    if (this.onmessage) {
-      this.onmessage({ data: JSON.stringify(data) })
-    }
+    this.emit('message', Buffer.from(JSON.stringify(data)))
   }
 
   triggerRawMessage(data: string) {
-    if (this.onmessage) {
-      this.onmessage({ data })
-    }
+    this.emit('message', Buffer.from(data))
   }
 }
 
-// Mock the module before importing
-jest.mock('sockjs-client', () => MockSockJS)
+// Mock the ws module before importing
+jest.mock('ws', () => MockWebSocket)
 
 import { LevitonWebSocket, createWebSocket } from '../../src/api/websocket'
+import type { LoginResponse } from '../../src/types'
 
 describe('LevitonWebSocket', () => {
   let mockCallback: jest.Mock
@@ -77,12 +69,13 @@ describe('LevitonWebSocket', () => {
     error: jest.Mock
   }
   let devices: Array<{ id: string; name: string; serial: string; model: string }>
+  let loginResponse: LoginResponse
 
   beforeEach(() => {
     jest.useFakeTimers()
     jest.clearAllMocks()
-    MockSockJS.instances = []
-    MockSockJS.mockConstructor.mockClear()
+    MockWebSocket.instances = []
+    MockWebSocket.mockConstructor.mockClear()
     mockCallback = jest.fn()
     mockLogger = {
       debug: jest.fn(),
@@ -94,6 +87,12 @@ describe('LevitonWebSocket', () => {
       { id: 'dev1', name: 'Light 1', serial: 'SER1', model: 'DW6HD' },
       { id: 'dev2', name: 'Light 2', serial: 'SER2', model: 'DW6HD' },
     ]
+    // Full login response object as required by new implementation
+    loginResponse = {
+      id: 'token123',
+      userId: 'user456',
+      ttl: 1209600,
+    }
   })
 
   afterEach(() => {
@@ -101,12 +100,12 @@ describe('LevitonWebSocket', () => {
     jest.useRealTimers()
   })
 
-  const getLastMockInstance = () => MockSockJS.instances[MockSockJS.instances.length - 1]
+  const getLastMockInstance = () => MockWebSocket.instances[MockWebSocket.instances.length - 1]
 
   describe('constructor', () => {
     it('should create WebSocket with config', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -118,7 +117,7 @@ describe('LevitonWebSocket', () => {
 
     it('should accept custom config', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -130,10 +129,25 @@ describe('LevitonWebSocket', () => {
     })
   })
 
-  describe('updateToken', () => {
-    it('should update the token', () => {
+  describe('updateLoginResponse', () => {
+    it('should update the login response', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+      )
+
+      const newLoginResponse = { id: 'newtoken456', userId: 'user789', ttl: 3600 }
+      ws.updateLoginResponse(newLoginResponse)
+      ws.close()
+    })
+  })
+
+  describe('updateToken (legacy)', () => {
+    it('should update the token id', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -145,9 +159,9 @@ describe('LevitonWebSocket', () => {
   })
 
   describe('connect', () => {
-    it('should create SockJS connection', () => {
+    it('should create WebSocket connection', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -155,13 +169,13 @@ describe('LevitonWebSocket', () => {
 
       ws.connect()
 
-      expect(MockSockJS.mockConstructor).toHaveBeenCalled()
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalled()
       ws.close()
     })
 
     it('should not connect if already connecting', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -170,13 +184,13 @@ describe('LevitonWebSocket', () => {
       ws.connect()
       ws.connect()
 
-      expect(MockSockJS.mockConstructor).toHaveBeenCalledTimes(1)
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(1)
       ws.close()
     })
 
     it('should not connect if closed', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -185,14 +199,14 @@ describe('LevitonWebSocket', () => {
       ws.close()
       ws.connect()
 
-      expect(MockSockJS.mockConstructor).not.toHaveBeenCalled()
+      expect(MockWebSocket.mockConstructor).not.toHaveBeenCalled()
     })
   })
 
   describe('message handling', () => {
-    it('should respond to challenge', () => {
+    it('should respond to challenge with full login response', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -203,15 +217,22 @@ describe('LevitonWebSocket', () => {
       mock.triggerOpen()
       mock.triggerMessage({ type: 'challenge' })
 
+      // Should send full login response as token
+      expect(mock.send).toHaveBeenCalledWith(
+        expect.stringContaining('"token"'),
+      )
       expect(mock.send).toHaveBeenCalledWith(
         expect.stringContaining('token123'),
+      )
+      expect(mock.send).toHaveBeenCalledWith(
+        expect.stringContaining('user456'),
       )
       ws.close()
     })
 
     it('should subscribe to devices on ready', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -224,12 +245,15 @@ describe('LevitonWebSocket', () => {
 
       // Should subscribe to each device
       expect(mock.send).toHaveBeenCalledTimes(2)
+      expect(mock.send).toHaveBeenCalledWith(
+        expect.stringContaining('subscribe'),
+      )
       ws.close()
     })
 
     it('should call callback on notification with power data', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -256,7 +280,7 @@ describe('LevitonWebSocket', () => {
 
     it('should handle malformed messages', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -271,9 +295,9 @@ describe('LevitonWebSocket', () => {
       ws.close()
     })
 
-    it('should ignore notifications without power data', () => {
+    it('should ignore notifications without meaningful data', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -294,9 +318,35 @@ describe('LevitonWebSocket', () => {
       ws.close()
     })
 
-    it('should handle unknown message types', () => {
+    it('should call callback for brightness-only updates', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+      )
+
+      ws.connect()
+      const mock = getLastMockInstance()
+      mock.triggerOpen()
+      mock.triggerMessage({
+        type: 'notification',
+        notification: {
+          modelId: 'dev1',
+          data: { brightness: 50 },
+        },
+      })
+
+      expect(mockCallback).toHaveBeenCalledWith({
+        id: 'dev1',
+        brightness: 50,
+      })
+      ws.close()
+    })
+
+    it('should handle unknown message types gracefully', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -307,8 +357,8 @@ describe('LevitonWebSocket', () => {
       mock.triggerOpen()
       mock.triggerMessage({ type: 'unknown' })
 
-      // Should log debug for unknown type
-      expect(mockLogger.debug).toHaveBeenCalled()
+      // Should not crash, callback should not be called
+      expect(mockCallback).not.toHaveBeenCalled()
       ws.close()
     })
   })
@@ -316,7 +366,7 @@ describe('LevitonWebSocket', () => {
   describe('close handling', () => {
     it('should handle normal close', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -325,7 +375,7 @@ describe('LevitonWebSocket', () => {
       ws.connect()
       const mock = getLastMockInstance()
       mock.triggerOpen()
-      mock.triggerClose(1000, true)
+      mock.triggerClose(1000, '')
 
       expect(mockLogger.debug).toHaveBeenCalledWith(
         expect.stringContaining('closed'),
@@ -334,7 +384,7 @@ describe('LevitonWebSocket', () => {
 
     it('should handle auth failure close', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -343,16 +393,16 @@ describe('LevitonWebSocket', () => {
       ws.connect()
       const mock = getLastMockInstance()
       mock.triggerOpen()
-      mock.triggerClose(401, false)
+      mock.triggerClose(401, 'Unauthorized')
 
-      expect(mockLogger.info).toHaveBeenCalledWith(
+      expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.stringContaining('auth'),
       )
     })
 
     it('should handle abnormal close with reconnect', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -362,7 +412,7 @@ describe('LevitonWebSocket', () => {
       ws.connect()
       const mock = getLastMockInstance()
       mock.triggerOpen()
-      mock.triggerClose(1006, false) // Abnormal close
+      mock.triggerClose(1006, '') // Abnormal close
 
       // Should schedule reconnect
       expect(mockLogger.info).toHaveBeenCalled()
@@ -373,7 +423,7 @@ describe('LevitonWebSocket', () => {
   describe('error handling', () => {
     it('should log errors', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -391,7 +441,7 @@ describe('LevitonWebSocket', () => {
   describe('close', () => {
     it('should close the connection', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -406,7 +456,7 @@ describe('LevitonWebSocket', () => {
 
     it('should handle close when not connected', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -420,7 +470,7 @@ describe('LevitonWebSocket', () => {
   describe('isConnected', () => {
     it('should return false when not connected', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -432,7 +482,7 @@ describe('LevitonWebSocket', () => {
 
     it('should return true when connected and open', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -448,7 +498,7 @@ describe('LevitonWebSocket', () => {
 
     it('should return false when connecting but not open', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -465,7 +515,7 @@ describe('LevitonWebSocket', () => {
   describe('getStatus', () => {
     it('should return status', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -483,7 +533,7 @@ describe('LevitonWebSocket', () => {
   describe('connection timeout', () => {
     it('should timeout if connection not established', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -503,7 +553,7 @@ describe('LevitonWebSocket', () => {
   describe('reconnection', () => {
     it('should reconnect after abnormal close', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -511,22 +561,22 @@ describe('LevitonWebSocket', () => {
       )
 
       ws.connect()
-      expect(MockSockJS.mockConstructor).toHaveBeenCalledTimes(1)
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(1)
       
       const mock = getLastMockInstance()
       mock.triggerOpen()
-      mock.triggerClose(1006, false) // Abnormal close
+      mock.triggerClose(1006, '') // Abnormal close
 
       // Advance time for reconnect delay
       jest.advanceTimersByTime(1500)
 
-      expect(MockSockJS.mockConstructor).toHaveBeenCalledTimes(2)
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(2)
       ws.close()
     })
 
     it('should stop reconnecting after max attempts', () => {
       const ws = new LevitonWebSocket(
-        'token123',
+        loginResponse,
         devices,
         mockCallback,
         mockLogger,
@@ -535,27 +585,27 @@ describe('LevitonWebSocket', () => {
 
       // First connection
       ws.connect()
-      expect(MockSockJS.mockConstructor).toHaveBeenCalledTimes(1)
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(1)
       
       const mock1 = getLastMockInstance()
       mock1.triggerOpen()
-      mock1.triggerClose(1006, false) // Abnormal close triggers reconnect
+      mock1.triggerClose(1006, '') // Abnormal close triggers reconnect
 
       // First reconnect attempt
       jest.advanceTimersByTime(150)
-      expect(MockSockJS.mockConstructor).toHaveBeenCalledTimes(2)
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(2)
       const mock2 = getLastMockInstance()
-      mock2.triggerClose(1006, false) // Another failure
+      mock2.triggerClose(1006, '') // Another failure
 
       // Second reconnect attempt
       jest.advanceTimersByTime(300)
-      expect(MockSockJS.mockConstructor).toHaveBeenCalledTimes(3)
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(3)
       const mock3 = getLastMockInstance()
-      mock3.triggerClose(1006, false) // Another failure
+      mock3.triggerClose(1006, '') // Another failure
 
       // No more reconnects should happen (max 2 attempts)
       jest.advanceTimersByTime(500)
-      expect(MockSockJS.mockConstructor).toHaveBeenCalledTimes(3)
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(3)
 
       // Should warn about max attempts
       expect(mockLogger.warn).toHaveBeenCalledWith(
@@ -574,18 +624,24 @@ describe('createWebSocket', () => {
     warn: jest.Mock
     error: jest.Mock
   }
+  let loginResponse: LoginResponse
 
   beforeEach(() => {
     jest.useFakeTimers()
     jest.clearAllMocks()
-    MockSockJS.instances = []
-    MockSockJS.mockConstructor.mockClear()
+    MockWebSocket.instances = []
+    MockWebSocket.mockConstructor.mockClear()
     mockCallback = jest.fn()
     mockLogger = {
       debug: jest.fn(),
       info: jest.fn(),
       warn: jest.fn(),
       error: jest.fn(),
+    }
+    loginResponse = {
+      id: 'token123',
+      userId: 'user456',
+      ttl: 1209600,
     }
   })
 
@@ -596,14 +652,14 @@ describe('createWebSocket', () => {
 
   it('should create and connect WebSocket', () => {
     const ws = createWebSocket(
-      'token123',
+      loginResponse,
       [{ id: 'dev1', name: 'Light', serial: 'SER', model: 'DW6HD' }],
       mockCallback,
       mockLogger,
     )
 
     expect(ws).toBeInstanceOf(LevitonWebSocket)
-    expect(MockSockJS.mockConstructor).toHaveBeenCalled()
+    expect(MockWebSocket.mockConstructor).toHaveBeenCalled()
     ws.close()
   })
 })
