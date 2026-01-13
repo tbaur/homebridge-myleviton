@@ -172,6 +172,7 @@ function testWebSocket(loginData, devices, duration = 15000) {
 
       if (parsed.type === 'status' && parsed.status === 'ready') {
         authenticated = true
+        clearTimeout(timeout) // Clear connection timeout once authenticated
         log('OK', 'Authenticated')
         
         log('WS', `Subscribing to ${devices.length} device(s)...`)
