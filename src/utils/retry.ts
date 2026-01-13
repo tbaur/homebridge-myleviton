@@ -140,12 +140,17 @@ export async function withRetryAndTimeout<T>(
   policy: Partial<RetryPolicy> = {},
 ): Promise<T> {
   return withRetry(async () => {
-    return Promise.race([
-      fn(),
-      new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(`Operation timed out after ${timeoutMs}ms`)), timeoutMs)
-      }),
-    ])
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(`Operation timed out after ${timeoutMs}ms`)), timeoutMs)
+    })
+    try {
+      return await Promise.race([fn(), timeoutPromise])
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+    }
   }, policy)
 }
 
