@@ -26,6 +26,8 @@ export interface WebSocketConfig {
     initialReconnectDelay: number;
     /** Maximum reconnection delay in ms */
     maxReconnectDelay: number;
+    /** Ping interval in ms to keep connection alive */
+    pingInterval: number;
 }
 /**
  * Default WebSocket configuration
@@ -55,6 +57,7 @@ export declare class LevitonWebSocket {
     private callback;
     private reconnectAttempt;
     private timers;
+    private pingTimer;
     private isConnecting;
     private isClosed;
     /**
@@ -114,6 +117,10 @@ export declare class LevitonWebSocket {
      * Clear all timers
      */
     private clearTimers;
+    /**
+     * Start ping interval to keep connection alive
+     */
+    private startPing;
     /**
      * Close the WebSocket connection
      */
