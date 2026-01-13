@@ -242,7 +242,7 @@ class LevitonDecoraSmartPlatform {
             this.log.warn('Received invalid WebSocket payload');
             return;
         }
-        const accessory = this.accessories.find(acc => acc.context?.device?.id === payload.id);
+        const accessory = this.accessories.find(acc => String(acc.context?.device?.id) === String(payload.id));
         if (!accessory) {
             this.log.debug(`No accessory found for device ID: ${payload.id}`);
             return;

@@ -279,7 +279,7 @@ export class LevitonDecoraSmartPlatform {
     }
 
     const accessory = this.accessories.find(
-      acc => acc.context?.device?.id === payload.id,
+      acc => String(acc.context?.device?.id) === String(payload.id),
     )
 
     if (!accessory) {
