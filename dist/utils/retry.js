@@ -109,12 +109,18 @@ function makeRetryable(fn, policy = {}) {
  */
 async function withRetryAndTimeout(fn, timeoutMs, policy = {}) {
     return withRetry(async () => {
-        return Promise.race([
-            fn(),
-            new Promise((_, reject) => {
-                setTimeout(() => reject(new Error(`Operation timed out after ${timeoutMs}ms`)), timeoutMs);
-            }),
-        ]);
+        let timeoutId;
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error(`Operation timed out after ${timeoutMs}ms`)), timeoutMs);
+        });
+        try {
+            return await Promise.race([fn(), timeoutPromise]);
+        }
+        finally {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+        }
     }, policy);
 }
 /**

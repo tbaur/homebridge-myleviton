@@ -160,10 +160,7 @@ describe('makeRetryable', () => {
 
 describe('withRetryAndTimeout', () => {
   it('should succeed within timeout', async () => {
-    const fn = jest.fn().mockImplementation(async () => {
-      await sleep(50)
-      return 'success'
-    })
+    const fn = jest.fn().mockResolvedValue('success')
     
     const result = await withRetryAndTimeout(fn, 1000)
     
@@ -171,12 +168,10 @@ describe('withRetryAndTimeout', () => {
   })
 
   it('should throw on timeout', async () => {
-    const fn = jest.fn().mockImplementation(async () => {
-      await sleep(1000)
-      return 'success'
-    })
+    // Function that never resolves - simulates a hanging operation
+    const fn = jest.fn().mockImplementation(() => new Promise(() => {}))
     
-    await expect(withRetryAndTimeout(fn, 100)).rejects.toThrow('timed out')
+    await expect(withRetryAndTimeout(fn, 50)).rejects.toThrow('timed out')
   })
 })
 
