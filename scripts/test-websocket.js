@@ -5,7 +5,12 @@
  * Tests the WebSocket connection to My Leviton for real-time device updates.
  * Useful for verifying connectivity before troubleshooting issues.
  * 
- * Usage: node scripts/test-websocket.js <email>
+ * Usage: node scripts/test-websocket.js <email> [duration_seconds]
+ * 
+ * Examples:
+ *   node scripts/test-websocket.js user@example.com        # 15 second test
+ *   node scripts/test-websocket.js user@example.com 60     # 1 minute test
+ *   node scripts/test-websocket.js user@example.com 300    # 5 minute test
  * 
  * Copyright (c) 2026 tbaur
  * Licensed under the Apache License, Version 2.0
@@ -109,7 +114,7 @@ async function getDevices(token, personId) {
   return devicesRes.json()
 }
 
-function testWebSocket(loginData, devices) {
+function testWebSocket(loginData, devices, duration = 15000) {
   return new Promise((resolve) => {
     log('WS', 'Connecting...')
     
@@ -118,9 +123,18 @@ function testWebSocket(loginData, devices) {
     })
     
     let authenticated = false
+    let pingInterval = null
+    
+    const cleanup = () => {
+      if (pingInterval) {
+        clearInterval(pingInterval)
+        pingInterval = null
+      }
+    }
     
     const timeout = setTimeout(() => {
       log('ERROR', 'Connection timeout')
+      cleanup()
       ws.close()
       resolve({ success: false, reason: 'timeout' })
     }, 30000)
@@ -131,6 +145,7 @@ function testWebSocket(loginData, devices) {
 
     ws.on('close', (code) => {
       clearTimeout(timeout)
+      cleanup()
       if (!authenticated) {
         resolve({ success: false, reason: `closed: ${code}` })
       } else {
@@ -167,14 +182,23 @@ function testWebSocket(loginData, devices) {
           }))
         }
         
-        log('INFO', 'Listening for updates (15 seconds)...')
+        // Start ping keepalive every 30 seconds
+        pingInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.ping()
+          }
+        }, 30000)
+        
+        const durationSec = Math.round(duration / 1000)
+        log('INFO', `Listening for updates (${durationSec} seconds)...`)
         log('INFO', 'Try toggling a device in the My Leviton app')
         
         setTimeout(() => {
           log('INFO', 'Test complete')
           clearTimeout(timeout)
+          cleanup()
           ws.close()
-        }, 15000)
+        }, duration)
         return
       }
 
@@ -193,10 +217,15 @@ ${colors.bright}My Leviton WebSocket Test${colors.reset}
 `)
 
   const email = process.argv[2]
+  const durationArg = process.argv[3]
+  
   if (!email) {
-    console.log('Usage: node scripts/test-websocket.js <email>')
+    console.log('Usage: node scripts/test-websocket.js <email> [duration_seconds]')
+    console.log('       duration defaults to 15 seconds')
     process.exit(1)
   }
+
+  const duration = durationArg ? parseInt(durationArg, 10) * 1000 : 15000
 
   const password = await promptPassword(`Password: `)
   
@@ -204,7 +233,7 @@ ${colors.bright}My Leviton WebSocket Test${colors.reset}
   const devices = await getDevices(loginData.id, loginData.userId)
   log('OK', `Found ${devices.length} device(s)`)
   
-  const result = await testWebSocket(loginData, devices)
+  const result = await testWebSocket(loginData, devices, duration)
   
   console.log()
   if (result.success) {
