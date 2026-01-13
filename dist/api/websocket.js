@@ -30,6 +30,7 @@ exports.DEFAULT_WEBSOCKET_CONFIG = {
     maxReconnectAttempts: 10,
     initialReconnectDelay: 1000,
     maxReconnectDelay: 60000,
+    pingInterval: 30000, // Send ping every 30 seconds
 };
 /**
  * WebSocket message types
@@ -58,6 +59,7 @@ class LevitonWebSocket {
     callback;
     reconnectAttempt = 0;
     timers = [];
+    pingTimer = null;
     isConnecting = false;
     isClosed = false;
     /**
@@ -222,6 +224,7 @@ class LevitonWebSocket {
         if (data.type === MessageType.STATUS && data.status === STATUS_READY) {
             this.logger.info('WebSocket authenticated and ready');
             this.subscribeToDevices();
+            this.startPing();
             return;
         }
         // Handle notifications
@@ -311,6 +314,23 @@ class LevitonWebSocket {
             clearTimeout(timer);
         }
         this.timers = [];
+        if (this.pingTimer) {
+            clearInterval(this.pingTimer);
+            this.pingTimer = null;
+        }
+    }
+    /**
+     * Start ping interval to keep connection alive
+     */
+    startPing() {
+        if (this.pingTimer) {
+            clearInterval(this.pingTimer);
+        }
+        this.pingTimer = setInterval(() => {
+            if (this.ws?.readyState === ws_1.default.OPEN) {
+                this.ws.ping();
+            }
+        }, this.config.pingInterval);
     }
     /**
      * Close the WebSocket connection
