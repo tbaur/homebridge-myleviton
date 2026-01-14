@@ -16,16 +16,16 @@ import { LevitonDecoraSmartPlatform, registerPlatform } from '../../src/platform
 import type { LevitonConfig, LogLevel } from '../../src/types'
 
 // Device model constants (matching platform.ts)
-const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL']
+const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710']
 const MOTION_DIMMER_MODELS = ['D2MSD']
 const OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P', 'D215O']
 const SWITCH_MODELS = ['DW15S', 'D215S']
 const CONTROLLER_MODELS = ['DW4BC']
-const FAN_MODEL = 'DW4SF'
+const FAN_MODELS = ['DW4SF', 'D24SF']
 
 // All device models combined
 const ALL_DIMMER_MODELS = [...DIMMER_MODELS, ...MOTION_DIMMER_MODELS]
-const ALL_CONTROLLABLE_MODELS = [...DIMMER_MODELS, ...MOTION_DIMMER_MODELS, FAN_MODEL, ...OUTLET_MODELS, ...SWITCH_MODELS]
+const ALL_CONTROLLABLE_MODELS = [...DIMMER_MODELS, ...MOTION_DIMMER_MODELS, ...FAN_MODELS, ...OUTLET_MODELS, ...SWITCH_MODELS]
 
 // Mock HAP types with flexible value type
 interface MockCharacteristic {
@@ -262,8 +262,8 @@ describe('LevitonDecoraSmartPlatform', () => {
     })
 
     // Test fan controller
-    it(`should route ${FAN_MODEL} fan controller to Fan service`, async () => {
-      const device = { id: 'dev-1', name: 'Test Fan', model: FAN_MODEL, serial: 'ABC123' }
+    it.each(FAN_MODELS)('should route %s fan controller to Fan service', async (fanModel) => {
+      const device = { id: 'dev-1', name: 'Test Fan', model: fanModel, serial: 'ABC123' }
       const accessory = mockAccessory(device)
       
       await platform.configureAccessory(accessory)
@@ -489,10 +489,10 @@ describe('Service setup for all device types', () => {
   })
 
   describe('Fan service setup', () => {
-    it(`should setup Fan service with On and RotationSpeed characteristics for ${FAN_MODEL}`, async () => {
+    it.each(FAN_MODELS)('should setup Fan service with On and RotationSpeed characteristics for %s', async (fanModel) => {
       const { mockLog, mockAPI, mockClient } = setupMocks()
       const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
-      const device = { id: 'dev-1', name: 'Test Fan', model: FAN_MODEL, serial: 'ABC123' }
+      const device = { id: 'dev-1', name: 'Test Fan', model: fanModel, serial: 'ABC123' }
       const accessory = mockAccessory(device)
       
       await platform.configureAccessory(accessory)
@@ -603,7 +603,7 @@ describe('Characteristic handlers for all device types', () => {
   })
 
   describe('Brightness getter for dimmers and fan', () => {
-    const modelsWithBrightness = [...ALL_DIMMER_MODELS, FAN_MODEL]
+    const modelsWithBrightness = [...ALL_DIMMER_MODELS, ...FAN_MODELS]
     
     modelsWithBrightness.forEach(model => {
       it(`should register brightness getter for ${model}`, async () => {
@@ -629,7 +629,7 @@ describe('Characteristic handlers for all device types', () => {
   })
 
   describe('Brightness setter for dimmers and fan', () => {
-    const modelsWithBrightness = [...ALL_DIMMER_MODELS, FAN_MODEL]
+    const modelsWithBrightness = [...ALL_DIMMER_MODELS, ...FAN_MODELS]
     
     modelsWithBrightness.forEach(model => {
       it(`should set brightness for ${model}`, async () => {
@@ -753,7 +753,7 @@ describe('WebSocket update handling for all device types', () => {
     ALL_CONTROLLABLE_MODELS.forEach(model => {
       it(`should update power state for ${model} via WebSocket`, () => {
         const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
-        const serviceType = model === FAN_MODEL ? 'Fan' : 
+        const serviceType = FAN_MODELS.includes(model) ? 'Fan' : 
                            OUTLET_MODELS.includes(model) ? 'Outlet' :
                            SWITCH_MODELS.includes(model) ? 'Switch' : 'Lightbulb'
         
@@ -773,12 +773,12 @@ describe('WebSocket update handling for all device types', () => {
   })
 
   describe('Brightness updates via WebSocket', () => {
-    const modelsWithBrightness = [...ALL_DIMMER_MODELS, FAN_MODEL]
+    const modelsWithBrightness = [...ALL_DIMMER_MODELS, ...FAN_MODELS]
     
     modelsWithBrightness.forEach(model => {
       it(`should update brightness for ${model} via WebSocket`, () => {
         const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
-        const serviceType = model === FAN_MODEL ? 'Fan' : 'Lightbulb'
+        const serviceType = FAN_MODELS.includes(model) ? 'Fan' : 'Lightbulb'
         
         const { accessory, characteristic } = createAccessoryWithService(device, serviceType)
         characteristic.value = 50
@@ -879,8 +879,8 @@ describe('registerPlatform', () => {
 
 describe('Device model constants', () => {
   it('should have correct dimmer models', () => {
-    expect(DIMMER_MODELS).toEqual(['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL'])
-    expect(DIMMER_MODELS.length).toBe(6)
+    expect(DIMMER_MODELS).toEqual(['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710'])
+    expect(DIMMER_MODELS.length).toBe(8)
   })
 
   it('should have correct motion dimmer models', () => {
@@ -903,8 +903,8 @@ describe('Device model constants', () => {
     expect(CONTROLLER_MODELS.length).toBe(1)
   })
 
-  it('should have correct fan model', () => {
-    expect(FAN_MODEL).toBe('DW4SF')
+  it('should have correct fan models', () => {
+    expect(FAN_MODELS).toEqual(['DW4SF', 'D24SF'])
   })
 })
 
