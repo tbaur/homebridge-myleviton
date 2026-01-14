@@ -162,7 +162,7 @@ Advanced documentation for power users, developers, and troubleshooting.
 2. Subscribes to all device state changes
 3. Instantly updates HomeKit when device state changes
 4. Auto-reconnects with exponential backoff on disconnect
-5. Falls back to polling if WebSocket is unavailable
+5. Polling runs continuously as safety net alongside WebSocket
 
 ### State Persistence
 

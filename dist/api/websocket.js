@@ -305,7 +305,7 @@ class LevitonWebSocket {
             return;
         }
         if (this.reconnectAttempt >= this.config.maxReconnectAttempts) {
-            this.logger.warn(`WebSocket reconnection failed after ${this.config.maxReconnectAttempts} attempts`);
+            this.logger.warn(`WebSocket unavailable after ${this.config.maxReconnectAttempts} attempts`);
             return;
         }
         const delay = Math.min(this.config.initialReconnectDelay * Math.pow(2, this.reconnectAttempt), this.config.maxReconnectDelay);

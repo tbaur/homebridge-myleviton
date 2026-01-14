@@ -20,7 +20,7 @@ Control your **My Leviton Decora Smart** WiFi devices through Apple HomeKit usin
 
 ### Reliability
 - **Real-Time Updates** — Instant state sync via WebSocket
-- **Polling Fallback** — Polls device state every 30 seconds if needed
+- **Automatic State Sync** — Polls device state every 30 seconds as safety net
 - **Rate Limiting** — Prevents API throttling (300 requests/minute)
 - **Circuit Breaker** — Graceful degradation during API outages
 - **Auto-Reconnect** — Automatically recovers from connection issues

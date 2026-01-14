@@ -263,7 +263,7 @@ export class LevitonDecoraSmartPlatform {
         },
       )
     } catch (err) {
-      this.log.warn(`WebSocket unavailable, using polling: ${sanitizeError(err)}`)
+      this.log.warn(`WebSocket unavailable: ${sanitizeError(err)}`)
     }
 
     return { devices, loginResponse, residenceId }
@@ -691,8 +691,6 @@ export class LevitonDecoraSmartPlatform {
    */
   private startPolling(): void {
     const interval = Math.max((this.config.pollingInterval || 30) * 1000, 10000)
-    
-    this.log.info(`Starting device polling (every ${interval / 1000}s)`)
     
     this.pollingInterval = setInterval(() => this.pollDevices(), interval)
   }
