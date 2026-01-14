@@ -111,12 +111,12 @@ handleWebSocketUpdate(payload)    // WebSocket update handler
 **Device Model Constants:**
 
 ```typescript
-const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL']
+const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710']
 const MOTION_DIMMER_MODELS = ['D2MSD']
 const OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P', 'D215O']
 const SWITCH_MODELS = ['DW15S', 'D215S']
 const CONTROLLER_MODELS = ['DW4BC']  // Skipped - no controllable state
-const FAN_MODEL = 'DW4SF'
+const FAN_MODELS = ['DW4SF', 'D24SF']
 ```
 
 ### src/api/client.ts - API Client

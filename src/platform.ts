@@ -656,9 +656,14 @@ export class LevitonDecoraSmartPlatform {
    * Refreshes the authentication token
    */
   private async refreshToken(): Promise<LoginResponse> {
+    // If refresh already in progress, wait and retry
     if (this.tokenRefreshInProgress) {
       await new Promise(resolve => setTimeout(resolve, 2000))
-      return this.currentLoginResponse!
+      // After waiting, check if we now have a valid token
+      if (this.currentLoginResponse) {
+        return this.currentLoginResponse
+      }
+      // If still no token, the other refresh failed - try again ourselves
     }
 
     this.tokenRefreshInProgress = true

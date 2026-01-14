@@ -5,6 +5,15 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.5] - 2026-01-14
+
+### Fixed
+- Token refresh race condition: no longer assumes token exists after wait
+- Tests now cover D2ELV, D2710 dimmers and D24SF fan controller
+- Updated DEVELOPMENT.md with current device model lists
+
+---
+
 ## [3.2.4] - 2026-01-13
 
 ### Improved
