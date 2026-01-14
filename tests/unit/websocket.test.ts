@@ -609,7 +609,7 @@ describe('LevitonWebSocket', () => {
 
       // Should warn about max attempts
       expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('failed after'),
+        expect.stringContaining('unavailable after'),
       )
       ws.close()
     })

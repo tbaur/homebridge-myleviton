@@ -37,7 +37,7 @@
 | **Device Persistence** | ✅ Pass | Atomic writes (temp file + rename), 24h TTL |
 | **Graceful Shutdown** | ✅ Pass | Saves state, closes WebSocket, clears intervals |
 | **Error Recovery** | ✅ Pass | Structured error hierarchy with `isRetryable` flag |
-| **Polling Fallback** | ✅ Pass | 30s polling when WebSocket unavailable |
+| **Polling Safety Net** | ✅ Pass | 30s polling runs continuously |
 
 **No reliability issues found.**
 

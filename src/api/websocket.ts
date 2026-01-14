@@ -369,7 +369,7 @@ export class LevitonWebSocket {
     if (this.isClosed) {return}
 
     if (this.reconnectAttempt >= this.config.maxReconnectAttempts) {
-      this.logger.warn(`WebSocket reconnection failed after ${this.config.maxReconnectAttempts} attempts`)
+      this.logger.warn(`WebSocket unavailable after ${this.config.maxReconnectAttempts} attempts`)
       return
     }
 

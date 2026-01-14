@@ -6,7 +6,7 @@
 
 - ✅ Automatic device discovery from My Leviton cloud
 - ✅ Real-time WebSocket updates for instant state sync
-- ✅ Polling fallback (30s default, configurable)
+- ✅ Polling safety net (30s default, configurable)
 - ✅ Rate limiting for write operations (300/min)
 - ✅ Response caching (2s TTL)
 - ✅ Request deduplication

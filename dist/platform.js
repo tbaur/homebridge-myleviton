@@ -230,7 +230,7 @@ class LevitonDecoraSmartPlatform {
             });
         }
         catch (err) {
-            this.log.warn(`WebSocket unavailable, using polling: ${(0, sanitizers_1.sanitizeError)(err)}`);
+            this.log.warn(`WebSocket unavailable: ${(0, sanitizers_1.sanitizeError)(err)}`);
         }
         return { devices, loginResponse, residenceId };
     }
@@ -607,7 +607,6 @@ class LevitonDecoraSmartPlatform {
      */
     startPolling() {
         const interval = Math.max((this.config.pollingInterval || 30) * 1000, 10000);
-        this.log.info(`Starting device polling (every ${interval / 1000}s)`);
         this.pollingInterval = setInterval(() => this.pollDevices(), interval);
     }
     /**
