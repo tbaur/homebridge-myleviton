@@ -46,6 +46,24 @@ var MessageType;
  */
 const STATUS_READY = 'ready';
 /**
+ * WebSocket close code descriptions
+ */
+const CLOSE_CODES = {
+    1000: 'normal closure',
+    1001: 'server going away',
+    1002: 'protocol error',
+    1003: 'unsupported data',
+    1006: 'connection dropped',
+    1007: 'invalid data',
+    1008: 'policy violation',
+    1009: 'message too big',
+    1010: 'extension required',
+    1011: 'server error',
+    1012: 'service restart',
+    1013: 'try again later',
+    1014: 'bad gateway',
+};
+/**
  * WebSocket connection for real-time updates
  *
  * Uses native WebSocket (not SockJS) and sends full login response for auth.
@@ -186,7 +204,8 @@ class LevitonWebSocket {
                 this.logger.debug('WebSocket closed by user');
                 return;
             }
-            this.logger.debug(`WebSocket closed: code=${code} reason=${reasonStr}`);
+            const codeDesc = CLOSE_CODES[code] || 'unknown';
+            this.logger.info(`WebSocket closed: ${code} (${codeDesc})`);
             this.scheduleReconnect();
         });
         this.ws.on('error', (error) => {
