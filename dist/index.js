@@ -38,5 +38,5 @@ Object.defineProperty(exports, "LevitonDecoraSmartPlatform", { enumerable: true,
 var platform_2 = require("./platform");
 Object.defineProperty(exports, "default", { enumerable: true, get: function () { return __importDefault(platform_2).default; } });
 // Export version
-exports.VERSION = '3.2.6';
+exports.VERSION = '3.2.7';
 //# sourceMappingURL=index.js.map
