@@ -377,10 +377,19 @@ export class LevitonDecoraSmartPlatform {
   }
 
   /**
-   * Checks if accessory already exists
+   * Checks if accessory already exists by serial number
+   * Normalizes both values to strings for comparison (API may return different types)
    */
   private accessoryExists(device: DeviceInfo): boolean {
-    return this.accessories.some(acc => acc.context?.device?.serial === device.serial)
+    const deviceSerial = String(device.serial || '').trim().toUpperCase()
+    const match = this.accessories.find(acc => {
+      const cachedSerial = String(acc.context?.device?.serial || '').trim().toUpperCase()
+      return cachedSerial === deviceSerial
+    })
+    if (!match) {
+      this.log.debug(`No cached accessory found for ${device.name} (serial: ${device.serial})`)
+    }
+    return !!match
   }
 
   /**

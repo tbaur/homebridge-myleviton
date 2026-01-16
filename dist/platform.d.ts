@@ -48,7 +48,8 @@ export declare class LevitonDecoraSmartPlatform {
      */
     private isDeviceExcluded;
     /**
-     * Checks if accessory already exists
+     * Checks if accessory already exists by serial number
+     * Normalizes both values to strings for comparison (API may return different types)
      */
     private accessoryExists;
     /**
