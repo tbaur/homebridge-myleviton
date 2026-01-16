@@ -149,6 +149,9 @@ function validateConfig(config) {
     }
     const cfg = config;
     // Required fields
+    if (!cfg.name || typeof cfg.name !== 'string' || cfg.name.trim().length === 0) {
+        errors.push('name is required');
+    }
     if (!cfg.email) {
         errors.push('email is required');
     }
@@ -200,6 +203,12 @@ function validateConfig(config) {
                     errors.push(`excludedSerials[${i}] must be a string`);
                 }
             });
+        }
+    }
+    if (cfg.pollInterval !== undefined) {
+        const interval = cfg.pollInterval;
+        if (typeof interval !== 'number' || interval < 10 || interval > 3600) {
+            errors.push('pollInterval must be a number between 10 and 3600');
         }
     }
     if (cfg.pollingInterval !== undefined) {
