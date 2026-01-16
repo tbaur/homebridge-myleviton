@@ -49,6 +49,8 @@ const websocket_1 = require("./api/websocket");
 const persistence_1 = require("./api/persistence");
 const logger_1 = require("./utils/logger");
 const sanitizers_1 = require("./utils/sanitizers");
+const validators_1 = require("./utils/validators");
+const errors_1 = require("./errors");
 // Plugin constants
 const PLUGIN_NAME = 'homebridge-myleviton';
 const PLATFORM_NAME = 'MyLevitonDecoraSmart';
@@ -56,6 +58,8 @@ const UUID_PREFIX = 'myleviton-';
 // Power states
 const POWER_ON = 'ON';
 const POWER_OFF = 'OFF';
+// Token refresh buffer (refresh a few minutes before expiry)
+const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 // Device model arrays for type checking
 const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710'];
 const MOTION_DIMMER_MODELS = ['D2MSD'];
@@ -76,7 +80,8 @@ class LevitonDecoraSmartPlatform {
     client;
     // Token management
     currentLoginResponse = null;
-    tokenRefreshInProgress = false;
+    tokenExpiresAt = null;
+    tokenRefreshPromise = null;
     // WebSocket connection
     webSocket = null;
     // Polling
@@ -120,28 +125,29 @@ class LevitonDecoraSmartPlatform {
         this.startPeriodicCleanup();
     }
     /**
-     * Validates plugin configuration
+     * Validates plugin configuration using comprehensive schema validation
      */
     validateConfig() {
         if (!this.config) {
             this.log.error(`No config for ${PLUGIN_NAME} defined.`);
             return false;
         }
-        if (!this.config.email || !this.config.password) {
-            this.log.error(`email and password for ${PLUGIN_NAME} are required in config.json`);
+        try {
+            (0, validators_1.validateConfig)(this.config);
+            return true;
+        }
+        catch (err) {
+            if (err instanceof errors_1.ConfigurationError) {
+                this.log.error(`Configuration error: ${err.message}`);
+                if (err.details && err.details.length > 0) {
+                    err.details.forEach((detail) => this.log.error(`  - ${detail}`));
+                }
+            }
+            else {
+                this.log.error(`Invalid configuration: ${(0, sanitizers_1.sanitizeError)(err)}`);
+            }
             return false;
         }
-        if (typeof this.config.email !== 'string' || typeof this.config.password !== 'string') {
-            this.log.error('email and password must be strings');
-            return false;
-        }
-        // Validate email format
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(this.config.email)) {
-            this.log.error(`Invalid email format: ${this.config.email}`);
-            return false;
-        }
-        return true;
     }
     /**
      * Initializes the platform
@@ -150,7 +156,7 @@ class LevitonDecoraSmartPlatform {
         this.log.info('Starting My Leviton Decora Smart platform...');
         try {
             const { devices, loginResponse, residenceId } = await this.discoverDevices();
-            this.currentLoginResponse = loginResponse;
+            this.setLoginResponse(loginResponse);
             this.residenceId = residenceId;
             if (devices.length === 0) {
                 this.log.error('No devices found in your My Leviton account');
@@ -227,6 +233,8 @@ class LevitonDecoraSmartPlatform {
                 info: (msg) => this.log.info(msg),
                 warn: (msg) => this.log.warn(msg),
                 error: (msg) => this.log.error(msg),
+            }, {
+                connectionTimeout: this.config.connectionTimeout,
             });
         }
         catch (err) {
@@ -265,23 +273,30 @@ class LevitonDecoraSmartPlatform {
         const currentPowerState = currentPower ? POWER_ON : POWER_OFF;
         // Update brightness/rotation speed
         if (brightness !== undefined) {
-            const clampedBrightness = Math.max(1, brightness);
             // Get current brightness for change detection
             let currentBrightness;
+            let newBrightness;
             if (fanService) {
+                // Fans allow 0 rotation speed
+                newBrightness = Math.max(0, brightness);
                 currentBrightness = fanService.getCharacteristic(hap.Characteristic.RotationSpeed).value;
-                fanService.getCharacteristic(hap.Characteristic.RotationSpeed).updateValue(clampedBrightness);
+                fanService.getCharacteristic(hap.Characteristic.RotationSpeed).updateValue(newBrightness);
             }
             else if (lightService) {
+                // Dimmers have minimum brightness of 1
+                newBrightness = Math.max(1, brightness);
                 currentBrightness = lightService.getCharacteristic(hap.Characteristic.Brightness).value;
-                lightService.getCharacteristic(hap.Characteristic.Brightness).updateValue(clampedBrightness);
+                lightService.getCharacteristic(hap.Characteristic.Brightness).updateValue(newBrightness);
+            }
+            else {
+                return;
             }
             // Log brightness change if different
-            if (currentBrightness !== undefined && currentBrightness !== clampedBrightness) {
-                this.log.info(`${accessory.displayName}: ${clampedBrightness}% (external)`, {
+            if (currentBrightness !== undefined && currentBrightness !== newBrightness) {
+                this.log.info(`${accessory.displayName}: ${newBrightness}% (external)`, {
                     deviceId: device?.id,
                     operation: 'externalBrightnessUpdate',
-                    brightness: clampedBrightness,
+                    brightness: newBrightness,
                 });
             }
         }
@@ -362,9 +377,8 @@ class LevitonDecoraSmartPlatform {
      */
     async setupService(accessory) {
         const device = accessory.context?.device;
-        const token = accessory.context?.token;
-        if (!device || !token) {
-            this.log.error(`Missing device or token in accessory context: ${accessory.displayName}`);
+        if (!device) {
+            this.log.error(`Missing device in accessory context: ${accessory.displayName}`);
             return;
         }
         const model = device.model || '';
@@ -374,32 +388,35 @@ class LevitonDecoraSmartPlatform {
             return;
         }
         if (FAN_MODELS.includes(model)) {
-            await this.setupFanService(accessory, device, token);
+            await this.setupFanService(accessory, device);
         }
         else if (MOTION_DIMMER_MODELS.includes(model)) {
-            await this.setupMotionDimmerService(accessory, device, token);
+            await this.setupMotionDimmerService(accessory, device);
         }
         else if (DIMMER_MODELS.includes(model)) {
-            await this.setupLightbulbService(accessory, device, token);
+            await this.setupLightbulbService(accessory, device);
         }
         else if (OUTLET_MODELS.includes(model)) {
-            await this.setupBasicService(accessory, device, token, hap.Service.Outlet);
+            await this.setupBasicService(accessory, device, hap.Service.Outlet);
         }
         else if (SWITCH_MODELS.includes(model)) {
-            await this.setupBasicService(accessory, device, token, hap.Service.Switch);
+            await this.setupBasicService(accessory, device, hap.Service.Switch);
         }
         else {
             // Unknown model - treat as switch
             this.log.info(`Unknown device model '${model}' for ${device.name}, treating as switch`);
-            await this.setupBasicService(accessory, device, token, hap.Service.Switch);
+            await this.setupBasicService(accessory, device, hap.Service.Switch);
         }
     }
     /**
      * Gets device status with error handling
      */
-    async getStatus(device, token) {
+    async getStatus(device) {
         try {
-            return await this.client.getDeviceStatus(device.id, token);
+            return await this.withTokenRetry(async () => {
+                const token = await this.ensureValidToken();
+                return this.client.getDeviceStatus(device.id, token);
+            });
         }
         catch (err) {
             this.log.error(`Failed to get status for ${device.name}: ${(0, sanitizers_1.sanitizeError)(err)}`);
@@ -409,8 +426,8 @@ class LevitonDecoraSmartPlatform {
     /**
      * Sets up a lightbulb service
      */
-    async setupLightbulbService(accessory, device, token) {
-        const status = await this.getStatus(device, token);
+    async setupLightbulbService(accessory, device) {
+        const status = await this.getStatus(device);
         const service = accessory.getService(hap.Service.Lightbulb, device.name) ||
             accessory.addService(hap.Service.Lightbulb, device.name);
         // Calculate valid brightness range
@@ -433,16 +450,16 @@ class LevitonDecoraSmartPlatform {
         brightnessChar.setProps({ minValue: minBrightness, maxValue: maxBrightness, minStep: 1 });
         brightnessChar.removeAllListeners('get');
         brightnessChar.removeAllListeners('set');
-        brightnessChar.on('get', this.createBrightnessGetter(device));
+        brightnessChar.on('get', this.createBrightnessGetter(device, minBrightness));
         brightnessChar.on('set', this.createBrightnessSetter(device));
         brightnessChar.updateValue(safeBrightness);
     }
     /**
      * Sets up a motion dimmer service
      */
-    async setupMotionDimmerService(accessory, device, token) {
-        await this.setupLightbulbService(accessory, device, token);
-        const status = await this.getStatus(device, token);
+    async setupMotionDimmerService(accessory, device) {
+        await this.setupLightbulbService(accessory, device);
+        const status = await this.getStatus(device);
         const motionService = accessory.getService(hap.Service.MotionSensor) ||
             accessory.addService(hap.Service.MotionSensor, `${device.name} Motion`);
         motionService
@@ -452,8 +469,8 @@ class LevitonDecoraSmartPlatform {
     /**
      * Sets up a fan service
      */
-    async setupFanService(accessory, device, token) {
-        const status = await this.getStatus(device, token);
+    async setupFanService(accessory, device) {
+        const status = await this.getStatus(device);
         const service = accessory.getService(hap.Service.Fan, device.name) ||
             accessory.addService(hap.Service.Fan, device.name);
         // Setup On characteristic
@@ -468,22 +485,24 @@ class LevitonDecoraSmartPlatform {
         speedChar.setProps({ minValue: 0, maxValue: status.maxLevel || 100, minStep: status.minLevel || 1 });
         speedChar.removeAllListeners('get');
         speedChar.removeAllListeners('set');
-        speedChar.on('get', this.createBrightnessGetter(device));
+        speedChar.on('get', this.createBrightnessGetter(device, 0)); // Fans allow 0
         speedChar.on('set', this.createBrightnessSetter(device));
         speedChar.updateValue(status.brightness || 0);
     }
     /**
      * Sets up a basic switch/outlet service
      */
-    async setupBasicService(accessory, device, token, ServiceType) {
-        const status = await this.getStatus(device, token);
+    async setupBasicService(accessory, device, ServiceType) {
+        const status = await this.getStatus(device);
         const service = accessory.getService(ServiceType, device.name) ||
             accessory.addService(ServiceType, device.name);
-        service
-            .getCharacteristic(hap.Characteristic.On)
-            .on('get', this.createPowerGetter(device))
-            .on('set', this.createPowerSetter(device))
-            .updateValue(status.power === POWER_ON);
+        // Remove existing listeners to prevent stacking on cached accessories
+        const onChar = service.getCharacteristic(hap.Characteristic.On);
+        onChar.removeAllListeners('get');
+        onChar.removeAllListeners('set');
+        onChar.on('get', this.createPowerGetter(device));
+        onChar.on('set', this.createPowerSetter(device));
+        onChar.updateValue(status.power === POWER_ON);
     }
     /**
      * Creates a power getter handler
@@ -492,8 +511,10 @@ class LevitonDecoraSmartPlatform {
     createPowerGetter(device) {
         return async (callback) => {
             try {
-                const token = await this.ensureValidToken();
-                const status = await this.client.getDeviceStatus(device.id, token);
+                const status = await this.withTokenRetry(async () => {
+                    const token = await this.ensureValidToken();
+                    return this.client.getDeviceStatus(device.id, token);
+                });
                 callback(null, status.power === POWER_ON);
             }
             catch (err) {
@@ -509,8 +530,10 @@ class LevitonDecoraSmartPlatform {
         return async (value, callback) => {
             const startTime = Date.now();
             try {
-                const token = await this.ensureValidToken();
-                await this.client.setPower(device.id, token, value);
+                await this.withTokenRetry(async () => {
+                    const token = await this.ensureValidToken();
+                    await this.client.setPower(device.id, token, value);
+                });
                 const latency = Date.now() - startTime;
                 this.log.info(`${device.name}: ${value ? 'ON' : 'OFF'} (Latency: ${latency}ms)`, {
                     deviceId: device.id,
@@ -526,14 +549,18 @@ class LevitonDecoraSmartPlatform {
     }
     /**
      * Creates a brightness getter handler
+     * @param device - Device info
+     * @param minValue - Minimum brightness value (0 for fans, 1 for dimmers)
      */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    createBrightnessGetter(device) {
+    createBrightnessGetter(device, minValue = 1) {
         return async (callback) => {
             try {
-                const token = await this.ensureValidToken();
-                const status = await this.client.getDeviceStatus(device.id, token);
-                callback(null, Math.max(1, status.brightness || 0));
+                const status = await this.withTokenRetry(async () => {
+                    const token = await this.ensureValidToken();
+                    return this.client.getDeviceStatus(device.id, token);
+                });
+                callback(null, Math.max(minValue, status.brightness ?? 0));
             }
             catch (err) {
                 callback(new Error((0, sanitizers_1.sanitizeError)(err)));
@@ -548,8 +575,10 @@ class LevitonDecoraSmartPlatform {
         return async (value, callback) => {
             const startTime = Date.now();
             try {
-                const token = await this.ensureValidToken();
-                await this.client.setBrightness(device.id, token, value);
+                await this.withTokenRetry(async () => {
+                    const token = await this.ensureValidToken();
+                    await this.client.setBrightness(device.id, token, value);
+                });
                 const latency = Date.now() - startTime;
                 this.log.info(`${device.name}: ${value}% (Latency: ${latency}ms)`, {
                     deviceId: device.id,
@@ -564,10 +593,47 @@ class LevitonDecoraSmartPlatform {
         };
     }
     /**
+     * Store login response and compute token expiry
+     */
+    setLoginResponse(loginResponse) {
+        this.currentLoginResponse = loginResponse;
+        if (typeof loginResponse.ttl === 'number' && Number.isFinite(loginResponse.ttl)) {
+            this.tokenExpiresAt = Date.now() + loginResponse.ttl * 1000;
+        }
+        else {
+            this.tokenExpiresAt = null;
+        }
+    }
+    /**
+     * Check if the token is close to expiring
+     */
+    isTokenExpiringSoon() {
+        if (!this.tokenExpiresAt) {
+            return false;
+        }
+        return Date.now() >= this.tokenExpiresAt - TOKEN_REFRESH_BUFFER_MS;
+    }
+    /**
+     * Retry once on authentication errors
+     */
+    async withTokenRetry(operation) {
+        try {
+            return await operation();
+        }
+        catch (err) {
+            if (err instanceof errors_1.AuthenticationError) {
+                this.log.warn('Authentication failed, refreshing token and retrying...');
+                await this.refreshToken();
+                return operation();
+            }
+            throw err;
+        }
+    }
+    /**
      * Ensures a valid token is available
      */
     async ensureValidToken() {
-        if (this.currentLoginResponse) {
+        if (this.currentLoginResponse && !this.isTokenExpiringSoon()) {
             return this.currentLoginResponse.id;
         }
         const loginResponse = await this.refreshToken();
@@ -577,19 +643,12 @@ class LevitonDecoraSmartPlatform {
      * Refreshes the authentication token
      */
     async refreshToken() {
-        // If refresh already in progress, wait and retry
-        if (this.tokenRefreshInProgress) {
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            // After waiting, check if we now have a valid token
-            if (this.currentLoginResponse) {
-                return this.currentLoginResponse;
-            }
-            // If still no token, the other refresh failed - try again ourselves
+        if (this.tokenRefreshPromise) {
+            return this.tokenRefreshPromise;
         }
-        this.tokenRefreshInProgress = true;
-        try {
+        this.tokenRefreshPromise = (async () => {
             const loginResponse = await this.client.login(this.config.email, this.config.password);
-            this.currentLoginResponse = loginResponse;
+            this.setLoginResponse(loginResponse);
             // Update token in all accessory contexts
             this.accessories.forEach(acc => {
                 if (acc.context) {
@@ -599,30 +658,38 @@ class LevitonDecoraSmartPlatform {
             // Update WebSocket with new login response
             if (this.webSocket) {
                 this.webSocket.updateLoginResponse(loginResponse);
+                this.webSocket.connect();
             }
             this.log.info('Token refreshed successfully');
             return loginResponse;
+        })();
+        try {
+            return await this.tokenRefreshPromise;
         }
         finally {
-            this.tokenRefreshInProgress = false;
+            this.tokenRefreshPromise = null;
         }
     }
     /**
      * Starts polling for device updates
      */
     startPolling() {
-        const interval = Math.max((this.config.pollingInterval || 30) * 1000, 10000);
+        const intervalSeconds = this.config.pollInterval ?? this.config.pollingInterval ?? 30;
+        const interval = Math.max(intervalSeconds * 1000, 10000);
         this.pollingInterval = setInterval(() => this.pollDevices(), interval);
     }
     /**
      * Polls all devices for updates
      */
     async pollDevices() {
-        if (!this.residenceId || !this.currentLoginResponse) {
+        if (!this.residenceId) {
             return;
         }
         try {
-            const devices = await this.client.getDevices(this.residenceId, this.currentLoginResponse.id);
+            const devices = await this.withTokenRetry(async () => {
+                const token = await this.ensureValidToken();
+                return this.client.getDevices(this.residenceId, token);
+            });
             for (const device of devices) {
                 if (device?.id) {
                     this.handleWebSocketUpdate({

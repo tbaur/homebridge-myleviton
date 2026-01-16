@@ -19,7 +19,8 @@ export declare class LevitonDecoraSmartPlatform {
     private readonly log;
     private client;
     private currentLoginResponse;
-    private tokenRefreshInProgress;
+    private tokenExpiresAt;
+    private tokenRefreshPromise;
     private webSocket;
     private pollingInterval;
     private residenceId;
@@ -27,7 +28,7 @@ export declare class LevitonDecoraSmartPlatform {
     private cleanupInterval;
     constructor(homebridgeLog: (msg: string) => void, config: LevitonConfig, api: HomebridgeAPI);
     /**
-     * Validates plugin configuration
+     * Validates plugin configuration using comprehensive schema validation
      */
     private validateConfig;
     /**
@@ -92,12 +93,26 @@ export declare class LevitonDecoraSmartPlatform {
     private createPowerSetter;
     /**
      * Creates a brightness getter handler
+     * @param device - Device info
+     * @param minValue - Minimum brightness value (0 for fans, 1 for dimmers)
      */
     private createBrightnessGetter;
     /**
      * Creates a brightness setter handler
      */
     private createBrightnessSetter;
+    /**
+     * Store login response and compute token expiry
+     */
+    private setLoginResponse;
+    /**
+     * Check if the token is close to expiring
+     */
+    private isTokenExpiringSoon;
+    /**
+     * Retry once on authentication errors
+     */
+    private withTokenRetry;
     /**
      * Ensures a valid token is available
      */

@@ -132,6 +132,7 @@ describe('validateBrightness', () => {
 
 describe('validateConfig', () => {
   const validConfig = {
+    name: 'My Leviton',
     email: 'test@example.com',
     password: 'password123',
   }
@@ -148,18 +149,34 @@ describe('validateConfig', () => {
       loglevel: 'debug',
       excludedModels: ['DW4SF'],
       excludedSerials: ['ABC123'],
-      pollingInterval: 60,
+      pollInterval: 60,
       connectionTimeout: 15000,
+      structuredLogs: true,
     }
     const result = validateConfig(config)
     expect(result.loglevel).toBe('debug')
     expect(result.excludedModels).toEqual(['DW4SF'])
   })
 
+  it('should accept legacy pollingInterval', () => {
+    const config = {
+      ...validConfig,
+      pollingInterval: 45,
+    }
+    const result = validateConfig(config)
+    expect(result.pollingInterval).toBe(45)
+  })
+
   it('should reject missing required fields', () => {
     expect(() => validateConfig({})).toThrow(ConfigurationError)
+    expect(() => validateConfig({ email: 'test@test.com', password: 'pass' })).toThrow(ConfigurationError)
     expect(() => validateConfig({ email: 'test@test.com' })).toThrow(ConfigurationError)
     expect(() => validateConfig({ password: 'pass' })).toThrow(ConfigurationError)
+  })
+
+  it('should reject missing name', () => {
+    expect(() => validateConfig({ email: 'test@test.com', password: 'pass' })).toThrow(ConfigurationError)
+    expect(() => validateConfig({ name: '', email: 'test@test.com', password: 'pass' })).toThrow(ConfigurationError)
   })
 
   it('should reject invalid loglevel', () => {
@@ -173,6 +190,9 @@ describe('validateConfig', () => {
   })
 
   it('should reject invalid pollingInterval', () => {
+    expect(() => validateConfig({ ...validConfig, pollInterval: 5 })).toThrow(ConfigurationError)
+    expect(() => validateConfig({ ...validConfig, pollInterval: 5000 })).toThrow(ConfigurationError)
+    expect(() => validateConfig({ ...validConfig, pollInterval: 'fast' })).toThrow(ConfigurationError)
     expect(() => validateConfig({ ...validConfig, pollingInterval: 5 })).toThrow(ConfigurationError)
     expect(() => validateConfig({ ...validConfig, pollingInterval: 5000 })).toThrow(ConfigurationError)
     expect(() => validateConfig({ ...validConfig, pollingInterval: 'fast' })).toThrow(ConfigurationError)

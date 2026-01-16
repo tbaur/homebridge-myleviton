@@ -1,7 +1,7 @@
 {
   "name": "homebridge-myleviton",
   "displayName": "Homebridge My Leviton",
-  "version": "3.2.5",
+  "version": "3.2.6",
   "description": "A homebridge plugin for My Leviton Decora Smart devices",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -63,7 +63,7 @@
     "test": "NODE_ENV=test jest --coverage",
     "test:watch": "NODE_ENV=test jest --watch",
     "test:unit": "NODE_ENV=test jest --coverage --testPathPattern=tests/unit",
-    "test:integration": "NODE_ENV=test jest --testPathPattern=tests/integration",
+    "test:integration": "NODE_ENV=test jest --testPathPattern=tests/integration --passWithNoTests",
     "lint": "eslint . --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage",
     "lint:fix": "eslint . --fix --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage"
   },

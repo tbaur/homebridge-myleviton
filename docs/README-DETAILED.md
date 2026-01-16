@@ -55,9 +55,12 @@ Advanced documentation for power users, developers, and troubleshooting.
   "platforms": [
     {
       "platform": "MyLevitonDecoraSmart",
+      "name": "My Leviton",
       "email": "your@email.com",
       "password": "yourpassword",
       "loglevel": "info",
+      "pollInterval": 30,
+      "connectionTimeout": 10000,
       "excludedModels": [],
       "excludedSerials": [],
       "structuredLogs": false
@@ -71,9 +74,12 @@ Advanced documentation for power users, developers, and troubleshooting.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `platform` | string | — | **Required.** Must be `"MyLevitonDecoraSmart"` |
+| `name` | string | `"My Leviton"` | **Required.** Plugin instance name shown in Homebridge logs |
 | `email` | string | — | **Required.** My Leviton account email |
 | `password` | string | — | **Required.** My Leviton account password |
 | `loglevel` | string | `"info"` | Logging verbosity: `debug`, `info`, `warn`, `error` |
+| `pollInterval` | number | `30` | Seconds between state updates (min 10, max 3600) |
+| `connectionTimeout` | number | `10000` | API/WebSocket timeout in ms (min 5000, max 60000) |
 | `excludedModels` | string[] | `[]` | Device model numbers to exclude |
 | `excludedSerials` | string[] | `[]` | Device serial numbers to exclude |
 | `structuredLogs` | boolean | `false` | Output logs as JSON for log aggregation tools |
@@ -144,9 +150,9 @@ Advanced documentation for power users, developers, and troubleshooting.
 ### Authentication Flow
 
 1. Plugin authenticates with My Leviton API using email/password
-2. Receives access token (valid ~1 hour) and refresh token
+2. Receives an access token (with TTL provided by the API)
 3. Automatically refreshes token before expiration
-4. On 401 errors, attempts re-authentication
+4. On 401 errors, attempts re-authentication and retries once
 
 ### Device Discovery
 

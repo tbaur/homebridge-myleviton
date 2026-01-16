@@ -173,7 +173,7 @@ export class LevitonWebSocket {
    * Connect to WebSocket
    */
   connect(): void {
-    if (this.isConnecting || this.isClosed) {
+    if (this.isConnecting || this.isClosed || this.isConnected) {
       return
     }
 

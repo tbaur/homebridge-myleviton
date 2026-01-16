@@ -1,6 +1,6 @@
 # Features
 
-**homebridge-myleviton v3.2.0**
+**homebridge-myleviton v3.2.6**
 
 ## Core Features
 
@@ -14,7 +14,7 @@
 - ✅ Circuit breaker pattern for API resilience
 - ✅ Device state persistence for faster startup
 - ✅ Structured JSON logging (optional)
-- ✅ Token auto-refresh on 401
+- ✅ Token auto-refresh before expiry and on 401
 - ✅ Homebridge v1.6.0+ and v2.0+ support
 - ✅ Node.js 20+ support
 
@@ -47,7 +47,7 @@ homebridge-myleviton/
 
 ## Quality
 
-- 400+ tests passing
+- 436 tests passing
 - 95%+ code coverage
 - ESLint with zero warnings
 - TypeScript strict mode
