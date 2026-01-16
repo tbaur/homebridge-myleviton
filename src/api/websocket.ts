@@ -126,7 +126,11 @@ export class LevitonWebSocket {
     logger: WebSocketLogger | Logger,
     config: Partial<WebSocketConfig> = {},
   ) {
-    this.config = { ...DEFAULT_WEBSOCKET_CONFIG, ...config }
+    // Filter out undefined values to avoid overwriting defaults
+    const filteredConfig = Object.fromEntries(
+      Object.entries(config).filter(([, v]) => v !== undefined),
+    ) as Partial<WebSocketConfig>
+    this.config = { ...DEFAULT_WEBSOCKET_CONFIG, ...filteredConfig }
     this.logger = this.normalizeLogger(logger)
     this.loginResponse = loginResponse
     this.devices = devices

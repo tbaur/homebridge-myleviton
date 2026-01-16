@@ -90,7 +90,9 @@ class LevitonWebSocket {
      * @param config - Optional configuration overrides
      */
     constructor(loginResponse, devices, callback, logger, config = {}) {
-        this.config = { ...exports.DEFAULT_WEBSOCKET_CONFIG, ...config };
+        // Filter out undefined values to avoid overwriting defaults
+        const filteredConfig = Object.fromEntries(Object.entries(config).filter(([, v]) => v !== undefined));
+        this.config = { ...exports.DEFAULT_WEBSOCKET_CONFIG, ...filteredConfig };
         this.logger = this.normalizeLogger(logger);
         this.loginResponse = loginResponse;
         this.devices = devices;
