@@ -26,6 +26,7 @@ export declare class LevitonDecoraSmartPlatform {
     private residenceId;
     private devicePersistence;
     private cleanupInterval;
+    private recentHomeKitCommands;
     constructor(homebridgeLog: (msg: string) => void, config: LevitonConfig, api: HomebridgeAPI);
     /**
      * Validates plugin configuration using comprehensive schema validation
