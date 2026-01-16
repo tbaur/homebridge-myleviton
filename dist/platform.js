@@ -233,9 +233,7 @@ class LevitonDecoraSmartPlatform {
                 info: (msg) => this.log.info(msg),
                 warn: (msg) => this.log.warn(msg),
                 error: (msg) => this.log.error(msg),
-            }, {
-                connectionTimeout: this.config.connectionTimeout,
-            });
+            }, this.config.connectionTimeout ? { connectionTimeout: this.config.connectionTimeout } : {});
         }
         catch (err) {
             this.log.warn(`WebSocket unavailable: ${(0, sanitizers_1.sanitizeError)(err)}`);
