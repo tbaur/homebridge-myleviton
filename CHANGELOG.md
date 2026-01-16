@@ -5,6 +5,13 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.7] - 2026-01-15
+
+### Fixed
+- Fixed "illegal value: number 0 exceeded minimum of 1" for cached dimmer accessories
+
+---
+
 ## [3.2.6] - 2026-01-15
 
 ### Fixed
@@ -14,7 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed listener stacking on cached switch/outlet accessories (duplicate API calls)
 - Fan speed now correctly allows 0% (was incorrectly clamped to 1%)
 - WebSocket connection timeout now honors `connectionTimeout` config
-- Fixed "illegal value: number 0 exceeded minimum of 1" for cached dimmer accessories
 
 ### Changed
 - Config validation now uses comprehensive schema validation with detailed error messages
