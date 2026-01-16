@@ -12,5 +12,5 @@ export * from './api';
 export * from './utils';
 export { LevitonDecoraSmartPlatform } from './platform';
 export { default } from './platform';
-export declare const VERSION = "3.0.0";
+export declare const VERSION = "3.2.6";
 //# sourceMappingURL=index.d.ts.map

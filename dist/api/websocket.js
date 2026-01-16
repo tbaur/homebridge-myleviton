@@ -133,7 +133,7 @@ class LevitonWebSocket {
      * Connect to WebSocket
      */
     connect() {
-        if (this.isConnecting || this.isClosed) {
+        if (this.isConnecting || this.isClosed || this.isConnected) {
             return;
         }
         this.isConnecting = true;

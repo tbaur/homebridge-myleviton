@@ -23,7 +23,6 @@ module.exports = {
         allowSyntheticDefaultImports: true,
       },
     }],
-    '^.+\\.jsx?$': 'babel-jest',
   },
   
   // File extensions
