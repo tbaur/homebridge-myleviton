@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [3.2.9] - 2026-01-16
+## [3.2.9] - 2026-01-15
 
 ### Fixed
 - Fixed cached accessory matching failing due to type/case differences in serial numbers
@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [3.2.8] - 2026-01-16
+## [3.2.8] - 2026-01-15
 
 ### Fixed
 - Fixed WebSocket connection timeout firing immediately when `connectionTimeout` not configured
