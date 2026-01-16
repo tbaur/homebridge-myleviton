@@ -20,5 +20,5 @@ export { LevitonDecoraSmartPlatform } from './platform'
 export { default } from './platform'
 
 // Export version
-export const VERSION = '3.2.9'
+export const VERSION = '3.3.0'
 

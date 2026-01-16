@@ -91,6 +91,8 @@ class LevitonDecoraSmartPlatform {
     devicePersistence;
     // Cleanup interval
     cleanupInterval = null;
+    // Track recent HomeKit commands to avoid logging them as "external"
+    recentHomeKitCommands = new Map();
     constructor(homebridgeLog, config, api) {
         this.config = config;
         this.api = api;
@@ -289,26 +291,34 @@ class LevitonDecoraSmartPlatform {
             else {
                 return;
             }
-            // Log brightness change if different
+            // Log brightness change if different and not from recent HomeKit command
             if (currentBrightness !== undefined && currentBrightness !== newBrightness) {
-                this.log.info(`${accessory.displayName}: ${newBrightness}% (external)`, {
-                    deviceId: device?.id,
-                    operation: 'externalBrightnessUpdate',
-                    brightness: newBrightness,
-                });
+                const lastCommandTime = device?.id ? this.recentHomeKitCommands.get(device.id) : undefined;
+                const isRecentCommand = lastCommandTime && (Date.now() - lastCommandTime) < 5000; // 5 second window
+                if (!isRecentCommand) {
+                    this.log.info(`${accessory.displayName}: ${newBrightness}% (external)`, {
+                        deviceId: device?.id,
+                        operation: 'externalBrightnessUpdate',
+                        brightness: newBrightness,
+                    });
+                }
             }
         }
         // Update power state
         if (power !== undefined) {
             const newPowerBool = power === POWER_ON;
             primaryService.getCharacteristic(hap.Characteristic.On).updateValue(newPowerBool);
-            // Log power change if different
+            // Log power change if different and not from recent HomeKit command
             if (currentPowerState !== power) {
-                this.log.info(`${accessory.displayName}: ${power} (external)`, {
-                    deviceId: device?.id,
-                    operation: 'externalPowerUpdate',
-                    power,
-                });
+                const lastCommandTime = device?.id ? this.recentHomeKitCommands.get(device.id) : undefined;
+                const isRecentCommand = lastCommandTime && (Date.now() - lastCommandTime) < 5000; // 5 second window
+                if (!isRecentCommand) {
+                    this.log.info(`${accessory.displayName}: ${power} (external)`, {
+                        deviceId: device?.id,
+                        operation: 'externalPowerUpdate',
+                        power,
+                    });
+                }
             }
         }
         // Update motion sensor
@@ -537,6 +547,8 @@ class LevitonDecoraSmartPlatform {
     createPowerSetter(device) {
         return async (value, callback) => {
             const startTime = Date.now();
+            // Track this HomeKit command to avoid logging it as "external" later
+            this.recentHomeKitCommands.set(device.id, Date.now());
             try {
                 await this.withTokenRetry(async () => {
                     const token = await this.ensureValidToken();
@@ -582,6 +594,8 @@ class LevitonDecoraSmartPlatform {
     createBrightnessSetter(device) {
         return async (value, callback) => {
             const startTime = Date.now();
+            // Track this HomeKit command to avoid logging it as "external" later
+            this.recentHomeKitCommands.set(device.id, Date.now());
             try {
                 await this.withTokenRetry(async () => {
                     const token = await this.ensureValidToken();

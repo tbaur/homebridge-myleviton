@@ -5,6 +5,15 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.3.0] - 2026-01-15
+
+### Fixed
+- Fixed duplicate logging when controlling devices via HomeKit (was showing both "external" and "latency" entries)
+  - WebSocket updates from HomeKit commands are now properly deduplicated
+  - "External" logs now only appear for changes from physical switches or Leviton app/website
+
+---
+
 ## [3.2.9] - 2026-01-16
 
 ### Fixed
