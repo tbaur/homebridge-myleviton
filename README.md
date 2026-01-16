@@ -55,6 +55,7 @@ Add to your Homebridge config:
   "platforms": [
     {
       "platform": "MyLevitonDecoraSmart",
+      "name": "My Leviton",
       "email": "your@email.com",
       "password": "yourpassword"
     }
@@ -78,14 +79,19 @@ Your devices will appear in the Home app automatically.
 
 ## Configuration Options
 
+`name` is required by Homebridge UI and identifies this plugin instance in logs (defaults to "My Leviton").
+
 | Option | Required | Description |
 |--------|:--------:|-------------|
+| `name` | ✓ | Plugin instance name shown in Homebridge logs |
 | `email` | ✓ | My Leviton account email |
 | `password` | ✓ | My Leviton account password |
 | `loglevel` | | `debug`, `info` (default), `warn`, `error` |
 | `pollInterval` | | Seconds between state updates (default: 30) |
+| `connectionTimeout` | | API/WebSocket timeout in ms (default: 10000) |
 | `excludedModels` | | Device models to skip, e.g. `["DW15P"]` |
 | `excludedSerials` | | Device serials to skip |
+| `structuredLogs` | | Output logs as JSON for log aggregation tools |
 
 ## Not Working?
 

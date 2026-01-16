@@ -172,6 +172,10 @@ export function validateConfig(config: unknown): LevitonConfig {
   const cfg = config as Record<string, unknown>
   
   // Required fields
+  if (!cfg.name || typeof cfg.name !== 'string' || cfg.name.trim().length === 0) {
+    errors.push('name is required')
+  }
+
   if (!cfg.email) {
     errors.push('email is required')
   } else {
@@ -224,6 +228,13 @@ export function validateConfig(config: unknown): LevitonConfig {
     }
   }
   
+  if (cfg.pollInterval !== undefined) {
+    const interval = cfg.pollInterval as number
+    if (typeof interval !== 'number' || interval < 10 || interval > 3600) {
+      errors.push('pollInterval must be a number between 10 and 3600')
+    }
+  }
+
   if (cfg.pollingInterval !== undefined) {
     const interval = cfg.pollingInterval as number
     if (typeof interval !== 'number' || interval < 10 || interval > 3600) {

@@ -115,6 +115,7 @@ const createMockLog = () => jest.fn()
 // Valid config
 const validConfig: LevitonConfig = {
   platform: 'MyLevitonDecoraSmart',
+  name: 'My Leviton',
   email: 'test@example.com',
   password: 'testpassword123',
   loglevel: 'info' as LogLevel,
@@ -196,21 +197,21 @@ describe('LevitonDecoraSmartPlatform', () => {
       const config = { ...validConfig, email: '' }
       new LevitonDecoraSmartPlatform(mockLog, config, mockAPI)
       
-      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('email and password'))
+      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('email is required'))
     })
 
     it('should log error for missing password', () => {
       const config = { ...validConfig, password: '' }
       new LevitonDecoraSmartPlatform(mockLog, config, mockAPI)
       
-      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('email and password'))
+      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('password is required'))
     })
 
     it('should log error for invalid email format', () => {
       const config = { ...validConfig, email: 'invalid-email' }
       new LevitonDecoraSmartPlatform(mockLog, config, mockAPI)
       
-      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('Invalid email format'))
+      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('invalid format'))
     })
   })
 
@@ -341,6 +342,23 @@ describe('LevitonDecoraSmartPlatform', () => {
         expect.any(Function),
       )
       expect(mockClient.getDevices).toHaveBeenCalled()
+    })
+
+    it('should pass connectionTimeout to WebSocket config', async () => {
+      const { createWebSocket } = require('../../src/api/websocket')
+      const config = { ...validConfig, connectionTimeout: 15000 }
+      mockClient.getDevices.mockResolvedValue([
+        { id: 'dev-1', name: 'Living Room Light', model: 'DW6HD', serial: 'ABC123' },
+      ])
+      
+      new LevitonDecoraSmartPlatform(mockLog, config, mockAPI)
+      mockAPI.emit('didFinishLaunching')
+      
+      await new Promise(resolve => setTimeout(resolve, 50))
+      
+      expect(createWebSocket).toHaveBeenCalled()
+      const lastCall = createWebSocket.mock.calls[createWebSocket.mock.calls.length - 1]
+      expect(lastCall[4]).toEqual({ connectionTimeout: 15000 })
     })
 
     it('should handle login failure gracefully', async () => {

@@ -38,6 +38,7 @@ class MockWebSocket extends EventEmitter {
   }
 
   triggerClose(code = 1000, reason = '') {
+    this.readyState = MockWebSocket.CLOSED
     this.emit('close', code, Buffer.from(reason))
   }
 

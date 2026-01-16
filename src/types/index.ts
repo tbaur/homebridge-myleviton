@@ -37,6 +37,7 @@ export interface LevitonConfig extends PlatformConfig {
   excludedModels?: string[]
   excludedSerials?: string[]
   structuredLogs?: boolean
+  pollInterval?: number
   pollingInterval?: number
   connectionTimeout?: number
 }

@@ -12,7 +12,7 @@
         "title": "Name",
         "type": "string",
         "default": "My Leviton",
-        "description": "A name for this plugin instance (shown in Homebridge logs)"
+        "description": "Required. A name for this plugin instance (shown in Homebridge logs)"
       },
       "email": {
         "title": "Username",
@@ -50,8 +50,16 @@
         "type": "integer",
         "default": 30,
         "minimum": 10,
-        "maximum": 300,
+        "maximum": 3600,
         "description": "How often (in seconds) to check device states. Lower values = faster updates but more API calls. Default: 30 seconds."
+      },
+      "connectionTimeout": {
+        "title": "Connection Timeout",
+        "type": "integer",
+        "default": 10000,
+        "minimum": 5000,
+        "maximum": 60000,
+        "description": "Timeout (in ms) for API and WebSocket connection attempts. Default: 10000 ms."
       },
       "excludedModels": {
         "title": "Excluded Models",
@@ -135,7 +143,8 @@
       "expandable": true,
       "expanded": false,
       "items": [
-        "structuredLogs"
+        "structuredLogs",
+        "connectionTimeout"
       ]
     }
   ]
