@@ -1,6 +1,6 @@
 # Features
 
-**homebridge-myleviton v3.2.8**
+**homebridge-myleviton v3.2.9**
 
 ## Core Features
 

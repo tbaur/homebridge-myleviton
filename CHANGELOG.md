@@ -5,6 +5,14 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.9] - 2026-01-16
+
+### Fixed
+- Fixed cached accessory matching failing due to type/case differences in serial numbers
+  (now normalizes to uppercase strings before comparison)
+
+---
+
 ## [3.2.8] - 2026-01-16
 
 ### Fixed
