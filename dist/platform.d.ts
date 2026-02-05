@@ -49,18 +49,36 @@ export declare class LevitonDecoraSmartPlatform {
      */
     private isDeviceExcluded;
     /**
-     * Checks if accessory already exists by serial number
-     * Normalizes both values to strings for comparison (API may return different types)
-     */
-    private accessoryExists;
-    /**
      * Adds a new accessory
      */
     addAccessory(device: DeviceInfo, token: string): Promise<void>;
     /**
      * Configures a cached accessory
+     *
+     * IMPORTANT: This must be synchronous. Homebridge calls this for each cached
+     * accessory and does NOT await the result. If this were async with awaits,
+     * the accessories array would be incomplete when didFinishLaunching fires,
+     * causing race conditions where devices are incorrectly added as "new".
+     *
+     * Service setup is deferred to initialize() after deduplication.
      */
-    configureAccessory(accessory: PlatformAccessory): Promise<void>;
+    configureAccessory(accessory: PlatformAccessory): void;
+    /**
+     * Removes duplicate cache entries (same UUID appearing multiple times)
+     *
+     * This is a defensive cleanup that runs on every startup. Duplicates can occur
+     * due to race conditions in older versions or cache file corruption. Since
+     * duplicates share the same UUID, HomeKit only sees one accessory - removing
+     * the extra cache entries has no user-visible effect.
+     *
+     * @returns Number of duplicate entries removed
+     */
+    private deduplicateAccessories;
+    /**
+     * Finds a cached accessory matching the given device by serial number
+     * Uses case-insensitive comparison for robustness
+     */
+    private findAccessoryByDevice;
     /**
      * Sets up the appropriate service for a device
      */
@@ -129,6 +147,9 @@ export declare class LevitonDecoraSmartPlatform {
     private startPolling;
     /**
      * Polls all devices for updates
+     *
+     * This is a fallback mechanism when WebSocket updates are unavailable.
+     * Fetches actual device status from the API for each accessory.
      */
     private pollDevices;
     /**

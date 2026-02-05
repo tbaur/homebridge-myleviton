@@ -5,6 +5,36 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.0] - 2026-02-05
+
+### Fixed
+- **Fixed accessory cache growth bug** causing duplicate accessories on restart
+  - Root cause: `configureAccessory` was async, but Homebridge doesn't await it
+  - Race condition caused accessories array to be incomplete when `didFinishLaunching` fired
+  - Some devices were incorrectly added as "new" despite being cached
+- **Fixed polling returning undefined power/brightness values**
+  - Was incorrectly casting `DeviceInfo` to `DeviceStatus` (type mismatch)
+  - Now properly fetches actual device status from API
+- **Fixed stale cached API responses after WebSocket updates**
+  - Cache is now invalidated when real-time updates arrive
+  - Ensures next status request fetches fresh data
+
+### Added
+- **Automatic cache deduplication on startup**
+  - Removes duplicate cache entries (same UUID appearing multiple times)
+  - Runs as a permanent safeguard on every startup
+  - Logs cleanup: `Removed N duplicate cache entries (M unique accessories)`
+  - Safe operation: duplicates share same UUID, invisible to HomeKit
+- **Improved accessory context persistence**
+  - Cached accessory contexts now updated with fresh device data on startup
+  - Token properly persisted via `updatePlatformAccessories()`
+
+### Changed
+- `configureAccessory` is now synchronous (service setup deferred to initialization)
+- Accessory matching uses case-insensitive serial comparison for robustness
+
+---
+
 ## [3.3.1] - 2026-02-01
 
 ### Changed

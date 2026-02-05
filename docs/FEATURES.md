@@ -1,6 +1,6 @@
 # Features
 
-**homebridge-myleviton v3.3.0**
+**homebridge-myleviton v3.4.0**
 
 ## Core Features
 
@@ -47,7 +47,7 @@ homebridge-myleviton/
 
 ## Quality
 
-- 436 tests passing
+- 437 tests passing
 - 95%+ code coverage
 - ESLint with zero warnings
 - TypeScript strict mode

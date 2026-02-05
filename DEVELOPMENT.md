@@ -62,7 +62,7 @@ homebridge-myleviton/
 ├── dist/                 # Compiled JavaScript (auto-generated)
 ├── tests/
 │   ├── setup.js          # Jest setup
-│   └── unit/             # Unit tests (306 tests, 95%+ coverage)
+│   └── unit/             # Unit tests (437 tests, 95%+ coverage)
 │       └── *.test.ts
 ├── config.schema.json    # Homebridge UI configuration schema
 ├── package.json          # Dependencies and scripts

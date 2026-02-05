@@ -106,6 +106,7 @@ const createMockHomebridgeAPI = () => {
     registerPlatform: jest.fn(),
     registerPlatformAccessories: jest.fn(),
     unregisterPlatformAccessories: jest.fn(),
+    updatePlatformAccessories: jest.fn(),
   }
 }
 
@@ -138,6 +139,7 @@ const setupMocks = () => {
     setPower: jest.fn().mockResolvedValue({}),
     setBrightness: jest.fn().mockResolvedValue({}),
     clearCache: jest.fn(),
+    invalidateDeviceCache: jest.fn(),
   }
   getApiClient.mockReturnValue(mockClient)
   
@@ -216,32 +218,44 @@ describe('LevitonDecoraSmartPlatform', () => {
   })
 
   describe('configureAccessory', () => {
-    it('should configure cached accessories', async () => {
+    it('should add cached accessory to array synchronously', () => {
       const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
       const accessory = mockAccessory({ id: 'dev-1', name: 'Test Light', model: 'DW6HD', serial: 'ABC123' })
       
-      await platform.configureAccessory(accessory)
-      await new Promise(resolve => setTimeout(resolve, 50))
+      // configureAccessory is now synchronous - just adds to array
+      platform.configureAccessory(accessory)
       
       expect((platform as unknown as { accessories: unknown[] }).accessories).toContain(accessory)
     })
+
+    it('should not setup service immediately (deferred to initialize)', () => {
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const accessory = mockAccessory({ id: 'dev-1', name: 'Test Light', model: 'DW6HD', serial: 'ABC123' })
+      
+      platform.configureAccessory(accessory)
+      
+      // Service setup is deferred - getService should not be called for Lightbulb yet
+      expect(accessory.getService).not.toHaveBeenCalledWith('Lightbulb', accessory.displayName)
+    })
   })
 
-  describe('device model routing - all supported devices', () => {
-    let platform: LevitonDecoraSmartPlatform
-
-    beforeEach(() => {
-      platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
-    })
+  describe('device model routing - via initialization flow', () => {
+    // Device model routing tests now go through the full initialization flow
+    // This tests the actual user experience: cached accessories get setup during initialize()
 
     // Test all dimmer models
     DIMMER_MODELS.forEach(model => {
       it(`should route ${model} dimmer to Lightbulb service`, async () => {
+        const { mockLog, mockAPI, mockClient } = setupMocks()
         const device = { id: 'dev-1', name: 'Test Dimmer', model, serial: 'ABC123' }
-        const accessory = mockAccessory(device)
+        mockClient.getDevices.mockResolvedValue([device])
         
-        await platform.configureAccessory(accessory)
-        await new Promise(resolve => setTimeout(resolve, 50))
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const accessory = mockAccessory(device)
+        platform.configureAccessory(accessory)
+        
+        mockAPI.emit('didFinishLaunching')
+        await new Promise(resolve => setTimeout(resolve, 100))
         
         expect(accessory.getService).toHaveBeenCalledWith('Lightbulb', device.name)
       })
@@ -250,25 +264,34 @@ describe('LevitonDecoraSmartPlatform', () => {
     // Test motion dimmer
     MOTION_DIMMER_MODELS.forEach(model => {
       it(`should route ${model} motion dimmer to Lightbulb and MotionSensor services`, async () => {
+        const { mockLog, mockAPI, mockClient } = setupMocks()
         const device = { id: 'dev-1', name: 'Motion Dimmer', model, serial: 'ABC123' }
-        const accessory = mockAccessory(device)
+        mockClient.getDevices.mockResolvedValue([device])
         
-        await platform.configureAccessory(accessory)
-        await new Promise(resolve => setTimeout(resolve, 50))
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const accessory = mockAccessory(device)
+        platform.configureAccessory(accessory)
+        
+        mockAPI.emit('didFinishLaunching')
+        await new Promise(resolve => setTimeout(resolve, 100))
         
         expect(accessory.getService).toHaveBeenCalledWith('Lightbulb', device.name)
-        // Platform calls getService('MotionSensor') first to check if it exists
         expect(accessory.getService).toHaveBeenCalledWith('MotionSensor')
       })
     })
 
     // Test fan controller
     it.each(FAN_MODELS)('should route %s fan controller to Fan service', async (fanModel) => {
+      const { mockLog, mockAPI, mockClient } = setupMocks()
       const device = { id: 'dev-1', name: 'Test Fan', model: fanModel, serial: 'ABC123' }
-      const accessory = mockAccessory(device)
+      mockClient.getDevices.mockResolvedValue([device])
       
-      await platform.configureAccessory(accessory)
-      await new Promise(resolve => setTimeout(resolve, 50))
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const accessory = mockAccessory(device)
+      platform.configureAccessory(accessory)
+      
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
       
       expect(accessory.getService).toHaveBeenCalledWith('Fan', device.name)
     })
@@ -276,11 +299,16 @@ describe('LevitonDecoraSmartPlatform', () => {
     // Test all outlet models
     OUTLET_MODELS.forEach(model => {
       it(`should route ${model} outlet to Outlet service`, async () => {
+        const { mockLog, mockAPI, mockClient } = setupMocks()
         const device = { id: 'dev-1', name: 'Test Outlet', model, serial: 'ABC123' }
-        const accessory = mockAccessory(device)
+        mockClient.getDevices.mockResolvedValue([device])
         
-        await platform.configureAccessory(accessory)
-        await new Promise(resolve => setTimeout(resolve, 50))
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const accessory = mockAccessory(device)
+        platform.configureAccessory(accessory)
+        
+        mockAPI.emit('didFinishLaunching')
+        await new Promise(resolve => setTimeout(resolve, 100))
         
         expect(accessory.getService).toHaveBeenCalledWith('Outlet', device.name)
       })
@@ -289,11 +317,16 @@ describe('LevitonDecoraSmartPlatform', () => {
     // Test all switch models
     SWITCH_MODELS.forEach(model => {
       it(`should route ${model} switch to Switch service`, async () => {
+        const { mockLog, mockAPI, mockClient } = setupMocks()
         const device = { id: 'dev-1', name: 'Test Switch', model, serial: 'ABC123' }
-        const accessory = mockAccessory(device)
+        mockClient.getDevices.mockResolvedValue([device])
         
-        await platform.configureAccessory(accessory)
-        await new Promise(resolve => setTimeout(resolve, 50))
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const accessory = mockAccessory(device)
+        platform.configureAccessory(accessory)
+        
+        mockAPI.emit('didFinishLaunching')
+        await new Promise(resolve => setTimeout(resolve, 100))
         
         expect(accessory.getService).toHaveBeenCalledWith('Switch', device.name)
       })
@@ -302,11 +335,16 @@ describe('LevitonDecoraSmartPlatform', () => {
     // Test controller models are skipped
     CONTROLLER_MODELS.forEach(model => {
       it(`should skip ${model} controller device (no controllable state)`, async () => {
+        const { mockLog, mockAPI, mockClient } = setupMocks()
         const device = { id: 'dev-1', name: 'Test Controller', model, serial: 'ABC123' }
-        const accessory = mockAccessory(device)
+        mockClient.getDevices.mockResolvedValue([device])
         
-        await platform.configureAccessory(accessory)
-        await new Promise(resolve => setTimeout(resolve, 50))
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const accessory = mockAccessory(device)
+        platform.configureAccessory(accessory)
+        
+        mockAPI.emit('didFinishLaunching')
+        await new Promise(resolve => setTimeout(resolve, 100))
         
         expect(accessory.addService).not.toHaveBeenCalled()
       })
@@ -314,11 +352,16 @@ describe('LevitonDecoraSmartPlatform', () => {
 
     // Test unknown model defaults to switch
     it('should route unknown model to Switch service', async () => {
+      const { mockLog, mockAPI, mockClient } = setupMocks()
       const device = { id: 'dev-1', name: 'Unknown Device', model: 'UNKNOWN', serial: 'ABC123' }
-      const accessory = mockAccessory(device)
+      mockClient.getDevices.mockResolvedValue([device])
       
-      await platform.configureAccessory(accessory)
-      await new Promise(resolve => setTimeout(resolve, 50))
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const accessory = mockAccessory(device)
+      platform.configureAccessory(accessory)
+      
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
       
       expect(accessory.getService).toHaveBeenCalledWith('Switch', device.name)
     })
@@ -420,12 +463,15 @@ describe('LevitonDecoraSmartPlatform', () => {
         maxLevel: 100,
       })
       
-      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
       const device = { id: 'dev-1', name: 'Test Light', model: 'DW6HD', serial: 'ABC123' }
-      const accessory = mockAccessory(device)
+      mockClient.getDevices.mockResolvedValue([device])
       
-      await platform.configureAccessory(accessory)
-      await new Promise(resolve => setTimeout(resolve, 50))
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const accessory = mockAccessory(device)
+      platform.configureAccessory(accessory)
+      
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
       
       const service = accessory.getService()
       expect(service.getCharacteristic).toHaveBeenCalledWith('Brightness')
@@ -473,12 +519,15 @@ describe('Service setup for all device types', () => {
     DIMMER_MODELS.forEach(model => {
       it(`should setup Lightbulb service with On and Brightness characteristics for ${model}`, async () => {
         const { mockLog, mockAPI, mockClient } = setupMocks()
-        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
         const device = { id: 'dev-1', name: 'Test Dimmer', model, serial: 'ABC123' }
-        const accessory = mockAccessory(device)
+        mockClient.getDevices.mockResolvedValue([device])
         
-        await platform.configureAccessory(accessory)
-        await new Promise(resolve => setTimeout(resolve, 50))
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const accessory = mockAccessory(device)
+        platform.configureAccessory(accessory)
+        
+        mockAPI.emit('didFinishLaunching')
+        await new Promise(resolve => setTimeout(resolve, 100))
         
         const service = accessory.getService()
         expect(service.getCharacteristic).toHaveBeenCalledWith('On')
@@ -491,16 +540,18 @@ describe('Service setup for all device types', () => {
   describe('Motion dimmer service setup', () => {
     MOTION_DIMMER_MODELS.forEach(model => {
       it(`should setup Lightbulb and MotionSensor services for ${model}`, async () => {
-        const { mockLog, mockAPI } = setupMocks()
-        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const { mockLog, mockAPI, mockClient } = setupMocks()
         const device = { id: 'dev-1', name: 'Motion Dimmer', model, serial: 'ABC123' }
-        const accessory = mockAccessory(device)
+        mockClient.getDevices.mockResolvedValue([device])
         
-        await platform.configureAccessory(accessory)
-        await new Promise(resolve => setTimeout(resolve, 50))
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const accessory = mockAccessory(device)
+        platform.configureAccessory(accessory)
+        
+        mockAPI.emit('didFinishLaunching')
+        await new Promise(resolve => setTimeout(resolve, 100))
         
         expect(accessory.getService).toHaveBeenCalledWith('Lightbulb', device.name)
-        // Platform calls getService('MotionSensor') first to check if service exists
         expect(accessory.getService).toHaveBeenCalledWith('MotionSensor')
       })
     })
@@ -509,12 +560,15 @@ describe('Service setup for all device types', () => {
   describe('Fan service setup', () => {
     it.each(FAN_MODELS)('should setup Fan service with On and RotationSpeed characteristics for %s', async (fanModel) => {
       const { mockLog, mockAPI, mockClient } = setupMocks()
-      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
       const device = { id: 'dev-1', name: 'Test Fan', model: fanModel, serial: 'ABC123' }
-      const accessory = mockAccessory(device)
+      mockClient.getDevices.mockResolvedValue([device])
       
-      await platform.configureAccessory(accessory)
-      await new Promise(resolve => setTimeout(resolve, 50))
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const accessory = mockAccessory(device)
+      platform.configureAccessory(accessory)
+      
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
       
       const service = accessory.getService()
       expect(service.getCharacteristic).toHaveBeenCalledWith('On')
@@ -527,12 +581,15 @@ describe('Service setup for all device types', () => {
     OUTLET_MODELS.forEach(model => {
       it(`should setup Outlet service with On characteristic for ${model}`, async () => {
         const { mockLog, mockAPI, mockClient } = setupMocks()
-        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
         const device = { id: 'dev-1', name: 'Test Outlet', model, serial: 'ABC123' }
-        const accessory = mockAccessory(device)
+        mockClient.getDevices.mockResolvedValue([device])
         
-        await platform.configureAccessory(accessory)
-        await new Promise(resolve => setTimeout(resolve, 50))
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const accessory = mockAccessory(device)
+        platform.configureAccessory(accessory)
+        
+        mockAPI.emit('didFinishLaunching')
+        await new Promise(resolve => setTimeout(resolve, 100))
         
         const service = accessory.getService()
         expect(service.getCharacteristic).toHaveBeenCalledWith('On')
@@ -545,12 +602,15 @@ describe('Service setup for all device types', () => {
     SWITCH_MODELS.forEach(model => {
       it(`should setup Switch service with On characteristic for ${model}`, async () => {
         const { mockLog, mockAPI, mockClient } = setupMocks()
-        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
         const device = { id: 'dev-1', name: 'Test Switch', model, serial: 'ABC123' }
-        const accessory = mockAccessory(device)
+        mockClient.getDevices.mockResolvedValue([device])
         
-        await platform.configureAccessory(accessory)
-        await new Promise(resolve => setTimeout(resolve, 50))
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const accessory = mockAccessory(device)
+        platform.configureAccessory(accessory)
+        
+        mockAPI.emit('didFinishLaunching')
+        await new Promise(resolve => setTimeout(resolve, 100))
         
         const service = accessory.getService()
         expect(service.getCharacteristic).toHaveBeenCalledWith('On')
@@ -570,13 +630,15 @@ describe('Characteristic handlers for all device types', () => {
       it(`should get power state for ${model}`, async () => {
         const { mockLog, mockAPI, mockClient } = setupMocks()
         mockClient.getDeviceStatus.mockResolvedValue({ power: 'ON', brightness: 50 })
+        const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
+        mockClient.getDevices.mockResolvedValue([device])
         
         const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
-        const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
         const accessory = mockAccessory(device)
+        platform.configureAccessory(accessory)
         
-        await platform.configureAccessory(accessory)
-        await new Promise(resolve => setTimeout(resolve, 50))
+        mockAPI.emit('didFinishLaunching')
+        await new Promise(resolve => setTimeout(resolve, 100))
         
         const service = accessory.getService()
         const onChar = service.getCharacteristic()
@@ -597,13 +659,15 @@ describe('Characteristic handlers for all device types', () => {
     ALL_CONTROLLABLE_MODELS.forEach(model => {
       it(`should set power state for ${model}`, async () => {
         const { mockLog, mockAPI, mockClient } = setupMocks()
+        const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
+        mockClient.getDevices.mockResolvedValue([device])
         
         const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
-        const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
         const accessory = mockAccessory(device)
+        platform.configureAccessory(accessory)
         
-        await platform.configureAccessory(accessory)
-        await new Promise(resolve => setTimeout(resolve, 50))
+        mockAPI.emit('didFinishLaunching')
+        await new Promise(resolve => setTimeout(resolve, 100))
         
         const service = accessory.getService()
         const onChar = service.getCharacteristic()
@@ -627,13 +691,15 @@ describe('Characteristic handlers for all device types', () => {
       it(`should register brightness getter for ${model}`, async () => {
         const { mockLog, mockAPI, mockClient } = setupMocks()
         mockClient.getDeviceStatus.mockResolvedValue({ power: 'ON', brightness: 75, minLevel: 1, maxLevel: 100 })
+        const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
+        mockClient.getDevices.mockResolvedValue([device])
         
         const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
-        const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
         const accessory = mockAccessory(device)
+        platform.configureAccessory(accessory)
         
-        await platform.configureAccessory(accessory)
-        await new Promise(resolve => setTimeout(resolve, 50))
+        mockAPI.emit('didFinishLaunching')
+        await new Promise(resolve => setTimeout(resolve, 100))
         
         const service = accessory.getService()
         const brightnessChar = service.getCharacteristic()
@@ -652,13 +718,15 @@ describe('Characteristic handlers for all device types', () => {
     modelsWithBrightness.forEach(model => {
       it(`should set brightness for ${model}`, async () => {
         const { mockLog, mockAPI, mockClient } = setupMocks()
+        const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
+        mockClient.getDevices.mockResolvedValue([device])
         
         const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
-        const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
         const accessory = mockAccessory(device)
+        platform.configureAccessory(accessory)
         
-        await platform.configureAccessory(accessory)
-        await new Promise(resolve => setTimeout(resolve, 50))
+        mockAPI.emit('didFinishLaunching')
+        await new Promise(resolve => setTimeout(resolve, 100))
         
         const service = accessory.getService()
         const brightnessChar = service.getCharacteristic()
@@ -690,13 +758,15 @@ describe('Motion sensor functionality', () => {
       occupancy: true,
       motion: false,
     })
+    const device = { id: 'dev-1', name: 'Motion Dimmer', model: 'D2MSD', serial: 'ABC123' }
+    mockClient.getDevices.mockResolvedValue([device])
     
     const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
-    const device = { id: 'dev-1', name: 'Motion Dimmer', model: 'D2MSD', serial: 'ABC123' }
     const accessory = mockAccessory(device)
+    platform.configureAccessory(accessory)
     
-    await platform.configureAccessory(accessory)
-    await new Promise(resolve => setTimeout(resolve, 50))
+    mockAPI.emit('didFinishLaunching')
+    await new Promise(resolve => setTimeout(resolve, 100))
     
     // Platform calls getService('MotionSensor') first, then addService if not found
     expect(accessory.getService).toHaveBeenCalledWith('MotionSensor')
@@ -709,13 +779,15 @@ describe('Motion sensor functionality', () => {
       brightness: 50,
       occupancy: true,
     })
+    const device = { id: 'dev-1', name: 'Motion Dimmer', model: 'D2MSD', serial: 'ABC123' }
+    mockClient.getDevices.mockResolvedValue([device])
     
     const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
-    const device = { id: 'dev-1', name: 'Motion Dimmer', model: 'D2MSD', serial: 'ABC123' }
     const accessory = mockAccessory(device)
+    platform.configureAccessory(accessory)
     
-    await platform.configureAccessory(accessory)
-    await new Promise(resolve => setTimeout(resolve, 50))
+    mockAPI.emit('didFinishLaunching')
+    await new Promise(resolve => setTimeout(resolve, 100))
     
     const motionService = accessory.getService('MotionSensor', 'Motion Dimmer Motion')
     expect(motionService).toBeDefined()
@@ -728,13 +800,15 @@ describe('Motion sensor functionality', () => {
       brightness: 50,
       motion: true,
     })
+    const device = { id: 'dev-1', name: 'Motion Dimmer', model: 'D2MSD', serial: 'ABC123' }
+    mockClient.getDevices.mockResolvedValue([device])
     
     const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
-    const device = { id: 'dev-1', name: 'Motion Dimmer', model: 'D2MSD', serial: 'ABC123' }
     const accessory = mockAccessory(device)
+    platform.configureAccessory(accessory)
     
-    await platform.configureAccessory(accessory)
-    await new Promise(resolve => setTimeout(resolve, 50))
+    mockAPI.emit('didFinishLaunching')
+    await new Promise(resolve => setTimeout(resolve, 100))
     
     const motionService = accessory.getService('MotionSensor', 'Motion Dimmer Motion')
     expect(motionService).toBeDefined()
@@ -936,13 +1010,15 @@ describe('Latency logging', () => {
     mockClient.setPower.mockImplementation(() => 
       new Promise(resolve => setTimeout(() => resolve({}), 50)),
     )
+    const device = { id: 'dev-1', name: 'Test Light', model: 'DW6HD', serial: 'ABC123' }
+    mockClient.getDevices.mockResolvedValue([device])
     
     const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
-    const device = { id: 'dev-1', name: 'Test Light', model: 'DW6HD', serial: 'ABC123' }
     const accessory = mockAccessory(device)
+    platform.configureAccessory(accessory)
     
-    await platform.configureAccessory(accessory)
-    await new Promise(resolve => setTimeout(resolve, 50))
+    mockAPI.emit('didFinishLaunching')
+    await new Promise(resolve => setTimeout(resolve, 100))
     
     const onChar = accessory.getService().getCharacteristic()
     const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as (value: boolean, callback: () => void) => Promise<void>
@@ -962,13 +1038,15 @@ describe('Latency logging', () => {
     mockClient.setBrightness.mockImplementation(() => 
       new Promise(resolve => setTimeout(() => resolve({}), 50)),
     )
+    const device = { id: 'dev-1', name: 'Test Dimmer', model: 'DW6HD', serial: 'ABC123' }
+    mockClient.getDevices.mockResolvedValue([device])
     
     const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
-    const device = { id: 'dev-1', name: 'Test Dimmer', model: 'DW6HD', serial: 'ABC123' }
     const accessory = mockAccessory(device)
+    platform.configureAccessory(accessory)
     
-    await platform.configureAccessory(accessory)
-    await new Promise(resolve => setTimeout(resolve, 50))
+    mockAPI.emit('didFinishLaunching')
+    await new Promise(resolve => setTimeout(resolve, 100))
     
     const onChar = accessory.getService().getCharacteristic()
     const setHandlers = onChar.on.mock.calls.filter((call: [string, unknown]) => call[0] === 'set')
@@ -992,13 +1070,15 @@ describe('Latency logging', () => {
     }
     
     mockClient.setPower.mockResolvedValue({})
+    const device = { id: 'dev-123', name: 'JSON Test', model: 'DW6HD', serial: 'ABC123' }
+    mockClient.getDevices.mockResolvedValue([device])
     
     const platform = new LevitonDecoraSmartPlatform(mockLog, structuredConfig, mockAPI)
-    const device = { id: 'dev-123', name: 'JSON Test', model: 'DW6HD', serial: 'ABC123' }
     const accessory = mockAccessory(device)
+    platform.configureAccessory(accessory)
     
-    await platform.configureAccessory(accessory)
-    await new Promise(resolve => setTimeout(resolve, 50))
+    mockAPI.emit('didFinishLaunching')
+    await new Promise(resolve => setTimeout(resolve, 100))
     
     const onChar = accessory.getService().getCharacteristic()
     const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as (value: boolean, callback: () => void) => Promise<void>
@@ -1038,13 +1118,15 @@ describe('Latency logging', () => {
     mockClient.setPower.mockImplementation(() =>
       new Promise(resolve => setTimeout(() => resolve({}), 20)),
     )
+    const device = { id: 'dev-1', name: 'Latency Test', model: 'DW15S', serial: 'ABC123' }
+    mockClient.getDevices.mockResolvedValue([device])
     
     const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
-    const device = { id: 'dev-1', name: 'Latency Test', model: 'DW15S', serial: 'ABC123' }
     const accessory = mockAccessory(device)
+    platform.configureAccessory(accessory)
     
-    await platform.configureAccessory(accessory)
-    await new Promise(resolve => setTimeout(resolve, 50))
+    mockAPI.emit('didFinishLaunching')
+    await new Promise(resolve => setTimeout(resolve, 100))
     
     const onChar = accessory.getService().getCharacteristic()
     const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as (value: boolean, callback: () => void) => Promise<void>

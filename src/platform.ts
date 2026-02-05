@@ -165,6 +165,10 @@ export class LevitonDecoraSmartPlatform {
     this.log.info('Starting My Leviton Decora Smart platform...')
 
     try {
+      // Clean up any duplicate cache entries before processing
+      // This is defensive - duplicates can occur due to race conditions in older versions
+      this.deduplicateAccessories()
+
       const { devices, loginResponse, residenceId } = await this.discoverDevices()
       
       this.setLoginResponse(loginResponse)
@@ -186,9 +190,26 @@ export class LevitonDecoraSmartPlatform {
       for (const device of devices) {
         if (this.isDeviceExcluded(device, excludedModels, excludedSerials)) {
           excludedCount++
-        } else if (this.accessoryExists(device)) {
+          continue
+        }
+
+        // Check if we have a cached accessory for this device
+        const existingAccessory = this.findAccessoryByDevice(device)
+        
+        if (existingAccessory) {
+          // Update cached accessory with fresh device data and current token
+          existingAccessory.context.device = device
+          existingAccessory.context.token = loginResponse.id
+          
+          // Persist the updated context to cache file
+          this.api.updatePlatformAccessories([existingAccessory])
+          
+          // Setup service handlers (deferred from configureAccessory)
+          await this.setupService(existingAccessory)
+          
           cachedCount++
         } else {
+          // New device - create accessory
           await this.addAccessory(device, loginResponse.id)
           newDevices++
         }
@@ -374,6 +395,10 @@ export class LevitonDecoraSmartPlatform {
       const motionDetected = occupancy === true || motion === true
       motionService.getCharacteristic(hap.Characteristic.MotionDetected).updateValue(motionDetected)
     }
+
+    // Invalidate API cache for this device so next getStatus() fetches fresh data
+    // This ensures cached API responses don't become stale after real-time updates
+    this.client.invalidateDeviceCache(String(payload.id))
   }
 
   /**
@@ -385,22 +410,6 @@ export class LevitonDecoraSmartPlatform {
     }
     return excludedModels.includes(device.model.toUpperCase()) || 
            excludedSerials.includes(device.serial.toUpperCase())
-  }
-
-  /**
-   * Checks if accessory already exists by serial number
-   * Normalizes both values to strings for comparison (API may return different types)
-   */
-  private accessoryExists(device: DeviceInfo): boolean {
-    const deviceSerial = String(device.serial || '').trim().toUpperCase()
-    const match = this.accessories.find(acc => {
-      const cachedSerial = String(acc.context?.device?.serial || '').trim().toUpperCase()
-      return cachedSerial === deviceSerial
-    })
-    if (!match) {
-      this.log.debug(`No cached accessory found for ${device.name} (serial: ${device.serial})`)
-    }
-    return !!match
   }
 
   /**
@@ -440,11 +449,78 @@ export class LevitonDecoraSmartPlatform {
 
   /**
    * Configures a cached accessory
+   * 
+   * IMPORTANT: This must be synchronous. Homebridge calls this for each cached
+   * accessory and does NOT await the result. If this were async with awaits,
+   * the accessories array would be incomplete when didFinishLaunching fires,
+   * causing race conditions where devices are incorrectly added as "new".
+   * 
+   * Service setup is deferred to initialize() after deduplication.
    */
-  async configureAccessory(accessory: PlatformAccessory): Promise<void> {
+  configureAccessory(accessory: PlatformAccessory): void {
     this.log.debug(`Configuring cached accessory: ${accessory.displayName}`)
-    await this.setupService(accessory)
     this.accessories.push(accessory)
+  }
+
+  /**
+   * Removes duplicate cache entries (same UUID appearing multiple times)
+   * 
+   * This is a defensive cleanup that runs on every startup. Duplicates can occur
+   * due to race conditions in older versions or cache file corruption. Since
+   * duplicates share the same UUID, HomeKit only sees one accessory - removing
+   * the extra cache entries has no user-visible effect.
+   * 
+   * @returns Number of duplicate entries removed
+   */
+  private deduplicateAccessories(): number {
+    const seen = new Set<string>()
+    const duplicates: PlatformAccessory[] = []
+    const unique: PlatformAccessory[] = []
+
+    for (const accessory of this.accessories) {
+      // Skip accessories without a valid UUID (shouldn't happen, but defensive)
+      if (!accessory.UUID) {
+        this.log.warn(`Skipping accessory without UUID: ${accessory.displayName}`)
+        continue
+      }
+
+      if (seen.has(accessory.UUID)) {
+        duplicates.push(accessory)
+        this.log.debug(`Duplicate cache entry: "${accessory.displayName}" (UUID: ${accessory.UUID})`)
+      } else {
+        seen.add(accessory.UUID)
+        unique.push(accessory)
+      }
+    }
+
+    if (duplicates.length > 0) {
+      // Unregister duplicates from Homebridge (removes from cache file)
+      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, duplicates)
+      
+      // Update our array to only contain unique accessories
+      this.accessories.length = 0
+      this.accessories.push(...unique)
+      
+      this.log.info(`Removed ${duplicates.length} duplicate cache entries (${unique.length} unique accessories)`)
+    }
+
+    return duplicates.length
+  }
+
+  /**
+   * Finds a cached accessory matching the given device by serial number
+   * Uses case-insensitive comparison for robustness
+   */
+  private findAccessoryByDevice(device: DeviceInfo): PlatformAccessory | undefined {
+    const deviceSerial = String(device.serial || '').trim().toUpperCase()
+    if (!deviceSerial) {
+      return undefined
+    }
+    
+    return this.accessories.find(acc => {
+      const cachedSerial = String(acc.context?.device?.serial || '').trim().toUpperCase()
+      return cachedSerial === deviceSerial
+    })
   }
 
   /**
@@ -785,29 +861,35 @@ export class LevitonDecoraSmartPlatform {
 
   /**
    * Polls all devices for updates
+   * 
+   * This is a fallback mechanism when WebSocket updates are unavailable.
+   * Fetches actual device status from the API for each accessory.
    */
   private async pollDevices(): Promise<void> {
     if (!this.residenceId) {
       return
     }
 
-    try {
-      const devices = await this.withTokenRetry(async () => {
-        const token = await this.ensureValidToken()
-        return this.client.getDevices(this.residenceId as string, token)
-      })
-      
-      for (const device of devices) {
-        if (device?.id) {
-          this.handleWebSocketUpdate({
-            id: device.id,
-            power: (device as unknown as DeviceStatus).power,
-            brightness: (device as unknown as DeviceStatus).brightness,
-          })
-        }
+    // Poll each accessory's device for current status
+    for (const accessory of this.accessories) {
+      const device = accessory.context?.device
+      if (!device?.id) {
+        continue
       }
-    } catch (err) {
-      this.log.debug(`Polling error: ${sanitizeError(err)}`)
+
+      try {
+        // Fetch actual device status from API
+        const status = await this.getStatus(device)
+        
+        // Update HomeKit with current state
+        this.handleWebSocketUpdate({
+          id: device.id,
+          power: status.power,
+          brightness: status.brightness,
+        })
+      } catch (err) {
+        this.log.debug(`Polling error for ${device.name}: ${sanitizeError(err)}`)
+      }
     }
   }
 

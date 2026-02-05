@@ -29,7 +29,7 @@ Control your **My Leviton Decora Smart** WiFi devices through Apple HomeKit usin
 - **Token Auto-Refresh** — Seamless authentication management
 
 ### Quality
-- **400+ Tests** — Comprehensive test suite with 95%+ code coverage
+- **437 Tests** — Comprehensive test suite with 95%+ code coverage
 - **Child Bridge Support** — Run as isolated bridge for maximum stability
 - **Flexible Logging** — Debug, info, warn, error levels + JSON structured logs
 - **No Analytics** — Zero tracking or data collection
