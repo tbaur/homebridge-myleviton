@@ -315,7 +315,7 @@ homebridge-myleviton/
 │   └── types/            # Type definitions
 ├── dist/                 # Compiled JavaScript
 ├── tests/
-│   └── unit/*.test.ts    # Unit tests (400+ tests)
+│   └── unit/*.test.ts    # Unit tests (437 tests)
 └── config.schema.json    # Homebridge UI config schema
 ```
 
