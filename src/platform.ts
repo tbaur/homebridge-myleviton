@@ -864,6 +864,9 @@ export class LevitonDecoraSmartPlatform {
    * 
    * This is a fallback mechanism when WebSocket updates are unavailable.
    * Fetches actual device status from the API for each accessory.
+   * 
+   * IMPORTANT: On API failure, we preserve current HomeKit state rather than
+   * updating with fallback values. This prevents incorrect state during outages.
    */
   private async pollDevices(): Promise<void> {
     if (!this.residenceId) {
@@ -878,17 +881,21 @@ export class LevitonDecoraSmartPlatform {
       }
 
       try {
-        // Fetch actual device status from API
-        const status = await this.getStatus(device)
+        // Fetch actual device status from API (bypass getStatus to avoid fallback values)
+        const status = await this.withTokenRetry(async () => {
+          const token = await this.ensureValidToken()
+          return this.client.getDeviceStatus(device.id, token)
+        })
         
-        // Update HomeKit with current state
+        // Only update HomeKit if we got real data from API
         this.handleWebSocketUpdate({
           id: device.id,
           power: status.power,
           brightness: status.brightness,
         })
       } catch (err) {
-        this.log.debug(`Polling error for ${device.name}: ${sanitizeError(err)}`)
+        // On API failure, preserve current HomeKit state - don't update with fallback values
+        this.log.debug(`Polling skipped for ${device.name}: ${sanitizeError(err)}`)
       }
     }
   }
