@@ -150,6 +150,9 @@ export declare class LevitonDecoraSmartPlatform {
      *
      * This is a fallback mechanism when WebSocket updates are unavailable.
      * Fetches actual device status from the API for each accessory.
+     *
+     * IMPORTANT: On API failure, we preserve current HomeKit state rather than
+     * updating with fallback values. This prevents incorrect state during outages.
      */
     private pollDevices;
     /**
