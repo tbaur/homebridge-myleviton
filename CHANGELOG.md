@@ -5,6 +5,28 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.2] - 2026-02-08
+
+### Fixed
+- **Fixed "plugin slows down Homebridge" warnings for On and Brightness characteristics**
+  - Removed slow `on('get')` handlers that made HTTP API calls on every HomeKit read
+  - Homebridge now returns cached values set by `updateValue()`, kept current by WebSocket push updates and polling
+  - Eliminates all network calls during HomeKit reads, making responses instantaneous
+- **Fixed WebSocket/polling updates dropping power state for switches and outlets**
+  - When a payload included `brightness` for a non-dimmer device, an early `return` skipped the power state update
+  - Switch and outlet devices could silently stop updating during polling cycles
+- **Fixed double API call during motion dimmer setup**
+  - `setupMotionDimmerService` was calling `getStatus()` twice (once internally via `setupLightbulbService`, once directly)
+  - Now reuses the status returned by `setupLightbulbService`, halving startup API calls for motion dimmers
+- **Fixed WebSocket ignoring `motion` field in device notifications**
+  - The `motion` field from Leviton API notifications was silently dropped
+  - Now forwarded alongside `occupancy` for motion sensor dimmer devices (D2MSD)
+
+### Removed
+- `createPowerGetter` and `createBrightnessGetter` methods (no longer needed with push-based state)
+
+---
+
 ## [3.4.1] - 2026-02-05
 
 ### Fixed

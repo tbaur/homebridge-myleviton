@@ -12,7 +12,7 @@ Developer documentation for homebridge-myleviton.
 │  │  • LevitonDecoraSmartPlatform class                 │  │
 │  │  • Device discovery & accessory management          │  │
 │  │  • HomeKit service setup (Lightbulb, Fan, etc.)     │  │
-│  │  • Characteristic handlers (get/set power, etc.)    │  │
+│  │  • Characteristic handlers (set power/brightness)    │  │
 │  └──────────────────────┬──────────────────────────────┘  │
 │                         │                                 │
 │  ┌──────────────────────▼──────────────────────────────┐  │
@@ -62,7 +62,7 @@ homebridge-myleviton/
 ├── dist/                 # Compiled JavaScript (auto-generated)
 ├── tests/
 │   ├── setup.js          # Jest setup
-│   └── unit/             # Unit tests (437 tests, 95%+ coverage)
+│   └── unit/             # Unit tests (446 tests, 95%+ coverage)
 │       └── *.test.ts
 ├── config.schema.json    # Homebridge UI configuration schema
 ├── package.json          # Dependencies and scripts
@@ -98,10 +98,8 @@ setupFanService(accessory, device, token)
 setupBasicService(accessory, device, token, ServiceType)
 setupMotionDimmerService(accessory, device, token)
 
-// Characteristic Handlers
-createPowerGetter(device)
+// Characteristic Handlers (set only — state pushed via updateValue)
 createPowerSetter(device)
-createBrightnessGetter(device)
 createBrightnessSetter(device)
 
 // Real-time Updates
@@ -269,13 +267,15 @@ const SWITCH_MODELS = ['DW15S', 'D215S', 'NEW_MODEL']
 2. **If new service type needed**, add setup function:
 
 ```typescript
-private async setupNewService(accessory: PlatformAccessory, device: DeviceInfo, token: string): Promise<void> {
-  const status = await this.getStatus(device, token)
+private async setupNewService(accessory: PlatformAccessory, device: DeviceInfo): Promise<void> {
+  const status = await this.getStatus(device)
   const service = accessory.getService(hap.Service.NewType, device.name) ||
                   accessory.addService(hap.Service.NewType, device.name)
   
+  // No 'get' handler — value kept current by WebSocket + polling via updateValue()
   const char = service.getCharacteristic(hap.Characteristic.X)
-  char.on('get', this.createXGetter(device))
+  char.removeAllListeners('get')
+  char.removeAllListeners('set')
   char.on('set', this.createXSetter(device))
   char.updateValue(status.x)
 }

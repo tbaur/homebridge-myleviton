@@ -302,11 +302,9 @@ class LevitonDecoraSmartPlatform {
                 currentBrightness = lightService.getCharacteristic(hap.Characteristic.Brightness).value;
                 lightService.getCharacteristic(hap.Characteristic.Brightness).updateValue(newBrightness);
             }
-            else {
-                return;
-            }
+            // No else — switches/outlets don't have brightness, just skip to power update
             // Log brightness change if different and not from recent HomeKit command
-            if (currentBrightness !== undefined && currentBrightness !== newBrightness) {
+            if (newBrightness !== undefined && currentBrightness !== undefined && currentBrightness !== newBrightness) {
                 const lastCommandTime = device?.id ? this.recentHomeKitCommands.get(device.id) : undefined;
                 const isRecentCommand = lastCommandTime && (Date.now() - lastCommandTime) < 5000; // 5 second window
                 if (!isRecentCommand) {
@@ -503,6 +501,7 @@ class LevitonDecoraSmartPlatform {
     }
     /**
      * Sets up a lightbulb service
+     * @returns The device status used for initialization (allows callers to reuse it)
      */
     async setupLightbulbService(accessory, device) {
         const status = await this.getStatus(device);
@@ -515,14 +514,16 @@ class LevitonDecoraSmartPlatform {
         const rawBrightness = typeof status.brightness === 'number' ? status.brightness : 0;
         const safeBrightness = rawBrightness < minBrightness ? minBrightness : rawBrightness;
         // Setup On characteristic
+        // No 'get' handler — Homebridge returns the cached value set by updateValue(),
+        // which is kept current by WebSocket push updates and polling fallback.
         const onChar = service.getCharacteristic(hap.Characteristic.On);
         onChar.removeAllListeners('get');
         onChar.removeAllListeners('set');
-        onChar.on('get', this.createPowerGetter(device));
         onChar.on('set', this.createPowerSetter(device));
         onChar.updateValue(status.power === POWER_ON);
         // Setup Brightness characteristic
         // Use getCharacteristic which always returns a valid Characteristic object
+        // No 'get' handler — value kept current by WebSocket + polling via updateValue()
         const brightnessChar = service.getCharacteristic(hap.Characteristic.Brightness);
         // For cached accessories, update value to safe minimum BEFORE setting restrictive props
         // This prevents HAP validation error when cached value (e.g., 0) violates new minValue
@@ -530,15 +531,15 @@ class LevitonDecoraSmartPlatform {
         brightnessChar.setProps({ minValue: minBrightness, maxValue: maxBrightness, minStep: 1 });
         brightnessChar.removeAllListeners('get');
         brightnessChar.removeAllListeners('set');
-        brightnessChar.on('get', this.createBrightnessGetter(device, minBrightness));
         brightnessChar.on('set', this.createBrightnessSetter(device));
+        return status;
     }
     /**
      * Sets up a motion dimmer service
      */
     async setupMotionDimmerService(accessory, device) {
-        await this.setupLightbulbService(accessory, device);
-        const status = await this.getStatus(device);
+        // Reuse the status returned by setupLightbulbService to avoid a second API call
+        const status = await this.setupLightbulbService(accessory, device);
         const motionService = accessory.getService(hap.Service.MotionSensor) ||
             accessory.addService(hap.Service.MotionSensor, `${device.name} Motion`);
         motionService
@@ -552,19 +553,18 @@ class LevitonDecoraSmartPlatform {
         const status = await this.getStatus(device);
         const service = accessory.getService(hap.Service.Fan, device.name) ||
             accessory.addService(hap.Service.Fan, device.name);
-        // Setup On characteristic
+        // Setup On characteristic — no 'get' handler, value kept current by WebSocket + polling
         const onChar = service.getCharacteristic(hap.Characteristic.On);
         onChar.removeAllListeners('get');
         onChar.removeAllListeners('set');
-        onChar.on('get', this.createPowerGetter(device));
         onChar.on('set', this.createPowerSetter(device));
         onChar.updateValue(status.power === POWER_ON);
         // Setup RotationSpeed characteristic - set props before value
+        // No 'get' handler — value kept current by WebSocket + polling via updateValue()
         const speedChar = service.getCharacteristic(hap.Characteristic.RotationSpeed);
         speedChar.setProps({ minValue: 0, maxValue: status.maxLevel || 100, minStep: status.minLevel || 1 });
         speedChar.removeAllListeners('get');
         speedChar.removeAllListeners('set');
-        speedChar.on('get', this.createBrightnessGetter(device, 0)); // Fans allow 0
         speedChar.on('set', this.createBrightnessSetter(device));
         speedChar.updateValue(status.brightness || 0);
     }
@@ -576,30 +576,12 @@ class LevitonDecoraSmartPlatform {
         const service = accessory.getService(ServiceType, device.name) ||
             accessory.addService(ServiceType, device.name);
         // Remove existing listeners to prevent stacking on cached accessories
+        // No 'get' handler — value kept current by WebSocket + polling via updateValue()
         const onChar = service.getCharacteristic(hap.Characteristic.On);
         onChar.removeAllListeners('get');
         onChar.removeAllListeners('set');
-        onChar.on('get', this.createPowerGetter(device));
         onChar.on('set', this.createPowerSetter(device));
         onChar.updateValue(status.power === POWER_ON);
-    }
-    /**
-     * Creates a power getter handler
-     */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    createPowerGetter(device) {
-        return async (callback) => {
-            try {
-                const status = await this.withTokenRetry(async () => {
-                    const token = await this.ensureValidToken();
-                    return this.client.getDeviceStatus(device.id, token);
-                });
-                callback(null, status.power === POWER_ON);
-            }
-            catch (err) {
-                callback(new Error((0, sanitizers_1.sanitizeError)(err)));
-            }
-        };
     }
     /**
      * Creates a power setter handler
@@ -622,26 +604,6 @@ class LevitonDecoraSmartPlatform {
                     duration: latency,
                 });
                 callback();
-            }
-            catch (err) {
-                callback(new Error((0, sanitizers_1.sanitizeError)(err)));
-            }
-        };
-    }
-    /**
-     * Creates a brightness getter handler
-     * @param device - Device info
-     * @param minValue - Minimum brightness value (0 for fans, 1 for dimmers)
-     */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    createBrightnessGetter(device, minValue = 1) {
-        return async (callback) => {
-            try {
-                const status = await this.withTokenRetry(async () => {
-                    const token = await this.ensureValidToken();
-                    return this.client.getDeviceStatus(device.id, token);
-                });
-                callback(null, Math.max(minValue, status.brightness ?? 0));
             }
             catch (err) {
                 callback(new Error((0, sanitizers_1.sanitizeError)(err)));
