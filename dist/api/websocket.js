@@ -293,8 +293,11 @@ class LevitonWebSocket {
         if (notificationData.occupancy !== undefined) {
             payload.occupancy = notificationData.occupancy;
         }
+        if (notificationData.motion !== undefined) {
+            payload.motion = notificationData.motion;
+        }
         // Only callback if we have meaningful data
-        if (payload.power !== undefined || payload.brightness !== undefined || payload.occupancy !== undefined) {
+        if (payload.power !== undefined || payload.brightness !== undefined || payload.occupancy !== undefined || payload.motion !== undefined) {
             this.logger.debug(`Device update: ${payload.id} power=${payload.power} brightness=${payload.brightness}`);
             this.callback(payload);
         }

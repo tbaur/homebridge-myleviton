@@ -625,9 +625,9 @@ describe('Characteristic handlers for all device types', () => {
     jest.clearAllMocks()
   })
 
-  describe('Power getter for all device types', () => {
+  describe('No get handlers registered (push-based state via WebSocket + polling)', () => {
     ALL_CONTROLLABLE_MODELS.forEach(model => {
-      it(`should get power state for ${model}`, async () => {
+      it(`should NOT register a power get handler for ${model} (value set via updateValue)`, async () => {
         const { mockLog, mockAPI, mockClient } = setupMocks()
         mockClient.getDeviceStatus.mockResolvedValue({ power: 'ON', brightness: 50 })
         const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
@@ -642,15 +642,10 @@ describe('Characteristic handlers for all device types', () => {
         
         const service = accessory.getService()
         const onChar = service.getCharacteristic()
-        const getHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'get')?.[1] as (callback: (err: Error | null, value?: boolean) => void) => Promise<void>
+        const getHandlerCalls = onChar.on.mock.calls.filter((call: [string, unknown]) => call[0] === 'get')
         
-        if (getHandler) {
-          const callback = jest.fn()
-          await getHandler(callback)
-          
-          expect(mockClient.getDeviceStatus).toHaveBeenCalledWith(device.id, 'test-token')
-          expect(callback).toHaveBeenCalledWith(null, true)
-        }
+        // No get handlers should be registered — state is pushed via updateValue()
+        expect(getHandlerCalls.length).toBe(0)
       })
     })
   })
@@ -684,11 +679,11 @@ describe('Characteristic handlers for all device types', () => {
     })
   })
 
-  describe('Brightness getter for dimmers and fan', () => {
+  describe('Brightness characteristic for dimmers and fan (no get handler)', () => {
     const modelsWithBrightness = [...ALL_DIMMER_MODELS, ...FAN_MODELS]
     
     modelsWithBrightness.forEach(model => {
-      it(`should register brightness getter for ${model}`, async () => {
+      it(`should NOT register brightness get handler for ${model} (value set via updateValue)`, async () => {
         const { mockLog, mockAPI, mockClient } = setupMocks()
         mockClient.getDeviceStatus.mockResolvedValue({ power: 'ON', brightness: 75, minLevel: 1, maxLevel: 100 })
         const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
@@ -704,9 +699,11 @@ describe('Characteristic handlers for all device types', () => {
         const service = accessory.getService()
         const brightnessChar = service.getCharacteristic()
         
-        // Verify a 'get' handler was registered
+        // No get handlers should be registered — state is pushed via updateValue()
         const getHandlerCalls = brightnessChar.on.mock.calls.filter((call: [string, unknown]) => call[0] === 'get')
-        expect(getHandlerCalls.length).toBeGreaterThan(0)
+        expect(getHandlerCalls.length).toBe(0)
+        
+        // Initial status should still be fetched to set the initial value
         expect(mockClient.getDeviceStatus).toHaveBeenCalledWith(device.id, 'test-token')
       })
     })
@@ -884,6 +881,32 @@ describe('WebSocket update handling for all device types', () => {
         handleUpdate({ id: device.id, brightness: 75 })
         
         expect(characteristic.updateValue).toHaveBeenCalledWith(75)
+      })
+    })
+  })
+
+  describe('Power updates for switches/outlets with brightness in payload', () => {
+    const switchOutletModels = [...SWITCH_MODELS, ...OUTLET_MODELS]
+    
+    switchOutletModels.forEach(model => {
+      it(`should still update power for ${model} when brightness is also in payload`, () => {
+        const device = { id: 'dev-1', name: 'Test Device', model, serial: 'ABC123' }
+        const serviceType = OUTLET_MODELS.includes(model) ? 'Outlet' : 'Switch'
+        
+        const { accessory, characteristic } = createAccessoryWithService(device, serviceType)
+        characteristic.value = false
+        
+        // Add accessory to platform
+        const platformAccessories = (platform as unknown as { accessories: unknown[] }).accessories
+        platformAccessories.push(accessory)
+        
+        // Send update with BOTH brightness and power — brightness should be ignored for switches,
+        // but power update must NOT be dropped (regression test for early-return bug)
+        const handleUpdate = (platform as unknown as { handleWebSocketUpdate: (payload: { id: string; power: string; brightness: number }) => void }).handleWebSocketUpdate.bind(platform)
+        handleUpdate({ id: device.id, power: 'ON', brightness: 50 })
+        
+        // Power should have been updated despite brightness being in the payload
+        expect(characteristic.updateValue).toHaveBeenCalledWith(true)
       })
     })
   })

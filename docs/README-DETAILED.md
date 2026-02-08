@@ -198,7 +198,7 @@ Debug logs show:
 - API requests and responses
 - WebSocket connection events
 - Device discovery details
-- Characteristic get/set operations
+- Characteristic set operations
 
 ### Common Issues
 
@@ -315,7 +315,7 @@ homebridge-myleviton/
 │   └── types/            # Type definitions
 ├── dist/                 # Compiled JavaScript
 ├── tests/
-│   └── unit/*.test.ts    # Unit tests (437 tests)
+│   └── unit/*.test.ts    # Unit tests (446 tests)
 └── config.schema.json    # Homebridge UI config schema
 ```
 

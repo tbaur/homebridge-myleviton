@@ -345,6 +345,59 @@ describe('LevitonWebSocket', () => {
       ws.close()
     })
 
+    it('should call callback on notification with motion data', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+      )
+
+      ws.connect()
+      const mock = getLastMockInstance()
+      mock.triggerOpen()
+      mock.triggerMessage({
+        type: 'notification',
+        notification: {
+          modelId: 'dev1',
+          data: { motion: true },
+        },
+      })
+
+      expect(mockCallback).toHaveBeenCalledWith({
+        id: 'dev1',
+        motion: true,
+      })
+      ws.close()
+    })
+
+    it('should call callback on notification with occupancy and motion data', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+      )
+
+      ws.connect()
+      const mock = getLastMockInstance()
+      mock.triggerOpen()
+      mock.triggerMessage({
+        type: 'notification',
+        notification: {
+          modelId: 'dev1',
+          data: { occupancy: true, motion: false },
+        },
+      })
+
+      expect(mockCallback).toHaveBeenCalledWith({
+        id: 'dev1',
+        occupancy: true,
+        motion: false,
+      })
+      ws.close()
+    })
+
     it('should handle unknown message types gracefully', () => {
       const ws = new LevitonWebSocket(
         loginResponse,

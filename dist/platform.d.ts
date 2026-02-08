@@ -89,6 +89,7 @@ export declare class LevitonDecoraSmartPlatform {
     private getStatus;
     /**
      * Sets up a lightbulb service
+     * @returns The device status used for initialization (allows callers to reuse it)
      */
     private setupLightbulbService;
     /**
@@ -104,19 +105,9 @@ export declare class LevitonDecoraSmartPlatform {
      */
     private setupBasicService;
     /**
-     * Creates a power getter handler
-     */
-    private createPowerGetter;
-    /**
      * Creates a power setter handler
      */
     private createPowerSetter;
-    /**
-     * Creates a brightness getter handler
-     * @param device - Device info
-     * @param minValue - Minimum brightness value (0 for fans, 1 for dimmers)
-     */
-    private createBrightnessGetter;
     /**
      * Creates a brightness setter handler
      */
