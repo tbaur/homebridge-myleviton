@@ -1173,4 +1173,123 @@ describe('Latency logging', () => {
       }
     }
   })
+
+  describe('polling reliability', () => {
+    it('should skip overlapping poll cycles when previous cycle is still running', async () => {
+      jest.useFakeTimers()
+      const { mockLog, mockAPI } = setupMocks()
+      const platform = new LevitonDecoraSmartPlatform(
+        mockLog,
+        { ...validConfig, pollInterval: 10 },
+        mockAPI,
+      )
+
+      let resolvePoll: (() => void) | undefined
+      const pollPromise = new Promise<void>(resolve => {
+        resolvePoll = resolve
+      })
+
+      const internals = platform as unknown as {
+        residenceId: string | null
+        pollDevices: jest.Mock<Promise<void>, []>
+        startPolling: () => void
+        cleanup: () => void
+      }
+      internals.residenceId = 'residence-123'
+      internals.pollDevices = jest.fn().mockReturnValue(pollPromise)
+
+      internals.startPolling()
+      jest.advanceTimersByTime(10000)
+      jest.advanceTimersByTime(10000)
+
+      expect(internals.pollDevices).toHaveBeenCalledTimes(1)
+
+      resolvePoll?.()
+      await Promise.resolve()
+      internals.cleanup()
+      jest.useRealTimers()
+    })
+
+    it('should poll devices with bounded concurrency and continue after failures', async () => {
+      const { mockLog, mockAPI, mockClient } = setupMocks()
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+
+      const devices = Array.from({ length: 6 }, (_, index) => ({
+        id: `dev-${index + 1}`,
+        name: `Device ${index + 1}`,
+        model: 'DW15S',
+        serial: `SER-${index + 1}`,
+      }))
+
+      let activeRequests = 0
+      let maxConcurrentRequests = 0
+
+      mockClient.getDeviceStatus.mockImplementation((deviceId: string) => {
+        activeRequests++
+        maxConcurrentRequests = Math.max(maxConcurrentRequests, activeRequests)
+
+        return new Promise((resolve, reject) => {
+          setTimeout(() => {
+            activeRequests--
+            if (deviceId === 'dev-2') {
+              reject(new Error('device unavailable'))
+              return
+            }
+            resolve({ power: 'ON', brightness: 50, minLevel: 1, maxLevel: 100 })
+          }, 5)
+        })
+      })
+
+      const internals = platform as unknown as {
+        currentLoginResponse: { id: string; userId: string; ttl: number } | null
+        residenceId: string | null
+        accessories: Array<{ context: { device: { id: string; name: string } } }>
+        pollDevices: () => Promise<void>
+      }
+      internals.currentLoginResponse = { id: 'token-123', userId: 'user-123', ttl: -1 }
+      internals.residenceId = 'residence-123'
+      internals.accessories = devices.map(device => ({ context: { device } }))
+
+      await internals.pollDevices()
+      expect(mockClient.getDeviceStatus).toHaveBeenCalledTimes(6)
+      expect(maxConcurrentRequests).toBeLessThanOrEqual(4)
+    })
+  })
+
+  describe('refreshToken cooldown', () => {
+    it('should throttle repeated refresh attempts after a failed login', async () => {
+      const { mockLog, mockAPI, mockClient } = setupMocks()
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+
+      mockClient.login.mockRejectedValue(new Error('upstream login failed'))
+
+      const internals = platform as unknown as {
+        refreshToken: () => Promise<unknown>
+      }
+
+      await expect(internals.refreshToken()).rejects.toThrow('upstream login failed')
+      await expect(internals.refreshToken()).rejects.toThrow('temporarily throttled')
+      expect(mockClient.login).toHaveBeenCalledTimes(1)
+    })
+
+    it('should allow refresh retry after cooldown window', async () => {
+      const { mockLog, mockAPI, mockClient } = setupMocks()
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+
+      mockClient.login
+        .mockRejectedValueOnce(new Error('upstream login failed'))
+        .mockResolvedValueOnce({ id: 'new-token', userId: 'user-123', ttl: 1200 })
+
+      const internals = platform as unknown as {
+        refreshToken: () => Promise<{ id: string }>
+        lastRefreshFailureAt: number | null
+      }
+
+      await expect(internals.refreshToken()).rejects.toThrow('upstream login failed')
+      internals.lastRefreshFailureAt = Date.now() - 11_000
+
+      await expect(internals.refreshToken()).resolves.toMatchObject({ id: 'new-token' })
+      expect(mockClient.login).toHaveBeenCalledTimes(2)
+    })
+  })
 })

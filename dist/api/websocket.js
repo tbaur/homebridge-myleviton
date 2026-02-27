@@ -77,6 +77,7 @@ class LevitonWebSocket {
     callback;
     reconnectAttempt = 0;
     timers = [];
+    reconnectTimer = null;
     pingTimer = null;
     isConnecting = false;
     isClosed = false;
@@ -181,6 +182,7 @@ class LevitonWebSocket {
         this.ws.on('open', () => {
             clearTimeout(connectionTimeout);
             this.removeTimer(connectionTimeout);
+            this.reconnectTimer = null;
             isOpen = true;
             this.isConnecting = false;
             this.reconnectAttempt = 0;
@@ -309,6 +311,9 @@ class LevitonWebSocket {
         if (this.isClosed) {
             return;
         }
+        if (this.reconnectTimer) {
+            return;
+        }
         if (this.reconnectAttempt >= this.config.maxReconnectAttempts) {
             this.logger.warn(`WebSocket unavailable after ${this.config.maxReconnectAttempts} attempts`);
             return;
@@ -316,9 +321,15 @@ class LevitonWebSocket {
         const delay = Math.min(this.config.initialReconnectDelay * Math.pow(2, this.reconnectAttempt), this.config.maxReconnectDelay);
         this.logger.info(`WebSocket reconnecting in ${Math.round(delay / 1000)}s (${this.reconnectAttempt + 1}/${this.config.maxReconnectAttempts})`);
         const timer = setTimeout(() => {
+            this.removeTimer(timer);
+            this.reconnectTimer = null;
+            if (this.isClosed) {
+                return;
+            }
             this.reconnectAttempt++;
             this.connect();
         }, delay);
+        this.reconnectTimer = timer;
         this.timers.push(timer);
     }
     /**
@@ -338,6 +349,7 @@ class LevitonWebSocket {
             clearTimeout(timer);
         }
         this.timers = [];
+        this.reconnectTimer = null;
         if (this.pingTimer) {
             clearInterval(this.pingTimer);
             this.pingTimer = null;

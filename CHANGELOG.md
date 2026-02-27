@@ -5,6 +5,28 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.3] - 2026-02-26
+
+### Fixed
+- **Fixed overlapping polling cycles under slow API responses**
+  - Added an in-flight polling guard so interval ticks skip while a previous poll cycle is still running
+  - Prevents concurrent poll storms and reduces stale/out-of-order update risk
+- **Fixed sequential polling bottleneck for larger device sets**
+  - `pollDevices()` now uses bounded concurrency workers instead of strict serial polling
+  - Preserves per-device error isolation and current-state preservation behavior on failures
+- **Fixed token refresh retry storms after login failures**
+  - Added short refresh-failure cooldown to prevent repeated immediate login attempts during auth/API outages
+  - Keeps existing token refresh deduplication and 2FA poison-guard behavior intact
+- **Fixed potential duplicate WebSocket reconnect scheduling**
+  - Added single-flight reconnect timer tracking to ensure only one reconnect is pending at a time
+  - Reconnect timer state now resets correctly on successful connect and explicit close
+
+### Changed
+- Expanded reliability regression coverage for polling, token refresh cooldown, and WebSocket reconnect deduplication
+- Added targeted tests for overlap prevention, bounded polling concurrency, reconnect single-flight behavior, and close-time reconnect cancellation
+
+---
+
 ## [3.4.2] - 2026-02-08
 
 ### Fixed

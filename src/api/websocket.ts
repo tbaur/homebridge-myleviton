@@ -106,6 +106,7 @@ export class LevitonWebSocket {
 
   private reconnectAttempt = 0
   private timers: ReturnType<typeof setTimeout>[] = []
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private pingTimer: ReturnType<typeof setInterval> | null = null
   private isConnecting = false
   private isClosed = false
@@ -226,6 +227,7 @@ export class LevitonWebSocket {
     this.ws.on('open', () => {
       clearTimeout(connectionTimeout)
       this.removeTimer(connectionTimeout)
+      this.reconnectTimer = null
       isOpen = true
       this.isConnecting = false
       this.reconnectAttempt = 0
@@ -375,6 +377,7 @@ export class LevitonWebSocket {
    */
   private scheduleReconnect(): void {
     if (this.isClosed) {return}
+    if (this.reconnectTimer) {return}
 
     if (this.reconnectAttempt >= this.config.maxReconnectAttempts) {
       this.logger.warn(`WebSocket unavailable after ${this.config.maxReconnectAttempts} attempts`)
@@ -389,10 +392,16 @@ export class LevitonWebSocket {
     this.logger.info(`WebSocket reconnecting in ${Math.round(delay / 1000)}s (${this.reconnectAttempt + 1}/${this.config.maxReconnectAttempts})`)
 
     const timer = setTimeout(() => {
+      this.removeTimer(timer)
+      this.reconnectTimer = null
+      if (this.isClosed) {
+        return
+      }
       this.reconnectAttempt++
       this.connect()
     }, delay)
 
+    this.reconnectTimer = timer
     this.timers.push(timer)
   }
 
@@ -414,6 +423,7 @@ export class LevitonWebSocket {
       clearTimeout(timer)
     }
     this.timers = []
+    this.reconnectTimer = null
     
     if (this.pingTimer) {
       clearInterval(this.pingTimer)

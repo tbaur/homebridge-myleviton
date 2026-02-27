@@ -21,8 +21,10 @@ export declare class LevitonDecoraSmartPlatform {
     private currentLoginResponse;
     private tokenExpiresAt;
     private tokenRefreshPromise;
+    private lastRefreshFailureAt;
     private webSocket;
     private pollingInterval;
+    private isPolling;
     private residenceId;
     private devicePersistence;
     private cleanupInterval;

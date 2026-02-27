@@ -667,6 +667,77 @@ describe('LevitonWebSocket', () => {
       )
       ws.close()
     })
+
+    it('should schedule only one reconnect for repeated close/error sequences', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+        { maxReconnectAttempts: 3, initialReconnectDelay: 100, maxReconnectDelay: 1000 },
+      )
+
+      ws.connect()
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(1)
+
+      const mock = getLastMockInstance()
+      mock.triggerOpen()
+      mock.triggerError('socket error')
+      mock.triggerClose(1006, '')
+      mock.triggerClose(1006, '')
+
+      jest.advanceTimersByTime(150)
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(2)
+      ws.close()
+    })
+
+    it('should reset reconnect scheduling after successful reconnection', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+        { maxReconnectAttempts: 3, initialReconnectDelay: 100, maxReconnectDelay: 1000 },
+      )
+
+      ws.connect()
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(1)
+
+      const first = getLastMockInstance()
+      first.triggerOpen()
+      first.triggerClose(1006, '')
+      jest.advanceTimersByTime(150)
+
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(2)
+      const second = getLastMockInstance()
+      second.triggerOpen()
+      second.triggerClose(1006, '')
+      jest.advanceTimersByTime(150)
+
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(3)
+      ws.close()
+    })
+
+    it('should cancel pending reconnect when closed by user', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+        { maxReconnectAttempts: 3, initialReconnectDelay: 100, maxReconnectDelay: 1000 },
+      )
+
+      ws.connect()
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(1)
+
+      const mock = getLastMockInstance()
+      mock.triggerOpen()
+      mock.triggerClose(1006, '')
+      ws.close()
+
+      jest.advanceTimersByTime(500)
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(1)
+    })
   })
 })
 

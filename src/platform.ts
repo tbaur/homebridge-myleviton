@@ -35,6 +35,8 @@ const POWER_OFF: PowerState = 'OFF'
 
 // Token refresh buffer (refresh a few minutes before expiry)
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000
+const TOKEN_REFRESH_FAILURE_COOLDOWN_MS = 10 * 1000
+const POLL_DEVICE_CONCURRENCY = 4
 
 // Device model arrays for type checking
 const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710']
@@ -71,12 +73,14 @@ export class LevitonDecoraSmartPlatform {
   private currentLoginResponse: LoginResponse | null = null
   private tokenExpiresAt: number | null = null
   private tokenRefreshPromise: Promise<LoginResponse> | null = null
+  private lastRefreshFailureAt: number | null = null
   
   // WebSocket connection
   private webSocket: LevitonWebSocket | null = null
   
   // Polling
   private pollingInterval: ReturnType<typeof setInterval> | null = null
+  private isPolling = false
   private residenceId: string | null = null
   
   // Device persistence
@@ -760,7 +764,7 @@ export class LevitonDecoraSmartPlatform {
       if (err instanceof AuthenticationError) {
         this.log.warn('Authentication failed, refreshing token and retrying...')
         await this.refreshToken()
-        return operation()
+        return await operation()
       }
       throw err
     }
@@ -785,6 +789,15 @@ export class LevitonDecoraSmartPlatform {
       return this.tokenRefreshPromise
     }
 
+    if (
+      this.lastRefreshFailureAt !== null &&
+      Date.now() - this.lastRefreshFailureAt < TOKEN_REFRESH_FAILURE_COOLDOWN_MS
+    ) {
+      const remainingMs = TOKEN_REFRESH_FAILURE_COOLDOWN_MS - (Date.now() - this.lastRefreshFailureAt)
+      this.log.debug(`Token refresh throttled after recent failure (${Math.ceil(remainingMs / 1000)}s remaining)`)
+      throw new AuthenticationError('Token refresh temporarily throttled after recent failure')
+    }
+
     this.tokenRefreshPromise = (async () => {
       const loginResponse = await this.client.login(this.config.email, this.config.password)
       this.setLoginResponse(loginResponse)
@@ -802,12 +815,16 @@ export class LevitonDecoraSmartPlatform {
         this.webSocket.connect()
       }
 
+      this.lastRefreshFailureAt = null
       this.log.info('Token refreshed successfully')
       return loginResponse
     })()
 
     try {
       return await this.tokenRefreshPromise
+    } catch (err) {
+      this.lastRefreshFailureAt = Date.now()
+      throw err
     } finally {
       this.tokenRefreshPromise = null
     }
@@ -820,7 +837,21 @@ export class LevitonDecoraSmartPlatform {
     const intervalSeconds = this.config.pollInterval ?? this.config.pollingInterval ?? 30
     const interval = Math.max(intervalSeconds * 1000, 10000)
     
-    this.pollingInterval = setInterval(() => this.pollDevices(), interval)
+    this.pollingInterval = setInterval(async () => {
+      if (this.isPolling) {
+        this.log.debug('Skipping poll tick because previous poll cycle is still running')
+        return
+      }
+
+      this.isPolling = true
+      try {
+        await this.pollDevices()
+      } catch (err) {
+        this.log.debug(`Polling cycle failed: ${sanitizeError(err)}`)
+      } finally {
+        this.isPolling = false
+      }
+    }, interval)
   }
 
   /**
@@ -837,13 +868,11 @@ export class LevitonDecoraSmartPlatform {
       return
     }
 
-    // Poll each accessory's device for current status
-    for (const accessory of this.accessories) {
-      const device = accessory.context?.device
-      if (!device?.id) {
-        continue
-      }
+    const pollTargets = this.accessories
+      .map(accessory => accessory.context?.device)
+      .filter((device): device is DeviceInfo => Boolean(device?.id))
 
+    const pollSingleDevice = async (device: DeviceInfo): Promise<void> => {
       try {
         // Fetch actual device status from API (bypass getStatus to avoid fallback values)
         const status = await this.withTokenRetry(async () => {
@@ -862,6 +891,23 @@ export class LevitonDecoraSmartPlatform {
         this.log.debug(`Polling skipped for ${device.name}: ${sanitizeError(err)}`)
       }
     }
+
+    if (pollTargets.length === 0) {
+      return
+    }
+
+    const workerCount = Math.min(POLL_DEVICE_CONCURRENCY, pollTargets.length)
+    let nextIndex = 0
+
+    const workers = Array.from({ length: workerCount }, async () => {
+      // Shared index keeps worker fan-out bounded while still parallelizing requests.
+      while (nextIndex < pollTargets.length) {
+        const currentIndex = nextIndex++
+        await pollSingleDevice(pollTargets[currentIndex])
+      }
+    })
+
+    await Promise.all(workers)
   }
 
   /**

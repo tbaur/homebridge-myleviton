@@ -57,6 +57,7 @@ export declare class LevitonWebSocket {
     private callback;
     private reconnectAttempt;
     private timers;
+    private reconnectTimer;
     private pingTimer;
     private isConnecting;
     private isClosed;
