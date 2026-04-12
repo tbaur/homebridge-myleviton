@@ -25,7 +25,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.VERSION = exports.default = exports.LevitonDecoraSmartPlatform = void 0;
+exports.default = exports.LevitonDecoraSmartPlatform = void 0;
 // Re-export everything
 __exportStar(require("./types"), exports);
 __exportStar(require("./errors"), exports);
@@ -37,6 +37,4 @@ Object.defineProperty(exports, "LevitonDecoraSmartPlatform", { enumerable: true,
 // Default export for Homebridge plugin registration
 var platform_2 = require("./platform");
 Object.defineProperty(exports, "default", { enumerable: true, get: function () { return __importDefault(platform_2).default; } });
-// Export version
-exports.VERSION = '3.3.0';
 //# sourceMappingURL=index.js.map

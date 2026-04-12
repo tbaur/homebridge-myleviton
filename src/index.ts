@@ -19,6 +19,3 @@ export { LevitonDecoraSmartPlatform } from './platform'
 // Default export for Homebridge plugin registration
 export { default } from './platform'
 
-// Export version
-export const VERSION = '3.3.0'
-
