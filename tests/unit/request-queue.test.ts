@@ -123,9 +123,8 @@ describe('RequestQueue', () => {
       const results = await Promise.all([promise1, promise2])
       
       expect(results[0]).toBe('result')
-      // Second request may return the same promise or a different result
-      // depending on timing - just verify it doesn't throw
-      expect(callCount).toBeLessThanOrEqual(2)
+      expect(results[1]).toBe('result')
+      expect(callCount).toBe(1)
     })
   })
 

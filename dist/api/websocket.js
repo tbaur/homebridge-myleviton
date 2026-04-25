@@ -193,9 +193,9 @@ class LevitonWebSocket {
             isOpen = false;
             this.isConnecting = false;
             const reasonStr = reason?.toString() || '';
-            // Normal close
-            if (code === 1000) {
-                this.logger.debug('WebSocket closed normally');
+            // Closed externally
+            if (this.isClosed) {
+                this.logger.debug('WebSocket closed by user');
                 return;
             }
             // Auth failure - don't reconnect
@@ -203,9 +203,10 @@ class LevitonWebSocket {
                 this.logger.warn(`WebSocket auth failed: ${reasonStr}`);
                 return;
             }
-            // Closed externally
-            if (this.isClosed) {
-                this.logger.debug('WebSocket closed by user');
+            // Remote normal closes still require reconnecting to preserve push updates.
+            if (code === 1000) {
+                this.logger.info('WebSocket closed normally by remote');
+                this.scheduleReconnect();
                 return;
             }
             const codeDesc = CLOSE_CODES[code] || 'unknown';

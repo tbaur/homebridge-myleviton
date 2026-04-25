@@ -418,12 +418,13 @@ describe('LevitonWebSocket', () => {
   })
 
   describe('close handling', () => {
-    it('should handle normal close', () => {
+    it('should reconnect after remote normal close', () => {
       const ws = new LevitonWebSocket(
         loginResponse,
         devices,
         mockCallback,
         mockLogger,
+        { maxReconnectAttempts: 2, initialReconnectDelay: 100 },
       )
 
       ws.connect()
@@ -431,9 +432,12 @@ describe('LevitonWebSocket', () => {
       mock.triggerOpen()
       mock.triggerClose(1000, '')
 
-      expect(mockLogger.debug).toHaveBeenCalledWith(
-        expect.stringContaining('closed'),
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.stringContaining('closed normally'),
       )
+      jest.advanceTimersByTime(150)
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(2)
+      ws.close()
     })
 
     it('should handle auth failure close', () => {

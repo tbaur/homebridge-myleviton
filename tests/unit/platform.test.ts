@@ -452,6 +452,30 @@ describe('LevitonDecoraSmartPlatform', () => {
       
       expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('1 excluded'))
     })
+
+    it('should remove cached accessories for excluded devices', async () => {
+      const device = { id: 'dev-1', name: 'Excluded Dimmer', model: 'DW6HD', serial: 'ABC123' }
+      mockClient.getDevices.mockResolvedValue([device])
+
+      const configWithExclusions: LevitonConfig = {
+        ...validConfig,
+        excludedSerials: ['ABC123'],
+      }
+
+      const platform = new LevitonDecoraSmartPlatform(mockLog, configWithExclusions, mockAPI)
+      const accessory = mockAccessory(device)
+      platform.configureAccessory(accessory)
+
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      expect(mockAPI.unregisterPlatformAccessories).toHaveBeenCalledWith(
+        'homebridge-myleviton',
+        'MyLevitonDecoraSmart',
+        [accessory],
+      )
+      expect((platform as unknown as { accessories: unknown[] }).accessories).not.toContain(accessory)
+    })
   })
 
   describe('brightness handling', () => {
@@ -475,6 +499,44 @@ describe('LevitonDecoraSmartPlatform', () => {
       
       const service = accessory.getService()
       expect(service.getCharacteristic).toHaveBeenCalledWith('Brightness')
+    })
+
+    it('should preserve current HomeKit state when status fetch fails during setup', async () => {
+      mockClient.getDeviceStatus.mockRejectedValue(new Error('temporary outage'))
+
+      const device = { id: 'dev-1', name: 'Cached Light', model: 'DW6HD', serial: 'ABC123' }
+      mockClient.getDevices.mockResolvedValue([device])
+
+      const onChar = mockCharacteristic()
+      onChar.value = true
+      const brightnessChar = mockCharacteristic()
+      brightnessChar.value = 42
+      const service = mockService()
+      service.getCharacteristic = jest.fn((characteristic: string) => {
+        if (characteristic === 'On') {
+          return onChar
+        }
+        if (characteristic === 'Brightness') {
+          return brightnessChar
+        }
+        return mockCharacteristic()
+      })
+
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const accessory = mockAccessory(device)
+      accessory.getService = jest.fn((serviceType: string) => {
+        if (serviceType === 'Lightbulb') {
+          return service
+        }
+        return mockService()
+      })
+      platform.configureAccessory(accessory)
+
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      expect(onChar.updateValue).toHaveBeenCalledWith(true)
+      expect(brightnessChar.updateValue).toHaveBeenCalledWith(42)
     })
   })
 

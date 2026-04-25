@@ -179,6 +179,10 @@ class LevitonDecoraSmartPlatform {
             let cachedCount = 0;
             for (const device of devices) {
                 if (this.isDeviceExcluded(device, excludedModels, excludedSerials)) {
+                    const existingAccessory = this.findAccessoryByDevice(device);
+                    if (existingAccessory) {
+                        this.removeCachedAccessory(existingAccessory);
+                    }
                     excludedCount++;
                     continue;
                 }
@@ -453,6 +457,16 @@ class LevitonDecoraSmartPlatform {
         });
     }
     /**
+     * Removes an accessory from Homebridge cache and local tracking
+     */
+    removeCachedAccessory(accessory) {
+        this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+        const index = this.accessories.indexOf(accessory);
+        if (index !== -1) {
+            this.accessories.splice(index, 1);
+        }
+    }
+    /**
      * Sets up the appropriate service for a device
      */
     async setupService(accessory) {
@@ -491,26 +505,63 @@ class LevitonDecoraSmartPlatform {
     /**
      * Gets device status with error handling
      */
-    async getStatus(device) {
+    async getStatus(device, fallbackStatus) {
         try {
-            return await this.withTokenRetry(async () => {
+            const status = await this.withTokenRetry(async () => {
                 const token = await this.ensureValidToken();
                 return this.client.getDeviceStatus(device.id, token);
             });
+            this.devicePersistence.updateFromStatus(device.id, status);
+            return status;
         }
         catch (err) {
             this.log.error(`Failed to get status for ${device.name}: ${(0, sanitizers_1.sanitizeError)(err)}`);
+            if (fallbackStatus) {
+                return fallbackStatus;
+            }
+            const cachedStatus = this.devicePersistence.getCachedStatus(device.id);
+            if (cachedStatus) {
+                return {
+                    minLevel: 1,
+                    maxLevel: 100,
+                    ...cachedStatus,
+                };
+            }
             return { power: POWER_OFF, brightness: 0, minLevel: 1, maxLevel: 100 };
         }
+    }
+    /**
+     * Captures the current HomeKit state before reconfiguring a cached accessory.
+     */
+    getCurrentServiceStatus(service, levelCharacteristic) {
+        const onValue = service.getCharacteristic(hap.Characteristic.On).value;
+        if (typeof onValue !== 'boolean') {
+            return undefined;
+        }
+        const status = {
+            power: onValue ? POWER_ON : POWER_OFF,
+            minLevel: 1,
+            maxLevel: 100,
+        };
+        if (levelCharacteristic) {
+            const levelValue = service.getCharacteristic(levelCharacteristic).value;
+            if (typeof levelValue === 'number' && Number.isFinite(levelValue)) {
+                status.brightness = levelValue;
+            }
+        }
+        return status;
     }
     /**
      * Sets up a lightbulb service
      * @returns The device status used for initialization (allows callers to reuse it)
      */
     async setupLightbulbService(accessory, device) {
-        const status = await this.getStatus(device);
-        const service = accessory.getService(hap.Service.Lightbulb, device.name) ||
-            accessory.addService(hap.Service.Lightbulb, device.name);
+        const existingService = accessory.getService(hap.Service.Lightbulb, device.name);
+        const fallbackStatus = existingService
+            ? this.getCurrentServiceStatus(existingService, hap.Characteristic.Brightness)
+            : undefined;
+        const status = await this.getStatus(device, fallbackStatus);
+        const service = existingService || accessory.addService(hap.Service.Lightbulb, device.name);
         // Calculate valid brightness range
         const minBrightness = status.minLevel || 1;
         const maxBrightness = status.maxLevel || 100;
@@ -554,9 +605,12 @@ class LevitonDecoraSmartPlatform {
      * Sets up a fan service
      */
     async setupFanService(accessory, device) {
-        const status = await this.getStatus(device);
-        const service = accessory.getService(hap.Service.Fan, device.name) ||
-            accessory.addService(hap.Service.Fan, device.name);
+        const existingService = accessory.getService(hap.Service.Fan, device.name);
+        const fallbackStatus = existingService
+            ? this.getCurrentServiceStatus(existingService, hap.Characteristic.RotationSpeed)
+            : undefined;
+        const status = await this.getStatus(device, fallbackStatus);
+        const service = existingService || accessory.addService(hap.Service.Fan, device.name);
         // Setup On characteristic — no 'get' handler, value kept current by WebSocket + polling
         const onChar = service.getCharacteristic(hap.Characteristic.On);
         onChar.removeAllListeners('get');
@@ -576,9 +630,12 @@ class LevitonDecoraSmartPlatform {
      * Sets up a basic switch/outlet service
      */
     async setupBasicService(accessory, device, ServiceType) {
-        const status = await this.getStatus(device);
-        const service = accessory.getService(ServiceType, device.name) ||
-            accessory.addService(ServiceType, device.name);
+        const existingService = accessory.getService(ServiceType, device.name);
+        const fallbackStatus = existingService
+            ? this.getCurrentServiceStatus(existingService)
+            : undefined;
+        const status = await this.getStatus(device, fallbackStatus);
+        const service = existingService || accessory.addService(ServiceType, device.name);
         // Remove existing listeners to prevent stacking on cached accessories
         // No 'get' handler — value kept current by WebSocket + polling via updateValue()
         const onChar = service.getCharacteristic(hap.Characteristic.On);

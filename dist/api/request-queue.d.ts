@@ -30,6 +30,7 @@ export declare class RequestQueue {
     private readonly requestTimeout;
     private queue;
     private inFlight;
+    private dedupePromises;
     private processing;
     constructor(config?: Partial<RequestQueueConfig>);
     /**

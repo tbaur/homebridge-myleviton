@@ -241,9 +241,9 @@ export class LevitonWebSocket {
 
       const reasonStr = reason?.toString() || ''
 
-      // Normal close
-      if (code === 1000) {
-        this.logger.debug('WebSocket closed normally')
+      // Closed externally
+      if (this.isClosed) {
+        this.logger.debug('WebSocket closed by user')
         return
       }
 
@@ -253,9 +253,10 @@ export class LevitonWebSocket {
         return
       }
 
-      // Closed externally
-      if (this.isClosed) {
-        this.logger.debug('WebSocket closed by user')
+      // Remote normal closes still require reconnecting to preserve push updates.
+      if (code === 1000) {
+        this.logger.info('WebSocket closed normally by remote')
+        this.scheduleReconnect()
         return
       }
 

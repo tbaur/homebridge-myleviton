@@ -82,6 +82,10 @@ export declare class LevitonDecoraSmartPlatform {
      */
     private findAccessoryByDevice;
     /**
+     * Removes an accessory from Homebridge cache and local tracking
+     */
+    private removeCachedAccessory;
+    /**
      * Sets up the appropriate service for a device
      */
     private setupService;
@@ -89,6 +93,10 @@ export declare class LevitonDecoraSmartPlatform {
      * Gets device status with error handling
      */
     private getStatus;
+    /**
+     * Captures the current HomeKit state before reconfiguring a cached accessory.
+     */
+    private getCurrentServiceStatus;
     /**
      * Sets up a lightbulb service
      * @returns The device status used for initialization (allows callers to reuse it)

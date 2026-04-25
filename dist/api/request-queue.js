@@ -26,6 +26,7 @@ class RequestQueue {
     requestTimeout;
     queue = [];
     inFlight = new Map();
+    dedupePromises = new Map();
     processing = false;
     constructor(config = {}) {
         const merged = { ...exports.DEFAULT_REQUEST_QUEUE_CONFIG, ...config };
@@ -56,15 +57,15 @@ class RequestQueue {
      */
     add(execute, options = {}) {
         const { priority = 'normal', dedupeKey } = options;
-        // Check for duplicate in-flight request
-        if (dedupeKey && this.inFlight.has(dedupeKey)) {
-            return this.inFlight.get(dedupeKey);
+        // Check for duplicate queued or in-flight request
+        if (dedupeKey && this.dedupePromises.has(dedupeKey)) {
+            return this.dedupePromises.get(dedupeKey);
         }
         // Check queue size limit
         if (this.isFull) {
             return Promise.reject(new Error('Request queue is full'));
         }
-        return new Promise((resolve, reject) => {
+        const promise = new Promise((resolve, reject) => {
             const request = {
                 id: dedupeKey || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                 priority,
@@ -76,6 +77,11 @@ class RequestQueue {
             this.enqueue(request);
             this.processQueue();
         });
+        if (dedupeKey) {
+            this.dedupePromises.set(dedupeKey, promise);
+            promise.then(() => this.dedupePromises.delete(dedupeKey), () => this.dedupePromises.delete(dedupeKey));
+        }
+        return promise;
     }
     /**
      * Insert request into queue by priority
@@ -151,6 +157,7 @@ class RequestQueue {
     clear() {
         // Reject all pending requests
         for (const request of this.queue) {
+            this.dedupePromises.delete(request.id);
             request.reject(new Error('Request queue cleared'));
         }
         this.queue = [];
