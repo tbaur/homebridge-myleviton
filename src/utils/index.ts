@@ -26,6 +26,7 @@ export {
   sanitizeError,
   sanitizeString,
   sanitizeHapName,
+  isValidHapName,
   sanitizeObject,
   truncate,
   maskToken,

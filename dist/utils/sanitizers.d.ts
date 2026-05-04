@@ -15,7 +15,14 @@ export declare function sanitizeError(err: unknown): string;
  */
 export declare function sanitizeString(str: string): string;
 /**
- * Sanitize a HomeKit accessory/service name for Homebridge 2 / HAP-NodeJS validation.
+ * Returns true if the supplied string already passes HAP-NodeJS Name validation.
+ * Exposed primarily so callers can avoid redundant work on already-clean inputs.
+ */
+export declare function isValidHapName(name: string): boolean;
+/**
+ * Sanitize a HomeKit accessory/service name to satisfy Homebridge 2 / HAP-NodeJS
+ * Name validation. Disallowed characters are replaced with a space so words stay
+ * separated, then leading/trailing punctuation is trimmed.
  */
 export declare function sanitizeHapName(name: string, fallback?: string): string;
 /**

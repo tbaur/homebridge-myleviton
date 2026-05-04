@@ -9,6 +9,7 @@ import {
   sanitizeError,
   sanitizeString,
   sanitizeHapName,
+  isValidHapName,
   sanitizeObject,
   truncate,
   maskToken,
@@ -79,12 +80,57 @@ describe('sanitizeHapName', () => {
     expect(sanitizeHapName("Tom's Office Light")).toBe("Tom's Office Light")
   })
 
+  it('should preserve U+2019 right single quotation marks', () => {
+    expect(sanitizeHapName('Tom\u2019s Office Light')).toBe('Tom\u2019s Office Light')
+  })
+
+  it('should preserve commas, periods, and hyphens allowed by HAP-NodeJS', () => {
+    expect(sanitizeHapName('Den, Light 1')).toBe('Den, Light 1')
+    expect(sanitizeHapName('Hallway - Sconce')).toBe('Hallway - Sconce')
+    expect(sanitizeHapName('Lab v1.2 Light')).toBe('Lab v1.2 Light')
+  })
+
   it('should ensure names start and end with alphanumeric characters', () => {
     expect(sanitizeHapName('# Front Porch!')).toBe('Front Porch')
   })
 
+  it('should pass through names that already satisfy HAP validation unchanged', () => {
+    expect(sanitizeHapName('Living Room Lamp')).toBe('Living Room Lamp')
+  })
+
+  it('should truncate names longer than 64 characters and keep them HAP-valid', () => {
+    const longName = 'A'.repeat(80)
+    const result = sanitizeHapName(longName)
+
+    expect(result.length).toBeLessThanOrEqual(64)
+    expect(isValidHapName(result)).toBe(true)
+  })
+
   it('should use fallback when no valid characters remain', () => {
     expect(sanitizeHapName('###', 'Unknown Device')).toBe('Unknown Device')
+  })
+
+  it('should use fallback for empty or non-string input', () => {
+    expect(sanitizeHapName('', 'Unknown Device')).toBe('Unknown Device')
+    expect(sanitizeHapName(undefined as unknown as string, 'Unknown Device')).toBe('Unknown Device')
+  })
+})
+
+describe('isValidHapName', () => {
+  it('should accept HAP-compliant names', () => {
+    expect(isValidHapName('Primary Bedroom Sconce 1')).toBe(true)
+    expect(isValidHapName("Tom's Office Light")).toBe(true)
+    expect(isValidHapName('Hallway - Sconce')).toBe(true)
+  })
+
+  it('should reject names with invalid characters', () => {
+    expect(isValidHapName('Primary Bedroom Sconce #1')).toBe(false)
+    expect(isValidHapName('!Front Porch')).toBe(false)
+    expect(isValidHapName('Front Porch!')).toBe(false)
+  })
+
+  it('should reject empty input', () => {
+    expect(isValidHapName('')).toBe(false)
   })
 })
 

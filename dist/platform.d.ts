@@ -59,11 +59,18 @@ export declare class LevitonDecoraSmartPlatform {
      */
     private getHapDeviceName;
     /**
+     * Updates an accessory's display name on both the PlatformAccessory wrapper
+     * and the underlying HAP Accessory. Homebridge serializes the wrapper field
+     * but the HAP Accessory.displayName is what HAP-NodeJS validates at construction
+     * during cache deserialization, so both must stay in sync.
+     */
+    private updateAccessoryDisplayName;
+    /**
      * Keeps cached Homebridge metadata aligned with the latest Leviton device record.
      */
     private syncAccessoryMetadata;
     /**
-     * Configures a cached accessory
+     * Configures a cached accessory.
      *
      * IMPORTANT: This must be synchronous. Homebridge calls this for each cached
      * accessory and does NOT await the result. If this were async with awaits,
@@ -71,8 +78,21 @@ export declare class LevitonDecoraSmartPlatform {
      * causing race conditions where devices are incorrectly added as "new".
      *
      * Service setup is deferred to initialize() after deduplication.
+     *
+     * Cache name normalization: the HAP-NodeJS warning about invalid 'Name'
+     * characteristics is emitted by the Accessory constructor at cache deserialize
+     * time (see HAP-NodeJS Accessory.ts checkName() call in the constructor),
+     * which runs *before* this hook. We can't suppress the very first warning, but
+     * by sanitizing every cached field that feeds the next deserialize cycle and
+     * persisting the cache via api.updatePlatformAccessories() synchronously here,
+     * subsequent restarts will see clean names and emit no warning.
      */
     configureAccessory(accessory: PlatformAccessory): void;
+    /**
+     * Sanitizes every name surface on a cached accessory and persists the cache
+     * file synchronously so the next restart loads HAP-valid values.
+     */
+    private normalizeCachedAccessoryNames;
     /**
      * Removes duplicate cache entries (same UUID appearing multiple times)
      *

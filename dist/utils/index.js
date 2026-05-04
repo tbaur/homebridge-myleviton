@@ -8,7 +8,7 @@
  * @fileoverview Utility exports
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEFAULT_LOG_LEVEL = exports.LOG_LEVELS = exports.createStructuredLogger = exports.createLogger = exports.StructuredLogger = exports.LeveledLogger = exports.CONSERVATIVE_RETRY_POLICY = exports.AGGRESSIVE_RETRY_POLICY = exports.DEFAULT_RETRY_POLICY = exports.calculateBackoffDelay = exports.sleep = exports.withRetryContext = exports.withRetryAndTimeout = exports.makeRetryable = exports.withRetry = exports.sanitizeStackTrace = exports.createResponsePreview = exports.maskToken = exports.truncate = exports.sanitizeObject = exports.sanitizeHapName = exports.sanitizeString = exports.sanitizeError = exports.validateNonEmptyArray = exports.assertDefined = exports.validateConfig = exports.validateBrightness = exports.validatePowerState = exports.validateToken = exports.validateSerial = exports.validateDeviceId = exports.validatePassword = exports.validateEmail = void 0;
+exports.DEFAULT_LOG_LEVEL = exports.LOG_LEVELS = exports.createStructuredLogger = exports.createLogger = exports.StructuredLogger = exports.LeveledLogger = exports.CONSERVATIVE_RETRY_POLICY = exports.AGGRESSIVE_RETRY_POLICY = exports.DEFAULT_RETRY_POLICY = exports.calculateBackoffDelay = exports.sleep = exports.withRetryContext = exports.withRetryAndTimeout = exports.makeRetryable = exports.withRetry = exports.sanitizeStackTrace = exports.createResponsePreview = exports.maskToken = exports.truncate = exports.sanitizeObject = exports.isValidHapName = exports.sanitizeHapName = exports.sanitizeString = exports.sanitizeError = exports.validateNonEmptyArray = exports.assertDefined = exports.validateConfig = exports.validateBrightness = exports.validatePowerState = exports.validateToken = exports.validateSerial = exports.validateDeviceId = exports.validatePassword = exports.validateEmail = void 0;
 // Validators
 var validators_1 = require("./validators");
 Object.defineProperty(exports, "validateEmail", { enumerable: true, get: function () { return validators_1.validateEmail; } });
@@ -26,6 +26,7 @@ var sanitizers_1 = require("./sanitizers");
 Object.defineProperty(exports, "sanitizeError", { enumerable: true, get: function () { return sanitizers_1.sanitizeError; } });
 Object.defineProperty(exports, "sanitizeString", { enumerable: true, get: function () { return sanitizers_1.sanitizeString; } });
 Object.defineProperty(exports, "sanitizeHapName", { enumerable: true, get: function () { return sanitizers_1.sanitizeHapName; } });
+Object.defineProperty(exports, "isValidHapName", { enumerable: true, get: function () { return sanitizers_1.isValidHapName; } });
 Object.defineProperty(exports, "sanitizeObject", { enumerable: true, get: function () { return sanitizers_1.sanitizeObject; } });
 Object.defineProperty(exports, "truncate", { enumerable: true, get: function () { return sanitizers_1.truncate; } });
 Object.defineProperty(exports, "maskToken", { enumerable: true, get: function () { return sanitizers_1.maskToken; } });

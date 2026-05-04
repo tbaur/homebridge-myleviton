@@ -53,19 +53,46 @@ export function sanitizeString(str: string): string {
 
 const HAP_NAME_MAX_LENGTH = 64
 
+// Mirrors HAP-NodeJS's allowed character set for the Name characteristic:
+// https://github.com/homebridge/HAP-NodeJS/blob/master/src/lib/util/checkName.ts
+// Allowed: Unicode letters/numbers, spaces, ASCII apostrophe, U+2019 (right single
+// quotation mark), comma, period, and hyphen. The accessory must start and end
+// with a letter, number, or U+2019.
+const HAP_NAME_ALLOWED_INTERIOR = /[^\p{L}\p{N}\u2019 '.,-]+/gu
+const HAP_NAME_TRIM_BOUNDARY = /^[^\p{L}\p{N}\u2019]+|[^\p{L}\p{N}\u2019]+$/gu
+const HAP_NAME_VALID = /^[\p{L}\p{N}][\p{L}\p{N}\u2019 '.,-]*[\p{L}\p{N}\u2019]$/u
+
 /**
- * Sanitize a HomeKit accessory/service name for Homebridge 2 / HAP-NodeJS validation.
+ * Returns true if the supplied string already passes HAP-NodeJS Name validation.
+ * Exposed primarily so callers can avoid redundant work on already-clean inputs.
+ */
+export function isValidHapName(name: string): boolean {
+  return typeof name === 'string' && HAP_NAME_VALID.test(name)
+}
+
+/**
+ * Sanitize a HomeKit accessory/service name to satisfy Homebridge 2 / HAP-NodeJS
+ * Name validation. Disallowed characters are replaced with a space so words stay
+ * separated, then leading/trailing punctuation is trimmed.
  */
 export function sanitizeHapName(name: string, fallback = 'Leviton Device'): string {
+  if (typeof name !== 'string' || name.length === 0) {
+    return fallback
+  }
+
+  if (isValidHapName(name) && name.length <= HAP_NAME_MAX_LENGTH) {
+    return name
+  }
+
   const sanitized = name
-    .replace(/[^\p{L}\p{N} ']+/gu, ' ')
+    .replace(HAP_NAME_ALLOWED_INTERIOR, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')
+    .replace(HAP_NAME_TRIM_BOUNDARY, '')
 
   const validName = sanitized || fallback
   const truncated = validName.slice(0, HAP_NAME_MAX_LENGTH).trim()
-  const trimmed = truncated.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')
+  const trimmed = truncated.replace(HAP_NAME_TRIM_BOUNDARY, '')
 
   return trimmed || fallback
 }

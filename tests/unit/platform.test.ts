@@ -261,7 +261,79 @@ describe('LevitonDecoraSmartPlatform', () => {
       expect(accessory.displayName).toBe('Primary Bedroom Sconce 1')
       expect(infoService.setCharacteristic).toHaveBeenCalledWith('Name', 'Primary Bedroom Sconce 1')
       expect(lightService.setCharacteristic).toHaveBeenCalledWith('Name', 'Primary Bedroom Sconce 1')
+    })
+
+    it('should persist sanitized cache via updatePlatformAccessories synchronously', () => {
+      // Regression: HAP-NodeJS emits the invalid 'Name' warning during cache
+      // deserialization (Accessory constructor), so the only way to silence it
+      // on subsequent restarts is to flush a sanitized cache file synchronously
+      // from configureAccessory before initialize() runs.
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const device = { id: 'dev-1', name: 'Primary Bedroom Sconce #1', model: 'DW6HD', serial: 'ABC123' }
+      const accessory = mockAccessory(device)
+
+      platform.configureAccessory(accessory)
+
+      expect(mockAPI.updatePlatformAccessories).toHaveBeenCalledWith([accessory])
+      expect(accessory.context.device.name).toBe('Primary Bedroom Sconce 1')
+    })
+
+    it('should sanitize cached displayName even when context.device.name is missing', () => {
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const accessory = {
+        displayName: 'Primary Bedroom Sconce #1',
+        UUID: 'myleviton-orphan',
+        context: {},
+        getService: jest.fn().mockReturnValue(mockService()),
+        addService: jest.fn().mockReturnValue(mockService()),
+      }
+
+      platform.configureAccessory(accessory as unknown as ReturnType<typeof mockAccessory>)
+
+      expect(accessory.displayName).toBe('Primary Bedroom Sconce 1')
+      expect(mockAPI.updatePlatformAccessories).toHaveBeenCalledWith([accessory])
+    })
+
+    it('should not persist when cached name is already HAP-valid', () => {
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const device = { id: 'dev-1', name: 'Primary Bedroom Sconce 1', model: 'DW6HD', serial: 'ABC123' }
+      const accessory = mockAccessory(device)
+
+      platform.configureAccessory(accessory)
+
+      expect(accessory.displayName).toBe('Primary Bedroom Sconce 1')
       expect(mockAPI.updatePlatformAccessories).not.toHaveBeenCalled()
+    })
+
+    it('should propagate sanitized name to underlying HAP Accessory when present', () => {
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const device = { id: 'dev-1', name: 'Primary Bedroom Sconce #1', model: 'DW6HD', serial: 'ABC123' }
+      const hapAccessory = { displayName: 'Primary Bedroom Sconce #1' }
+      const accessory = {
+        ...mockAccessory(device),
+        _associatedHAPAccessory: hapAccessory,
+      }
+
+      platform.configureAccessory(accessory as unknown as ReturnType<typeof mockAccessory>)
+
+      expect(hapAccessory.displayName).toBe('Primary Bedroom Sconce 1')
+    })
+
+    it('should prefer accessory.updateDisplayName when provided by Homebridge', () => {
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const device = { id: 'dev-1', name: 'Primary Bedroom Sconce #1', model: 'DW6HD', serial: 'ABC123' }
+      const updateDisplayName = jest.fn(function (this: { displayName: string }, value: string) {
+        this.displayName = value
+      })
+      const accessory = {
+        ...mockAccessory(device),
+        updateDisplayName,
+      }
+
+      platform.configureAccessory(accessory as unknown as ReturnType<typeof mockAccessory>)
+
+      expect(updateDisplayName).toHaveBeenCalledWith('Primary Bedroom Sconce 1')
+      expect(accessory.displayName).toBe('Primary Bedroom Sconce 1')
     })
   })
 

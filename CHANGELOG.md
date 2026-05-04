@@ -5,6 +5,25 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.6] - 2026-05-04
+
+### Fixed
+- **Fixed persistent HAP-NodeJS `invalid 'Name' characteristic` warnings on every restart**
+  - The warning is emitted by HAP-NodeJS during cache deserialization (`Accessory` constructor), which runs *before* `configureAccessory()` and *before* `didFinishLaunching`. Earlier versions sanitized in memory but never persisted the cleaned cache file synchronously, so the bad `displayName` field on disk re-triggered the warning every restart.
+  - `configureAccessory()` now sanitizes the cached `displayName` from whatever Homebridge deserialized (rather than only `context.device.name`), normalizes `context.device.name`, and immediately calls `api.updatePlatformAccessories([accessory])` to flush a HAP-valid cache file synchronously. After the upgrade restart, subsequent restarts emit no warnings.
+  - Accessory display name updates now propagate to the underlying HAP `Accessory.displayName` (via `PlatformAccessory.updateDisplayName()` when available, with a fallback for older runtimes), so the value HAP-NodeJS validates and HomeKit advertises stays in sync with the wrapper.
+- **Fixed `sanitizeHapName` over-stripping characters HAP actually allows**
+  - The character class now mirrors HAP-NodeJS `checkName()` exactly: Unicode letters/numbers, space, ASCII apostrophe, U+2019 right single quotation mark, comma, period, and hyphen.
+  - Names that are already HAP-valid pass through unchanged; only invalid characters trigger rewrites and a cache flush.
+
+### Added
+- New `isValidHapName()` helper exported from `src/utils/sanitizers` for callers that want to skip work on already-valid names.
+
+### Changed
+- Regression coverage for `configureAccessory()` now asserts that `api.updatePlatformAccessories` is invoked with the sanitized accessory, that already-valid names skip the rewrite, and that `accessory.updateDisplayName()` is preferred when present.
+
+---
+
 ## [3.4.5] - 2026-05-04
 
 ### Fixed

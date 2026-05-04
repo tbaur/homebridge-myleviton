@@ -454,11 +454,28 @@ export class LevitonDecoraSmartPlatform {
   }
 
   /**
+   * Updates an accessory's display name on both the PlatformAccessory wrapper
+   * and the underlying HAP Accessory. Homebridge serializes the wrapper field
+   * but the HAP Accessory.displayName is what HAP-NodeJS validates at construction
+   * during cache deserialization, so both must stay in sync.
+   */
+  private updateAccessoryDisplayName(accessory: PlatformAccessory, name: string): void {
+    if (typeof accessory.updateDisplayName === 'function') {
+      accessory.updateDisplayName(name)
+      return
+    }
+    accessory.displayName = name
+    if (accessory._associatedHAPAccessory) {
+      accessory._associatedHAPAccessory.displayName = name
+    }
+  }
+
+  /**
    * Keeps cached Homebridge metadata aligned with the latest Leviton device record.
    */
   private syncAccessoryMetadata(accessory: PlatformAccessory, device: DeviceInfo): void {
     const deviceName = this.getHapDeviceName(device)
-    accessory.displayName = deviceName
+    this.updateAccessoryDisplayName(accessory, deviceName)
 
     const infoService = accessory.getService(hap.Service.AccessoryInformation)
     if (infoService) {
@@ -474,23 +491,72 @@ export class LevitonDecoraSmartPlatform {
   }
 
   /**
-   * Configures a cached accessory
-   * 
+   * Configures a cached accessory.
+   *
    * IMPORTANT: This must be synchronous. Homebridge calls this for each cached
    * accessory and does NOT await the result. If this were async with awaits,
    * the accessories array would be incomplete when didFinishLaunching fires,
    * causing race conditions where devices are incorrectly added as "new".
-   * 
+   *
    * Service setup is deferred to initialize() after deduplication.
+   *
+   * Cache name normalization: the HAP-NodeJS warning about invalid 'Name'
+   * characteristics is emitted by the Accessory constructor at cache deserialize
+   * time (see HAP-NodeJS Accessory.ts checkName() call in the constructor),
+   * which runs *before* this hook. We can't suppress the very first warning, but
+   * by sanitizing every cached field that feeds the next deserialize cycle and
+   * persisting the cache via api.updatePlatformAccessories() synchronously here,
+   * subsequent restarts will see clean names and emit no warning.
    */
   configureAccessory(accessory: PlatformAccessory): void {
-    const cachedDevice = accessory.context?.device
-    if (cachedDevice?.name) {
-      this.syncAccessoryMetadata(accessory, cachedDevice)
-    }
-
+    this.normalizeCachedAccessoryNames(accessory)
     this.log.debug(`Configuring cached accessory: ${accessory.displayName}`)
     this.accessories.push(accessory)
+  }
+
+  /**
+   * Sanitizes every name surface on a cached accessory and persists the cache
+   * file synchronously so the next restart loads HAP-valid values.
+   */
+  private normalizeCachedAccessoryNames(accessory: PlatformAccessory): void {
+    const cachedDevice = accessory.context?.device as DeviceInfo | undefined
+    const sourceName =
+      (typeof accessory.displayName === 'string' && accessory.displayName) ||
+      cachedDevice?.name ||
+      ''
+
+    if (!sourceName) {
+      return
+    }
+
+    const sanitizedName = sanitizeHapName(sourceName, 'Leviton Device')
+    const needsRewrite = !cachedDevice
+      ? accessory.displayName !== sanitizedName
+      : (
+          cachedDevice.name !== sanitizedName ||
+          accessory.displayName !== sanitizedName
+        )
+
+    if (cachedDevice) {
+      cachedDevice.name = sanitizedName
+      this.syncAccessoryMetadata(accessory, cachedDevice)
+    } else {
+      this.updateAccessoryDisplayName(accessory, sanitizedName)
+      const infoService = accessory.getService(hap.Service.AccessoryInformation)
+      if (infoService) {
+        infoService.setCharacteristic(hap.Characteristic.Name, sanitizedName)
+      }
+    }
+
+    if (!needsRewrite) {
+      return
+    }
+
+    try {
+      this.api.updatePlatformAccessories([accessory])
+    } catch (err) {
+      this.log.warn(`Failed to persist sanitized cache for ${sanitizedName}: ${sanitizeError(err)}`)
+    }
   }
 
   /**
