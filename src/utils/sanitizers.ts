@@ -51,6 +51,25 @@ export function sanitizeString(str: string): string {
   return result
 }
 
+const HAP_NAME_MAX_LENGTH = 64
+
+/**
+ * Sanitize a HomeKit accessory/service name for Homebridge 2 / HAP-NodeJS validation.
+ */
+export function sanitizeHapName(name: string, fallback = 'Leviton Device'): string {
+  const sanitized = name
+    .replace(/[^\p{L}\p{N} ']+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')
+
+  const validName = sanitized || fallback
+  const truncated = validName.slice(0, HAP_NAME_MAX_LENGTH).trim()
+  const trimmed = truncated.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')
+
+  return trimmed || fallback
+}
+
 /**
  * Sanitize an object by redacting sensitive fields
  */

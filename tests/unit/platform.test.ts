@@ -48,6 +48,7 @@ const mockService = () => ({
   getCharacteristic: jest.fn().mockReturnValue(mockCharacteristic()),
   addCharacteristic: jest.fn().mockReturnThis(),
   testCharacteristic: jest.fn().mockReturnValue(null),
+  setCharacteristic: jest.fn().mockReturnThis(),
 })
 
 const mockAccessory = (device: { id: string; name: string; model: string; serial: string }) => ({
@@ -385,6 +386,48 @@ describe('LevitonDecoraSmartPlatform', () => {
         expect.any(Function),
       )
       expect(mockClient.getDevices).toHaveBeenCalled()
+    })
+
+    it('should sanitize new accessory names for HAP validation', async () => {
+      mockClient.getDevices.mockResolvedValue([
+        { id: 'dev-1', name: 'Primary Bedroom Sconce #1', model: 'DW6HD', serial: 'ABC123' },
+      ])
+
+      new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      mockAPI.emit('didFinishLaunching')
+
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      expect(mockAPI.platformAccessory).toHaveBeenCalledWith('Primary Bedroom Sconce 1', 'uuid-myleviton-ABC123')
+      expect(mockAPI.registerPlatformAccessories).toHaveBeenCalled()
+    })
+
+    it('should sync cached accessory names from Leviton using HAP-safe names', async () => {
+      const device = { id: 'dev-1', name: 'Primary Bedroom Sconce #1', model: 'DW6HD', serial: 'ABC123' }
+      const infoService = mockService()
+      const lightService = mockService()
+      mockClient.getDevices.mockResolvedValue([device])
+
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const accessory = mockAccessory(device)
+      accessory.getService = jest.fn((serviceType: string) => {
+        if (serviceType === 'AccessoryInformation') {
+          return infoService
+        }
+        if (serviceType === 'Lightbulb') {
+          return lightService
+        }
+        return null
+      })
+      platform.configureAccessory(accessory)
+
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      expect(accessory.displayName).toBe('Primary Bedroom Sconce 1')
+      expect(infoService.setCharacteristic).toHaveBeenCalledWith('Name', 'Primary Bedroom Sconce 1')
+      expect(lightService.setCharacteristic).toHaveBeenCalledWith('Name', 'Primary Bedroom Sconce 1')
+      expect(mockAPI.updatePlatformAccessories).toHaveBeenCalledWith([accessory])
     })
 
     it('should pass connectionTimeout to WebSocket config', async () => {

@@ -5,6 +5,30 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.4] - 2026-05-04
+
+### Fixed
+- **Fixed Homebridge 2.0 HAP name validation warnings for Leviton device names**
+  - Accessory and service names are now sanitized before being passed to Homebridge/HAP
+  - Keeps the latest Leviton device name as the source of truth while removing unsupported HomeKit name characters such as `#`
+  - Cached accessories now resync their display name and `AccessoryInformation.Name` on startup so renamed Leviton devices stop warning without manual cache cleanup
+- **Fixed cached accessory cleanup for newly excluded devices**
+  - Accessories already cached by Homebridge are now removed when their model or serial is added to an exclusion list
+- **Fixed startup state resets during temporary Leviton API failures**
+  - Cached accessories now preserve their current HomeKit state when status fetches fail during service setup
+  - Falls back to persisted device state before using default off/zero values
+- **Fixed request queue deduplication for queued requests**
+  - Duplicate requests now share a single queued or in-flight promise instead of only deduping after execution starts
+- **Fixed WebSocket recovery after remote normal closes**
+  - Remote close code `1000` now schedules reconnects so push updates resume automatically
+
+### Changed
+- Added regression coverage for HAP-safe name sanitization and cached accessory name syncing
+- Refreshed development dependency lockfile metadata after audit cleanup
+- Removed the unused package `VERSION` export
+
+---
+
 ## [3.4.3] - 2026-02-26
 
 ### Fixed

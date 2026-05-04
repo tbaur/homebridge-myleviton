@@ -8,6 +8,7 @@
 import {
   sanitizeError,
   sanitizeString,
+  sanitizeHapName,
   sanitizeObject,
   truncate,
   maskToken,
@@ -66,6 +67,24 @@ describe('sanitizeString', () => {
   it('should not redact short IDs', () => {
     const result = sanitizeString('"id": "short"')
     expect(result).toContain('short')
+  })
+})
+
+describe('sanitizeHapName', () => {
+  it('should remove characters rejected by HAP-NodeJS names', () => {
+    expect(sanitizeHapName('Primary Bedroom Sconce #1')).toBe('Primary Bedroom Sconce 1')
+  })
+
+  it('should preserve spaces and apostrophes', () => {
+    expect(sanitizeHapName("Tom's Office Light")).toBe("Tom's Office Light")
+  })
+
+  it('should ensure names start and end with alphanumeric characters', () => {
+    expect(sanitizeHapName('# Front Porch!')).toBe('Front Porch')
+  })
+
+  it('should use fallback when no valid characters remain', () => {
+    expect(sanitizeHapName('###', 'Unknown Device')).toBe('Unknown Device')
   })
 })
 

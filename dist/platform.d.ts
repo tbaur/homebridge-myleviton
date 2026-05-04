@@ -55,6 +55,14 @@ export declare class LevitonDecoraSmartPlatform {
      */
     addAccessory(device: DeviceInfo, token: string): Promise<void>;
     /**
+     * Gets a HAP-valid name while keeping the Leviton device name as the source.
+     */
+    private getHapDeviceName;
+    /**
+     * Keeps cached Homebridge metadata aligned with the latest Leviton device record.
+     */
+    private syncAccessoryMetadata;
+    /**
      * Configures a cached accessory
      *
      * IMPORTANT: This must be synchronous. Homebridge calls this for each cached
@@ -114,6 +122,8 @@ export declare class LevitonDecoraSmartPlatform {
      * Sets up a basic switch/outlet service
      */
     private setupBasicService;
+    private getServiceByNameOrType;
+    private syncServiceName;
     /**
      * Creates a power setter handler
      */

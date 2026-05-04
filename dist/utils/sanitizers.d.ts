@@ -15,6 +15,10 @@ export declare function sanitizeError(err: unknown): string;
  */
 export declare function sanitizeString(str: string): string;
 /**
+ * Sanitize a HomeKit accessory/service name for Homebridge 2 / HAP-NodeJS validation.
+ */
+export declare function sanitizeHapName(name: string, fallback?: string): string;
+/**
  * Sanitize an object by redacting sensitive fields
  */
 export declare function sanitizeObject<T extends Record<string, unknown>>(obj: T): T;

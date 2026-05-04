@@ -10,6 +10,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sanitizeError = sanitizeError;
 exports.sanitizeString = sanitizeString;
+exports.sanitizeHapName = sanitizeHapName;
 exports.sanitizeObject = sanitizeObject;
 exports.truncate = truncate;
 exports.maskToken = maskToken;
@@ -53,6 +54,21 @@ function sanitizeString(str) {
         result = result.replace(pattern, replacement);
     }
     return result;
+}
+const HAP_NAME_MAX_LENGTH = 64;
+/**
+ * Sanitize a HomeKit accessory/service name for Homebridge 2 / HAP-NodeJS validation.
+ */
+function sanitizeHapName(name, fallback = 'Leviton Device') {
+    const sanitized = name
+        .replace(/[^\p{L}\p{N} ']+/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+    const validName = sanitized || fallback;
+    const truncated = validName.slice(0, HAP_NAME_MAX_LENGTH).trim();
+    const trimmed = truncated.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+    return trimmed || fallback;
 }
 /**
  * Sanitize an object by redacting sensitive fields

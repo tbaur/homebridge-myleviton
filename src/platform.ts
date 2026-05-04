@@ -12,7 +12,7 @@ import { LevitonApiClient, getApiClient } from './api/client'
 import { LevitonWebSocket, createWebSocket } from './api/websocket'
 import { DevicePersistence, getDevicePersistence } from './api/persistence'
 import { createStructuredLogger, StructuredLogger } from './utils/logger'
-import { sanitizeError } from './utils/sanitizers'
+import { sanitizeError, sanitizeHapName } from './utils/sanitizers'
 import { validateConfig as validateConfigSchema } from './utils/validators'
 import { AuthenticationError, ConfigurationError } from './errors'
 import type {
@@ -208,6 +208,7 @@ export class LevitonDecoraSmartPlatform {
           // Update cached accessory with fresh device data and current token
           existingAccessory.context.device = device
           existingAccessory.context.token = loginResponse.id
+          this.syncAccessoryMetadata(existingAccessory, device)
           
           // Persist the updated context to cache file
           this.api.updatePlatformAccessories([existingAccessory])
@@ -431,20 +432,11 @@ export class LevitonDecoraSmartPlatform {
     this.log.info(`Adding device: ${device.name} (${device.model})`)
 
     const uuid = hap.uuid.generate(UUID_PREFIX + device.serial)
-    const accessory = new this.api.platformAccessory(device.name, uuid)
+    const accessory = new this.api.platformAccessory(this.getHapDeviceName(device), uuid)
 
     accessory.context = { device, token }
 
-    // Set device info
-    const infoService = accessory.getService(hap.Service.AccessoryInformation)
-    if (infoService) {
-      infoService
-        .setCharacteristic(hap.Characteristic.Name, device.name || 'Unknown Device')
-        .setCharacteristic(hap.Characteristic.SerialNumber, device.serial || 'Unknown')
-        .setCharacteristic(hap.Characteristic.Manufacturer, device.manufacturer || 'Leviton')
-        .setCharacteristic(hap.Characteristic.Model, device.model || 'Unknown')
-        .setCharacteristic(hap.Characteristic.FirmwareRevision, device.version || 'Unknown')
-    }
+    this.syncAccessoryMetadata(accessory, device)
 
     // Setup service
     await this.setupService(accessory)
@@ -452,6 +444,31 @@ export class LevitonDecoraSmartPlatform {
     // Register with Homebridge
     this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory])
     this.accessories.push(accessory)
+  }
+
+  /**
+   * Gets a HAP-valid name while keeping the Leviton device name as the source.
+   */
+  private getHapDeviceName(device: DeviceInfo): string {
+    return sanitizeHapName(device.name || 'Unknown Device', 'Unknown Device')
+  }
+
+  /**
+   * Keeps cached Homebridge metadata aligned with the latest Leviton device record.
+   */
+  private syncAccessoryMetadata(accessory: PlatformAccessory, device: DeviceInfo): void {
+    const deviceName = this.getHapDeviceName(device)
+    accessory.displayName = deviceName
+
+    const infoService = accessory.getService(hap.Service.AccessoryInformation)
+    if (infoService) {
+      infoService
+        .setCharacteristic(hap.Characteristic.Name, deviceName)
+        .setCharacteristic(hap.Characteristic.SerialNumber, device.serial || 'Unknown')
+        .setCharacteristic(hap.Characteristic.Manufacturer, device.manufacturer || 'Leviton')
+        .setCharacteristic(hap.Characteristic.Model, device.model || 'Unknown')
+        .setCharacteristic(hap.Characteristic.FirmwareRevision, device.version || 'Unknown')
+    }
   }
 
   /**
@@ -635,12 +652,14 @@ export class LevitonDecoraSmartPlatform {
    * @returns The device status used for initialization (allows callers to reuse it)
    */
   private async setupLightbulbService(accessory: PlatformAccessory, device: DeviceInfo): Promise<DeviceStatus> {
-    const existingService = accessory.getService(hap.Service.Lightbulb, device.name)
+    const serviceName = this.getHapDeviceName(device)
+    const existingService = this.getServiceByNameOrType(accessory, hap.Service.Lightbulb, serviceName)
     const fallbackStatus = existingService
       ? this.getCurrentServiceStatus(existingService, hap.Characteristic.Brightness)
       : undefined
     const status = await this.getStatus(device, fallbackStatus)
-    const service = existingService || accessory.addService(hap.Service.Lightbulb, device.name)
+    const service = existingService || accessory.addService(hap.Service.Lightbulb, serviceName)
+    this.syncServiceName(service, serviceName)
 
     // Calculate valid brightness range
     const minBrightness = status.minLevel || 1
@@ -679,9 +698,10 @@ export class LevitonDecoraSmartPlatform {
   private async setupMotionDimmerService(accessory: PlatformAccessory, device: DeviceInfo): Promise<void> {
     // Reuse the status returned by setupLightbulbService to avoid a second API call
     const status = await this.setupLightbulbService(accessory, device)
-    
+    const motionName = sanitizeHapName(`${device.name} Motion`, 'Motion Sensor')
     const motionService = accessory.getService(hap.Service.MotionSensor) ||
-                          accessory.addService(hap.Service.MotionSensor, `${device.name} Motion`)
+                          accessory.addService(hap.Service.MotionSensor, motionName)
+    this.syncServiceName(motionService, motionName)
     
     motionService
       .getCharacteristic(hap.Characteristic.MotionDetected)
@@ -692,12 +712,14 @@ export class LevitonDecoraSmartPlatform {
    * Sets up a fan service
    */
   private async setupFanService(accessory: PlatformAccessory, device: DeviceInfo): Promise<void> {
-    const existingService = accessory.getService(hap.Service.Fan, device.name)
+    const serviceName = this.getHapDeviceName(device)
+    const existingService = this.getServiceByNameOrType(accessory, hap.Service.Fan, serviceName)
     const fallbackStatus = existingService
       ? this.getCurrentServiceStatus(existingService, hap.Characteristic.RotationSpeed)
       : undefined
     const status = await this.getStatus(device, fallbackStatus)
-    const service = existingService || accessory.addService(hap.Service.Fan, device.name)
+    const service = existingService || accessory.addService(hap.Service.Fan, serviceName)
+    this.syncServiceName(service, serviceName)
 
     // Setup On characteristic — no 'get' handler, value kept current by WebSocket + polling
     const onChar = service.getCharacteristic(hap.Characteristic.On)
@@ -724,12 +746,14 @@ export class LevitonDecoraSmartPlatform {
     device: DeviceInfo, 
     ServiceType: Service,
   ): Promise<void> {
-    const existingService = accessory.getService(ServiceType, device.name)
+    const serviceName = this.getHapDeviceName(device)
+    const existingService = this.getServiceByNameOrType(accessory, ServiceType, serviceName)
     const fallbackStatus = existingService
       ? this.getCurrentServiceStatus(existingService)
       : undefined
     const status = await this.getStatus(device, fallbackStatus)
-    const service = existingService || accessory.addService(ServiceType, device.name)
+    const service = existingService || accessory.addService(ServiceType, serviceName)
+    this.syncServiceName(service, serviceName)
 
     // Remove existing listeners to prevent stacking on cached accessories
     // No 'get' handler — value kept current by WebSocket + polling via updateValue()
@@ -738,6 +762,14 @@ export class LevitonDecoraSmartPlatform {
     onChar.removeAllListeners('set')
     onChar.on('set', this.createPowerSetter(device))
     onChar.updateValue(status.power === POWER_ON)
+  }
+
+  private getServiceByNameOrType(accessory: PlatformAccessory, ServiceType: Service, serviceName: string): Service | undefined {
+    return accessory.getService(ServiceType, serviceName) || accessory.getService(ServiceType)
+  }
+
+  private syncServiceName(service: Service, serviceName: string): void {
+    service.setCharacteristic(hap.Characteristic.Name, serviceName)
   }
 
   /**
