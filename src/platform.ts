@@ -12,7 +12,7 @@ import { LevitonApiClient, getApiClient } from './api/client'
 import { LevitonWebSocket, createWebSocket } from './api/websocket'
 import { DevicePersistence, getDevicePersistence } from './api/persistence'
 import { createStructuredLogger, StructuredLogger } from './utils/logger'
-import { sanitizeError, sanitizeHapName } from './utils/sanitizers'
+import { sanitizeError, sanitizeHapName, isValidHapName } from './utils/sanitizers'
 import { validateConfig as validateConfigSchema } from './utils/validators'
 import { AuthenticationError, ConfigurationError } from './errors'
 import type {
@@ -471,7 +471,59 @@ export class LevitonDecoraSmartPlatform {
   }
 
   /**
+   * Sanitizes the `displayName` field on every service attached to an accessory.
+   *
+   * Why this matters: HAP-NodeJS's `Service.deserialize` reconstructs a service
+   * with `new Constructor(json.displayName, json.subtype)`, and the `Service`
+   * constructor calls `checkName(this.displayName, "Name", displayName)` whenever
+   * the displayName is non-empty. That warning has the same format as the
+   * `Accessory` constructor's warning, so cleaning only the accessory's
+   * displayName is not sufficient — the cached `services[i].displayName` field
+   * must also be sanitized so the next deserialize cycle is silent.
+   */
+  private normalizeServiceDisplayNames(accessory: PlatformAccessory): boolean {
+    const services = accessory.services as Service[] | undefined
+    if (!Array.isArray(services) || services.length === 0) {
+      return false
+    }
+
+    let mutated = false
+    const accessoryFallback =
+      (typeof accessory.displayName === 'string' && accessory.displayName) ||
+      'Leviton Device'
+
+    for (const service of services) {
+      const original = typeof service?.displayName === 'string' ? service.displayName : ''
+      if (!original || isValidHapName(original)) {
+        continue
+      }
+
+      const sanitized = sanitizeHapName(original, accessoryFallback)
+      if (sanitized === original) {
+        continue
+      }
+
+      service.displayName = sanitized
+      mutated = true
+
+      if (typeof service.testCharacteristic === 'function' &&
+          service.testCharacteristic(hap.Characteristic.Name)) {
+        try {
+          service.setCharacteristic(hap.Characteristic.Name, sanitized)
+        } catch {
+          // Some services reject Name updates (e.g. read-only on certain HAP versions);
+          // mutating displayName above is what actually affects the cache file.
+        }
+      }
+    }
+
+    return mutated
+  }
+
+  /**
    * Keeps cached Homebridge metadata aligned with the latest Leviton device record.
+   * Also normalizes every service's `displayName` field, since that value is what
+   * HAP-NodeJS validates during cache deserialization on subsequent restarts.
    */
   private syncAccessoryMetadata(accessory: PlatformAccessory, device: DeviceInfo): void {
     const deviceName = this.getHapDeviceName(device)
@@ -488,6 +540,7 @@ export class LevitonDecoraSmartPlatform {
     }
 
     this.syncExistingServiceNames(accessory, device)
+    this.normalizeServiceDisplayNames(accessory)
   }
 
   /**
@@ -517,6 +570,13 @@ export class LevitonDecoraSmartPlatform {
   /**
    * Sanitizes every name surface on a cached accessory and persists the cache
    * file synchronously so the next restart loads HAP-valid values.
+   *
+   * Three independent fields can carry stale invalid characters into a fresh
+   * deserialize cycle and trigger HAP-NodeJS warnings:
+   *   1. `accessory.displayName` (Accessory constructor checkName)
+   *   2. `service.displayName` for each service (Service constructor checkName)
+   *   3. `context.device.name` (read by initialize() on subsequent runs)
+   * All three must be normalized before flushing.
    */
   private normalizeCachedAccessoryNames(accessory: PlatformAccessory): void {
     const cachedDevice = accessory.context?.device as DeviceInfo | undefined
@@ -530,12 +590,17 @@ export class LevitonDecoraSmartPlatform {
     }
 
     const sanitizedName = sanitizeHapName(sourceName, 'Leviton Device')
-    const needsRewrite = !cachedDevice
+    const accessoryNeedsRewrite = !cachedDevice
       ? accessory.displayName !== sanitizedName
       : (
           cachedDevice.name !== sanitizedName ||
           accessory.displayName !== sanitizedName
         )
+
+    // Detect service rewrites BEFORE syncAccessoryMetadata, since that path also
+    // normalizes services (idempotently) and would mask the bool we need to
+    // decide whether the on-disk cache requires a flush.
+    const servicesMutated = this.normalizeServiceDisplayNames(accessory)
 
     if (cachedDevice) {
       cachedDevice.name = sanitizedName
@@ -548,7 +613,7 @@ export class LevitonDecoraSmartPlatform {
       }
     }
 
-    if (!needsRewrite) {
+    if (!accessoryNeedsRewrite && !servicesMutated) {
       return
     }
 

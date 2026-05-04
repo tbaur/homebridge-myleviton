@@ -44,16 +44,29 @@ const mockCharacteristic = (): MockCharacteristic => ({
   value: false as boolean | number,
 })
 
-const mockService = () => ({
+interface MockServiceShape {
+  displayName: string
+  getCharacteristic: jest.Mock
+  addCharacteristic: jest.Mock
+  testCharacteristic: jest.Mock
+  setCharacteristic: jest.Mock
+}
+
+const mockService = (displayName = ''): MockServiceShape => ({
+  displayName,
   getCharacteristic: jest.fn().mockReturnValue(mockCharacteristic()),
   addCharacteristic: jest.fn().mockReturnThis(),
-  testCharacteristic: jest.fn().mockReturnValue(null),
+  testCharacteristic: jest.fn().mockReturnValue(true),
   setCharacteristic: jest.fn().mockReturnThis(),
 })
 
-const mockAccessory = (device: { id: string; name: string; model: string; serial: string }) => ({
+const mockAccessory = (
+  device: { id: string; name: string; model: string; serial: string },
+  services: MockServiceShape[] = [],
+) => ({
   displayName: device.name,
   UUID: `myleviton-${device.id}`,
+  services,
   context: {
     device,
     token: 'test-token',
@@ -334,6 +347,51 @@ describe('LevitonDecoraSmartPlatform', () => {
 
       expect(updateDisplayName).toHaveBeenCalledWith('Primary Bedroom Sconce 1')
       expect(accessory.displayName).toBe('Primary Bedroom Sconce 1')
+    })
+
+    it('should sanitize service.displayName so cache deserialize stays silent', () => {
+      // Regression for the actual root cause: HAP-NodeJS Service.deserialize calls
+      // `new Constructor(json.displayName, ...)`, and the Service constructor invokes
+      // checkName(displayName, "Name", displayName) whenever displayName is non-empty.
+      // Cleaning the accessory's displayName alone leaves bad service.displayName
+      // values in the cache, so the warning re-fires every restart.
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const device = { id: 'dev-1', name: 'Primary Bedroom Sconce #1', model: 'DW6HD', serial: 'ABC123' }
+      const lightService = mockService('Primary Bedroom Sconce #1')
+      const accessory = mockAccessory(device, [lightService])
+
+      platform.configureAccessory(accessory)
+
+      expect(lightService.displayName).toBe('Primary Bedroom Sconce 1')
+      expect(lightService.setCharacteristic).toHaveBeenCalledWith('Name', 'Primary Bedroom Sconce 1')
+      expect(mockAPI.updatePlatformAccessories).toHaveBeenCalledWith([accessory])
+    })
+
+    it('should leave HAP-valid service displayNames alone', () => {
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const device = { id: 'dev-1', name: 'Primary Bedroom Sconce 1', model: 'DW6HD', serial: 'ABC123' }
+      const cleanService = mockService('Primary Bedroom Sconce 1')
+      const accessory = mockAccessory(device, [cleanService])
+
+      platform.configureAccessory(accessory)
+
+      expect(cleanService.displayName).toBe('Primary Bedroom Sconce 1')
+      expect(mockAPI.updatePlatformAccessories).not.toHaveBeenCalled()
+    })
+
+    it('should still rewrite cache when only services have invalid displayNames', () => {
+      // Accessory.displayName is already clean but a service still has '#'.
+      // The cache must still be flushed so the next deserialize is silent.
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const device = { id: 'dev-1', name: 'Primary Bedroom Sconce 1', model: 'DW6HD', serial: 'ABC123' }
+      const lightService = mockService('Primary Bedroom Sconce #1')
+      const accessory = mockAccessory(device, [lightService])
+
+      platform.configureAccessory(accessory)
+
+      expect(accessory.displayName).toBe('Primary Bedroom Sconce 1')
+      expect(lightService.displayName).toBe('Primary Bedroom Sconce 1')
+      expect(mockAPI.updatePlatformAccessories).toHaveBeenCalledWith([accessory])
     })
   })
 

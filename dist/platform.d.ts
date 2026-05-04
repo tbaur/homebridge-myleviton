@@ -66,7 +66,21 @@ export declare class LevitonDecoraSmartPlatform {
      */
     private updateAccessoryDisplayName;
     /**
+     * Sanitizes the `displayName` field on every service attached to an accessory.
+     *
+     * Why this matters: HAP-NodeJS's `Service.deserialize` reconstructs a service
+     * with `new Constructor(json.displayName, json.subtype)`, and the `Service`
+     * constructor calls `checkName(this.displayName, "Name", displayName)` whenever
+     * the displayName is non-empty. That warning has the same format as the
+     * `Accessory` constructor's warning, so cleaning only the accessory's
+     * displayName is not sufficient — the cached `services[i].displayName` field
+     * must also be sanitized so the next deserialize cycle is silent.
+     */
+    private normalizeServiceDisplayNames;
+    /**
      * Keeps cached Homebridge metadata aligned with the latest Leviton device record.
+     * Also normalizes every service's `displayName` field, since that value is what
+     * HAP-NodeJS validates during cache deserialization on subsequent restarts.
      */
     private syncAccessoryMetadata;
     /**
@@ -91,6 +105,13 @@ export declare class LevitonDecoraSmartPlatform {
     /**
      * Sanitizes every name surface on a cached accessory and persists the cache
      * file synchronously so the next restart loads HAP-valid values.
+     *
+     * Three independent fields can carry stale invalid characters into a fresh
+     * deserialize cycle and trigger HAP-NodeJS warnings:
+     *   1. `accessory.displayName` (Accessory constructor checkName)
+     *   2. `service.displayName` for each service (Service constructor checkName)
+     *   3. `context.device.name` (read by initialize() on subsequent runs)
+     * All three must be normalized before flushing.
      */
     private normalizeCachedAccessoryNames;
     /**

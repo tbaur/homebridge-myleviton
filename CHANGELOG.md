@@ -5,6 +5,21 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.7] - 2026-05-04
+
+### Fixed
+- **Fixed HAP-NodeJS `invalid 'Name' characteristic` warnings firing every restart on cached accessories**
+  - **Root cause:** HAP-NodeJS's `Service.deserialize` reconstructs each cached service via `new Constructor(json.displayName, json.subtype)`, and the `Service` constructor calls `checkName(this.displayName, "Name", displayName)` whenever `displayName` is non-empty. Because the warning text format (`accessory '<X>' has an invalid 'Name' characteristic ('<X>')`) is identical for the `Accessory` and `Service` constructor paths, 3.4.4–3.4.6 only sanitized the accessory's `displayName` and the `Name` characteristic value — but never mutated the `service.displayName` field that HAP-NodeJS writes on `Service.serialize` and re-reads on every load. The cache JSON kept the old invalid `services[i].displayName`, so the warning re-fired on every restart even after the cache rewrite.
+  - **Fix:** `configureAccessory()` (and `syncAccessoryMetadata()` for refresh paths) now iterate every service on the accessory and sanitize `service.displayName` directly. The sanitized value is also pushed into the `Name` characteristic when it exists, and the cache is flushed synchronously via `api.updatePlatformAccessories([accessory])` whenever any service required a rewrite — even when the accessory's own `displayName` was already HAP-valid.
+
+### Changed
+- `normalizeCachedAccessoryNames()` evaluates service mutations *before* delegating to `syncAccessoryMetadata()`, so the cache-flush decision sees the pre-mutation state instead of the idempotent post-mutation state.
+
+### Added
+- New regression tests assert that `service.displayName` is rewritten in place, that already-clean services skip the cache flush, and that an accessory whose own `displayName` is valid still triggers a rewrite when only its services carry stale invalid characters.
+
+---
+
 ## [3.4.6] - 2026-05-04
 
 ### Fixed
