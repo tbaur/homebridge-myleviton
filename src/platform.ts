@@ -469,6 +469,8 @@ export class LevitonDecoraSmartPlatform {
         .setCharacteristic(hap.Characteristic.Model, device.model || 'Unknown')
         .setCharacteristic(hap.Characteristic.FirmwareRevision, device.version || 'Unknown')
     }
+
+    this.syncExistingServiceNames(accessory, device)
   }
 
   /**
@@ -482,6 +484,11 @@ export class LevitonDecoraSmartPlatform {
    * Service setup is deferred to initialize() after deduplication.
    */
   configureAccessory(accessory: PlatformAccessory): void {
+    const cachedDevice = accessory.context?.device
+    if (cachedDevice?.name) {
+      this.syncAccessoryMetadata(accessory, cachedDevice)
+    }
+
     this.log.debug(`Configuring cached accessory: ${accessory.displayName}`)
     this.accessories.push(accessory)
   }
@@ -770,6 +777,28 @@ export class LevitonDecoraSmartPlatform {
 
   private syncServiceName(service: Service, serviceName: string): void {
     service.setCharacteristic(hap.Characteristic.Name, serviceName)
+  }
+
+  private syncExistingServiceNames(accessory: PlatformAccessory, device: DeviceInfo): void {
+    const serviceName = this.getHapDeviceName(device)
+    const serviceTypes = [
+      hap.Service.Lightbulb,
+      hap.Service.Fan,
+      hap.Service.Switch,
+      hap.Service.Outlet,
+    ]
+
+    for (const serviceType of serviceTypes) {
+      const service = accessory.getService(serviceType)
+      if (service) {
+        this.syncServiceName(service, serviceName)
+      }
+    }
+
+    const motionService = accessory.getService(hap.Service.MotionSensor)
+    if (motionService) {
+      this.syncServiceName(motionService, sanitizeHapName(`${device.name} Motion`, 'Motion Sensor'))
+    }
   }
 
   /**

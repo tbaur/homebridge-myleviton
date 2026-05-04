@@ -402,6 +402,7 @@ class LevitonDecoraSmartPlatform {
                 .setCharacteristic(hap.Characteristic.Model, device.model || 'Unknown')
                 .setCharacteristic(hap.Characteristic.FirmwareRevision, device.version || 'Unknown');
         }
+        this.syncExistingServiceNames(accessory, device);
     }
     /**
      * Configures a cached accessory
@@ -414,6 +415,10 @@ class LevitonDecoraSmartPlatform {
      * Service setup is deferred to initialize() after deduplication.
      */
     configureAccessory(accessory) {
+        const cachedDevice = accessory.context?.device;
+        if (cachedDevice?.name) {
+            this.syncAccessoryMetadata(accessory, cachedDevice);
+        }
         this.log.debug(`Configuring cached accessory: ${accessory.displayName}`);
         this.accessories.push(accessory);
     }
@@ -671,6 +676,25 @@ class LevitonDecoraSmartPlatform {
     }
     syncServiceName(service, serviceName) {
         service.setCharacteristic(hap.Characteristic.Name, serviceName);
+    }
+    syncExistingServiceNames(accessory, device) {
+        const serviceName = this.getHapDeviceName(device);
+        const serviceTypes = [
+            hap.Service.Lightbulb,
+            hap.Service.Fan,
+            hap.Service.Switch,
+            hap.Service.Outlet,
+        ];
+        for (const serviceType of serviceTypes) {
+            const service = accessory.getService(serviceType);
+            if (service) {
+                this.syncServiceName(service, serviceName);
+            }
+        }
+        const motionService = accessory.getService(hap.Service.MotionSensor);
+        if (motionService) {
+            this.syncServiceName(motionService, (0, sanitizers_1.sanitizeHapName)(`${device.name} Motion`, 'Motion Sensor'));
+        }
     }
     /**
      * Creates a power setter handler

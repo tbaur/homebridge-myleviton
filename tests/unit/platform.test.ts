@@ -238,6 +238,31 @@ describe('LevitonDecoraSmartPlatform', () => {
       // Service setup is deferred - getService should not be called for Lightbulb yet
       expect(accessory.getService).not.toHaveBeenCalledWith('Lightbulb', accessory.displayName)
     })
+
+    it('should sanitize cached accessory names before launch validation', () => {
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const device = { id: 'dev-1', name: 'Primary Bedroom Sconce #1', model: 'DW6HD', serial: 'ABC123' }
+      const accessory = mockAccessory(device)
+      const infoService = mockService()
+      const lightService = mockService()
+
+      accessory.getService = jest.fn((serviceType: string) => {
+        if (serviceType === 'AccessoryInformation') {
+          return infoService
+        }
+        if (serviceType === 'Lightbulb') {
+          return lightService
+        }
+        return null
+      })
+
+      platform.configureAccessory(accessory)
+
+      expect(accessory.displayName).toBe('Primary Bedroom Sconce 1')
+      expect(infoService.setCharacteristic).toHaveBeenCalledWith('Name', 'Primary Bedroom Sconce 1')
+      expect(lightService.setCharacteristic).toHaveBeenCalledWith('Name', 'Primary Bedroom Sconce 1')
+      expect(mockAPI.updatePlatformAccessories).not.toHaveBeenCalled()
+    })
   })
 
   describe('device model routing - via initialization flow', () => {

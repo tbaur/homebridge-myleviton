@@ -124,6 +124,7 @@ export declare class LevitonDecoraSmartPlatform {
     private setupBasicService;
     private getServiceByNameOrType;
     private syncServiceName;
+    private syncExistingServiceNames;
     /**
      * Creates a power setter handler
      */
