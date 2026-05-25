@@ -109,7 +109,7 @@ handleWebSocketUpdate(payload)    // WebSocket update handler
 **Device Model Constants:**
 
 ```typescript
-const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710']
+const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710', 'DN6HD']
 const MOTION_DIMMER_MODELS = ['D2MSD']
 const OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P', 'D215O']
 const SWITCH_MODELS = ['DW15S', 'D215S']
@@ -255,7 +255,7 @@ coverageThreshold: {
 
 ```typescript
 // For dimmers with brightness control
-const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'NEW_MODEL']
+const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', ..., 'NEW_MODEL']
 
 // For outlets (on/off only)
 const OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P', 'D215O', 'NEW_MODEL']

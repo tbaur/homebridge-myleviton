@@ -112,6 +112,7 @@ Advanced documentation for power users, developers, and troubleshooting.
 | DWVAA | Decora Smart Voice Dimmer | On/Off, Brightness |
 | D2ELV | Decora Smart ELV/LED Phase Selectable Dimmer | On/Off, Brightness |
 | D2710 | Decora Smart 0-10V Dimmer | On/Off, Brightness |
+| DN6HD | Decora Smart 600W Dimmer (2nd Gen) | On/Off, Brightness (1-100%) |
 
 ### Motion Sensor Dimmers
 

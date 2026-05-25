@@ -39,7 +39,7 @@ const TOKEN_REFRESH_FAILURE_COOLDOWN_MS = 10 * 1000
 const POLL_DEVICE_CONCURRENCY = 4
 
 // Device model arrays for type checking
-const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710']
+const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710', 'DN6HD']
 const MOTION_DIMMER_MODELS = ['D2MSD']
 const OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P', 'D215O']  // D215P is plug-in switch, D215O is outdoor plug-in switch
 const SWITCH_MODELS = ['DW15S', 'D215S']

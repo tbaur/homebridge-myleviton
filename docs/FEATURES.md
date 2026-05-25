@@ -22,7 +22,7 @@
 
 | Type | Models |
 |------|--------|
-| **Dimmers** | DW6HD, D26HD, DW1KD, DW3HL, D23LP, DWVAA, D2ELV, D2710 |
+| **Dimmers** | DW6HD, D26HD, DN6HD, DW1KD, DW3HL, D23LP, DWVAA, D2ELV, D2710 |
 | **Motion Sensor Dimmers** | D2MSD (dimmer + motion sensor in HomeKit) |
 | **Outlets** | DW15P, DW15A, DW15R, D215P, D215O |
 | **Fans** | DW4SF, D24SF |

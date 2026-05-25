@@ -24,6 +24,7 @@ var DeviceModel;
     DeviceModel["DIMMER_PLUGIN"] = "DW3HL";
     DeviceModel["DIMMER_ELV"] = "D2ELV";
     DeviceModel["DIMMER_0_10V"] = "D2710";
+    DeviceModel["DIMMER_600W_GEN3"] = "DN6HD";
     // Motion Sensor Dimmers
     DeviceModel["DIMMER_MOTION"] = "D2MSD";
     // Outlets

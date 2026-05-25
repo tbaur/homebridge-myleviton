@@ -57,6 +57,7 @@ export declare enum DeviceModel {
     DIMMER_PLUGIN = "DW3HL",
     DIMMER_ELV = "D2ELV",// ELV/LED Phase Selectable Dimmer
     DIMMER_0_10V = "D2710",// 0-10V Dimmer Switch
+    DIMMER_600W_GEN3 = "DN6HD",// 2nd Gen 600W Dimmer
     DIMMER_MOTION = "D2MSD",
     OUTLET_TAMPER = "DW15R",
     OUTLET_PLUGIN_HP = "DW15A",

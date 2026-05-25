@@ -16,7 +16,7 @@ import { LevitonDecoraSmartPlatform, registerPlatform } from '../../src/platform
 import type { LevitonConfig, LogLevel } from '../../src/types'
 
 // Device model constants (matching platform.ts)
-const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710']
+const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710', 'DN6HD']
 const MOTION_DIMMER_MODELS = ['D2MSD']
 const OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P', 'D215O']
 const SWITCH_MODELS = ['DW15S', 'D215S']
@@ -1254,8 +1254,8 @@ describe('registerPlatform', () => {
 
 describe('Device model constants', () => {
   it('should have correct dimmer models', () => {
-    expect(DIMMER_MODELS).toEqual(['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710'])
-    expect(DIMMER_MODELS.length).toBe(8)
+    expect(DIMMER_MODELS).toEqual(['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710', 'DN6HD'])
+    expect(DIMMER_MODELS.length).toBe(9)
   })
 
   it('should have correct motion dimmer models', () => {
