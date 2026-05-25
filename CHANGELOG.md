@@ -5,6 +5,16 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.8] - 2026-05-25
+
+### Added
+- **Support for DN6HD dimmer switch** (Decora Smart 600W Dimmer, 2nd Gen)
+  - Recognized as a dimmer with full On/Off and Brightness (1-100%) control in HomeKit
+  - Previously fell through to the unknown-model fallback and was treated as a plain switch
+  - Closes [#3](https://github.com/tbaur/homebridge-myleviton/issues/3)
+
+---
+
 ## [3.4.7] - 2026-05-04
 
 ### Fixed
