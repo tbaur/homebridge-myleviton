@@ -743,6 +743,51 @@ describe('LevitonWebSocket', () => {
       expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(1)
     })
   })
+
+  describe('logger normalization', () => {
+    type LoggerArg = ConstructorParameters<typeof LevitonWebSocket>[3]
+
+    it('does not double-log when wrapping a partial logger (only info)', () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
+      const baseInfo = jest.fn()
+
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        { info: baseInfo } as unknown as LoggerArg,
+      )
+
+      // connect() emits a debug log through the normalized logger
+      ws.connect()
+
+      expect(baseInfo).toHaveBeenCalledTimes(1)
+      expect(baseInfo).toHaveBeenCalledWith(expect.stringContaining('[debug]'))
+      expect(consoleSpy).not.toHaveBeenCalled()
+
+      ws.close()
+      consoleSpy.mockRestore()
+    })
+
+    it('falls back to console when the base method is absent', () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
+
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        { warn: jest.fn() } as unknown as LoggerArg,
+      )
+
+      ws.connect()
+
+      // No base `info`, so the debug log routes to console.log exactly once
+      expect(consoleSpy).toHaveBeenCalledTimes(1)
+
+      ws.close()
+      consoleSpy.mockRestore()
+    })
+  })
 })
 
 describe('createWebSocket', () => {

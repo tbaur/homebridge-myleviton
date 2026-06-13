@@ -106,13 +106,15 @@ class LevitonWebSocket {
         if ('debug' in logger && 'info' in logger && 'warn' in logger && 'error' in logger) {
             return logger;
         }
-        // Wrap basic logger
+        // Wrap basic logger. Use explicit presence checks rather than
+        // `baseLogger.x?.(msg) ?? console.x(msg)`: a successful logging call returns
+        // undefined, which would make the `??` fallback fire too and log twice.
         const baseLogger = logger;
         return {
-            debug: (msg) => { baseLogger.info?.(`[debug] ${msg}`) ?? console.log(msg); },
-            info: (msg) => { baseLogger.info?.(msg) ?? console.log(msg); },
-            warn: (msg) => { baseLogger.warn?.(msg) ?? console.warn(msg); },
-            error: (msg) => { baseLogger.error?.(msg) ?? console.error(msg); },
+            debug: (msg) => { baseLogger.info ? baseLogger.info(`[debug] ${msg}`) : console.log(msg); },
+            info: (msg) => { baseLogger.info ? baseLogger.info(msg) : console.log(msg); },
+            warn: (msg) => { baseLogger.warn ? baseLogger.warn(msg) : console.warn(msg); },
+            error: (msg) => { baseLogger.error ? baseLogger.error(msg) : console.error(msg); },
         };
     }
     /**
