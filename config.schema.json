@@ -28,7 +28,7 @@
         "title": "Password",
         "type": "string",
         "placeholder": "••••••••••••",
-        "description": "Your My Leviton account password (stored securely in your Homebridge config)",
+        "description": "Your My Leviton account password. Note: Homebridge stores this in plain text in config.json — keep your Homebridge host secured. Consider a dedicated Leviton account.",
         "x-schema-form": {
           "type": "password"
         }

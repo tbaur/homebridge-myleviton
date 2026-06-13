@@ -585,6 +585,39 @@ describe('LevitonDecoraSmartPlatform', () => {
       expect(mockAPI.updatePlatformAccessories).toHaveBeenCalledWith([accessory])
     })
 
+    it('should not persist the auth token in a new accessory context', async () => {
+      mockClient.getDevices.mockResolvedValue([
+        { id: 'dev-1', name: 'Living Room Light', model: 'DW6HD', serial: 'ABC123' },
+      ])
+
+      new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      expect(mockAPI.registerPlatformAccessories).toHaveBeenCalled()
+      const registeredAccessory = mockAPI.registerPlatformAccessories.mock.calls[0][2][0]
+      expect(registeredAccessory.context.device).toBeDefined()
+      expect(registeredAccessory.context.token).toBeUndefined()
+    })
+
+    it('should scrub a stale auth token from a cached accessory context', async () => {
+      const device = { id: 'dev-1', name: 'Living Room Light', model: 'DW6HD', serial: 'ABC123' }
+      mockClient.getDevices.mockResolvedValue([device])
+
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const accessory = mockAccessory(device)
+      // Older versions persisted the bearer token here; it must be removed on init.
+      expect(accessory.context.token).toBe('test-token')
+      platform.configureAccessory(accessory)
+
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      expect(accessory.context.token).toBeUndefined()
+      expect(accessory.context.device).toBeDefined()
+      expect(mockAPI.updatePlatformAccessories).toHaveBeenCalledWith([accessory])
+    })
+
     it('should pass connectionTimeout to WebSocket config', async () => {
       const { createWebSocket } = require('../../src/api/websocket')
       const config = { ...validConfig, connectionTimeout: 15000 }

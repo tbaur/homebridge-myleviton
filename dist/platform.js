@@ -189,9 +189,12 @@ class LevitonDecoraSmartPlatform {
                 // Check if we have a cached accessory for this device
                 const existingAccessory = this.findAccessoryByDevice(device);
                 if (existingAccessory) {
-                    // Update cached accessory with fresh device data and current token
+                    // Update cached accessory with fresh device data
                     existingAccessory.context.device = device;
-                    existingAccessory.context.token = loginResponse.id;
+                    // Scrub any auth token persisted by older versions. The token is never
+                    // read from context (requests use the in-memory login response), and
+                    // persisting it leaks a live credential into the on-disk accessory cache.
+                    delete existingAccessory.context.token;
                     this.syncAccessoryMetadata(existingAccessory, device);
                     // Persist the updated context to cache file
                     this.api.updatePlatformAccessories([existingAccessory]);
@@ -201,7 +204,7 @@ class LevitonDecoraSmartPlatform {
                 }
                 else {
                     // New device - create accessory
-                    await this.addAccessory(device, loginResponse.id);
+                    await this.addAccessory(device);
                     newDevices++;
                 }
             }
@@ -365,7 +368,7 @@ class LevitonDecoraSmartPlatform {
     /**
      * Adds a new accessory
      */
-    async addAccessory(device, token) {
+    async addAccessory(device) {
         if (!device?.serial || !device?.name) {
             this.log.error('Invalid device object provided to addAccessory');
             return;
@@ -373,7 +376,10 @@ class LevitonDecoraSmartPlatform {
         this.log.info(`Adding device: ${device.name} (${device.model})`);
         const uuid = hap.uuid.generate(UUID_PREFIX + device.serial);
         const accessory = new this.api.platformAccessory(this.getHapDeviceName(device), uuid);
-        accessory.context = { device, token };
+        // Note: the auth token is intentionally NOT stored in context. It's never
+        // read back (requests use the in-memory login response) and persisting it
+        // would write a live credential to the on-disk accessory cache.
+        accessory.context = { device };
         this.syncAccessoryMetadata(accessory, device);
         // Setup service
         await this.setupService(accessory);
@@ -929,12 +935,6 @@ class LevitonDecoraSmartPlatform {
         this.tokenRefreshPromise = (async () => {
             const loginResponse = await this.client.login(this.config.email, this.config.password);
             this.setLoginResponse(loginResponse);
-            // Update token in all accessory contexts
-            this.accessories.forEach(acc => {
-                if (acc.context) {
-                    acc.context.token = loginResponse.id;
-                }
-            });
             // Update WebSocket with new login response
             if (this.webSocket) {
                 this.webSocket.updateLoginResponse(loginResponse);

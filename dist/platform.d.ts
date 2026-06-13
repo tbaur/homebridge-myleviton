@@ -53,7 +53,7 @@ export declare class LevitonDecoraSmartPlatform {
     /**
      * Adds a new accessory
      */
-    addAccessory(device: DeviceInfo, token: string): Promise<void>;
+    addAccessory(device: DeviceInfo): Promise<void>;
     /**
      * Gets a HAP-valid name while keeping the Leviton device name as the source.
      */
