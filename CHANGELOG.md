@@ -5,6 +5,13 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.9](https://github.com/tbaur/homebridge-myleviton/compare/v3.4.8...v3.4.9) (2026-06-13)
+
+
+### Bug Fixes
+
+* prevent double-logging in WebSocket logger wrapper ([#5](https://github.com/tbaur/homebridge-myleviton/issues/5)) ([0d68ca9](https://github.com/tbaur/homebridge-myleviton/commit/0d68ca92f012fff8f788096e9a961e20f1984f3c))
+
 ## [3.4.8] - 2026-05-25
 
 ### Added
