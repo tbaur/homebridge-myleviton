@@ -5,6 +5,13 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.4.10](https://github.com/tbaur/homebridge-myleviton/compare/v3.4.9...v3.4.10) (2026-06-13)
+
+
+### Bug Fixes
+
+* stop persisting auth token in accessory cache ([#8](https://github.com/tbaur/homebridge-myleviton/issues/8)) ([ad99593](https://github.com/tbaur/homebridge-myleviton/commit/ad995930598b501b9b2a2f84b6b574ccd862f930))
+
 ## [3.4.9](https://github.com/tbaur/homebridge-myleviton/compare/v3.4.8...v3.4.9) (2026-06-13)
 
 
