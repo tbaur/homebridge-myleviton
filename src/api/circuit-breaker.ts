@@ -33,6 +33,11 @@ export interface CircuitBreakerConfig {
   halfOpenMax: number
   /** Window for counting failures (ms) */
   failureWindow?: number
+  /**
+   * Invoked whenever the circuit transitions between states. Used for
+   * observability so operators can see when the breaker opens or recovers.
+   */
+  onStateChange?: (from: CircuitState, to: CircuitState) => void
 }
 
 /**
@@ -67,6 +72,7 @@ export class CircuitBreaker {
   private readonly resetTimeout: number
   private readonly halfOpenMax: number
   private readonly failureWindow: number
+  private readonly onStateChange?: (from: CircuitState, to: CircuitState) => void
 
   private _state: CircuitState = CircuitState.CLOSED
   private failures = 0
@@ -81,6 +87,7 @@ export class CircuitBreaker {
     this.resetTimeout = merged.resetTimeout
     this.halfOpenMax = merged.halfOpenMax
     this.failureWindow = merged.failureWindow ?? 60000
+    this.onStateChange = merged.onStateChange
   }
 
   /**
@@ -88,6 +95,18 @@ export class CircuitBreaker {
    */
   get state(): CircuitState {
     return this._state
+  }
+
+  /**
+   * Transition to a new state, notifying observers only on an actual change.
+   */
+  private transitionTo(next: CircuitState): void {
+    if (this._state === next) {
+      return
+    }
+    const previous = this._state
+    this._state = next
+    this.onStateChange?.(previous, next)
   }
 
   /**
@@ -117,9 +136,9 @@ export class CircuitBreaker {
     if (this._state === CircuitState.OPEN) {
       // Check if enough time has passed to try again
       if (this.lastFailureTime && (Date.now() - this.lastFailureTime) >= this.resetTimeout) {
-        this._state = CircuitState.HALF_OPEN
         this.halfOpenRequests = 0
         this.successes = 0
+        this.transitionTo(CircuitState.HALF_OPEN)
         return true
       }
       return false
@@ -159,13 +178,13 @@ export class CircuitBreaker {
 
     if (this._state === CircuitState.HALF_OPEN) {
       // Any failure in half-open state opens the circuit again
-      this._state = CircuitState.OPEN
       this.halfOpenRequests = 0
       this.successes = 0
+      this.transitionTo(CircuitState.OPEN)
     } else if (this._state === CircuitState.CLOSED) {
       this.cleanupFailures()
       if (this.failures >= this.failureThreshold) {
-        this._state = CircuitState.OPEN
+        this.transitionTo(CircuitState.OPEN)
       }
     }
   }
@@ -183,12 +202,12 @@ export class CircuitBreaker {
    * Reset the circuit breaker to closed state
    */
   reset(): void {
-    this._state = CircuitState.CLOSED
     this.failures = 0
     this.successes = 0
     this.lastFailureTime = null
     this.halfOpenRequests = 0
     this.failureTimestamps = []
+    this.transitionTo(CircuitState.CLOSED)
   }
 
   /**

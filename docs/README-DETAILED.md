@@ -169,7 +169,7 @@ Advanced documentation for power users, developers, and troubleshooting.
 2. Subscribes to all device state changes
 3. Instantly updates HomeKit when device state changes
 4. Auto-reconnects with exponential backoff on disconnect
-5. Polling runs continuously as safety net alongside WebSocket
+5. Polling runs continuously as safety net alongside WebSocket (also refreshing motion/occupancy)
 
 ### State Persistence
 
@@ -246,10 +246,13 @@ Debug logs show:
 
 | Feature | Description |
 |---------|-------------|
+| **Automatic Retry** | Transient network/5xx errors retried with exponential backoff (auth/429 surface immediately) |
+| **Self-Healing Startup** | Discovery retries with backoff after a transient boot-time outage |
 | **Rate Limiting** | 300 writes/minute to prevent API throttling |
 | **Response Caching** | 2-second TTL reduces redundant API calls |
 | **Request Deduplication** | Identical concurrent requests share one API call |
-| **Circuit Breaker** | Stops requests during API outages, auto-recovers |
+| **Circuit Breaker** | Stops requests during API outages, auto-recovers; transitions logged |
+| **Account Isolation** | Each client owns its circuit breaker, rate limiter, and cache |
 | **Auto-Reconnect** | WebSocket reconnects with exponential backoff |
 | **Token Refresh** | Proactive token refresh before expiration |
 
@@ -316,7 +319,7 @@ homebridge-myleviton/
 │   └── types/            # Type definitions
 ├── dist/                 # Compiled JavaScript
 ├── tests/
-│   └── unit/*.test.ts    # Unit tests (446 tests)
+│   └── unit/*.test.ts    # Unit tests (499 tests)
 └── config.schema.json    # Homebridge UI config schema
 ```
 

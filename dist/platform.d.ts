@@ -27,7 +27,9 @@ export declare class LevitonDecoraSmartPlatform {
     private isPolling;
     private residenceId;
     private devicePersistence;
-    private cleanupInterval;
+    private initRetryTimer;
+    private initAttempt;
+    private isShuttingDown;
     private recentHomeKitCommands;
     constructor(homebridgeLog: (msg: string) => void, config: LevitonConfig, api: HomebridgeAPI);
     /**
@@ -35,9 +37,20 @@ export declare class LevitonDecoraSmartPlatform {
      */
     private validateConfig;
     /**
-     * Initializes the platform
+     * Initializes the platform, retrying on transient failures so a temporary
+     * outage at startup doesn't leave the plugin permanently inert.
      */
     private initialize;
+    /**
+     * Schedules a delayed re-initialization attempt unless the platform is
+     * shutting down. Only one retry is ever queued at a time.
+     */
+    private scheduleInitializeRetry;
+    /**
+     * Performs device discovery and accessory setup. Throws on failure so the
+     * caller can decide whether to retry.
+     */
+    private discoverAndSetup;
     /**
      * Discovers devices from Leviton API
      */
@@ -212,10 +225,6 @@ export declare class LevitonDecoraSmartPlatform {
      * Saves device states to persistence
      */
     private saveDeviceStates;
-    /**
-     * Starts periodic cleanup
-     */
-    private startPeriodicCleanup;
     /**
      * Cleans up resources
      */

@@ -263,6 +263,39 @@ describe('CircuitBreaker', () => {
     })
   })
 
+  describe('onStateChange callback', () => {
+    it('fires on CLOSED -> OPEN and OPEN -> HALF_OPEN -> CLOSED transitions', () => {
+      const transitions: Array<[CircuitState, CircuitState]> = []
+      const breaker = new CircuitBreaker({
+        failureThreshold: 2,
+        resetTimeout: 0,
+        halfOpenMax: 1,
+        onStateChange: (from, to) => transitions.push([from, to]),
+      })
+
+      breaker.recordFailure()
+      breaker.recordFailure() // trips open
+
+      expect(transitions).toContainEqual([CircuitState.CLOSED, CircuitState.OPEN])
+
+      // resetTimeout of 0 means the next canRequest() moves to HALF_OPEN
+      expect(breaker.canRequest()).toBe(true)
+      expect(transitions).toContainEqual([CircuitState.OPEN, CircuitState.HALF_OPEN])
+
+      breaker.recordSuccess() // closes again (halfOpenMax = 1)
+      expect(transitions).toContainEqual([CircuitState.HALF_OPEN, CircuitState.CLOSED])
+    })
+
+    it('does not fire when the state is unchanged', () => {
+      const onStateChange = jest.fn()
+      const breaker = new CircuitBreaker({ onStateChange })
+
+      breaker.recordSuccess() // already CLOSED, no transition
+
+      expect(onStateChange).not.toHaveBeenCalled()
+    })
+  })
+
   describe('global circuit breaker', () => {
     it('should return same instance', () => {
       const breaker1 = getCircuitBreaker()

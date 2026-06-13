@@ -1,17 +1,20 @@
 # Features
 
-**homebridge-myleviton v3.4.2**
+**homebridge-myleviton**
 
 ## Core Features
 
 - ✅ Automatic device discovery from My Leviton cloud
 - ✅ Real-time WebSocket updates for instant state sync
-- ✅ Polling safety net (30s default, configurable)
+- ✅ Polling safety net (30s default, configurable) — also refreshes motion/occupancy
+- ✅ Automatic retry of transient network/5xx errors with exponential backoff
+- ✅ Self-healing startup that retries discovery after a transient boot-time outage
 - ✅ Rate limiting for write operations (300/min)
 - ✅ Response caching (2s TTL)
 - ✅ Request deduplication
 - ✅ API request timeouts (10s)
-- ✅ Circuit breaker pattern for API resilience
+- ✅ Circuit breaker pattern for API resilience (transitions logged)
+- ✅ Per-account isolation of circuit breaker, rate limiter, and cache
 - ✅ Device state persistence for faster startup
 - ✅ Structured JSON logging (optional)
 - ✅ Token auto-refresh before expiry and on 401
@@ -47,7 +50,7 @@ homebridge-myleviton/
 
 ## Quality
 
-- 446 tests passing
+- 499 tests passing
 - 95%+ code coverage
 - ESLint with zero warnings
 - TypeScript strict mode

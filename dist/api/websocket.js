@@ -200,9 +200,11 @@ class LevitonWebSocket {
                 this.logger.debug('WebSocket closed by user');
                 return;
             }
-            // Auth failure - don't reconnect
-            if (code === 401) {
-                this.logger.warn(`WebSocket auth failed: ${reasonStr}`);
+            // Auth failure - don't reconnect. 401 is not a valid WebSocket close code
+            // (codes are 1000-4999), so detect auth failures via the policy-violation
+            // code (1008) or an auth-related close reason instead.
+            if (code === 1008 || /unauth|forbidden|401|403/i.test(reasonStr)) {
+                this.logger.warn(`WebSocket auth failed: ${code} ${reasonStr}`);
                 return;
             }
             // Remote normal closes still require reconnecting to preserve push updates.
@@ -285,20 +287,23 @@ class LevitonWebSocket {
             return;
         }
         const notificationData = notification.data;
-        // Build payload - include power if present, but also handle other updates
+        // Build payload. Validate each field at this trust boundary before it flows
+        // into HomeKit — a malformed frame must not push NaN/garbage into a
+        // characteristic. Unrecognized or wrong-typed values are simply dropped.
         const payload = {
             id: String(notification.modelId),
         };
-        if (notificationData.power !== undefined) {
+        if (notificationData.power === 'ON' || notificationData.power === 'OFF') {
             payload.power = notificationData.power;
         }
-        if (notificationData.brightness !== undefined) {
+        if (typeof notificationData.brightness === 'number' &&
+            Number.isFinite(notificationData.brightness)) {
             payload.brightness = notificationData.brightness;
         }
-        if (notificationData.occupancy !== undefined) {
+        if (typeof notificationData.occupancy === 'boolean') {
             payload.occupancy = notificationData.occupancy;
         }
-        if (notificationData.motion !== undefined) {
+        if (typeof notificationData.motion === 'boolean') {
             payload.motion = notificationData.motion;
         }
         // Only callback if we have meaningful data

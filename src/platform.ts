@@ -8,7 +8,7 @@
  */
 
 import * as path from 'path'
-import { LevitonApiClient, getApiClient } from './api/client'
+import { LevitonApiClient } from './api/client'
 import { LevitonWebSocket, createWebSocket } from './api/websocket'
 import { DevicePersistence, getDevicePersistence } from './api/persistence'
 import { createStructuredLogger, StructuredLogger } from './utils/logger'
@@ -37,6 +37,12 @@ const POWER_OFF: PowerState = 'OFF'
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000
 const TOKEN_REFRESH_FAILURE_COOLDOWN_MS = 10 * 1000
 const POLL_DEVICE_CONCURRENCY = 4
+
+// Self-healing startup: if initial device discovery fails (e.g. a transient
+// Leviton/network outage at boot), retry with exponential backoff instead of
+// leaving the plugin permanently dead until a manual Homebridge restart.
+const INITIAL_INIT_RETRY_MS = 15 * 1000
+const MAX_INIT_RETRY_MS = 5 * 60 * 1000
 
 // Device model arrays for type checking
 const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710', 'DN6HD']
@@ -86,8 +92,10 @@ export class LevitonDecoraSmartPlatform {
   // Device persistence
   private devicePersistence: DevicePersistence
   
-  // Cleanup interval
-  private cleanupInterval: ReturnType<typeof setInterval> | null = null
+  // Startup retry
+  private initRetryTimer: ReturnType<typeof setTimeout> | null = null
+  private initAttempt = 0
+  private isShuttingDown = false
 
   // Track recent HomeKit commands to avoid logging them as "external"
   private recentHomeKitCommands: Map<string, number> = new Map()
@@ -106,9 +114,16 @@ export class LevitonDecoraSmartPlatform {
       level: config?.loglevel || 'info',
     })
     
-    // Setup API client
-    this.client = getApiClient({
+    // Setup API client. Each platform instance owns its own client (and thus its
+    // own circuit breaker, rate limiter, and cache) so multiple configured
+    // accounts don't share resilience state and trip each other.
+    this.client = new LevitonApiClient({
       timeout: config?.connectionTimeout || 10000,
+      logger: {
+        debug: (msg: string) => this.log.debug(msg),
+        info: (msg: string) => this.log.info(msg),
+        warn: (msg: string) => this.log.warn(msg),
+      },
     })
     
     // Setup device persistence
@@ -129,12 +144,10 @@ export class LevitonDecoraSmartPlatform {
     
     // Cleanup on shutdown
     api.on('shutdown', () => {
+      this.isShuttingDown = true
       this.saveDeviceStates()
       this.cleanup()
     })
-    
-    // Start periodic cleanup
-    this.startPeriodicCleanup()
   }
 
   /**
@@ -163,12 +176,55 @@ export class LevitonDecoraSmartPlatform {
   }
 
   /**
-   * Initializes the platform
+   * Initializes the platform, retrying on transient failures so a temporary
+   * outage at startup doesn't leave the plugin permanently inert.
    */
   private async initialize(): Promise<void> {
+    try {
+      await this.discoverAndSetup()
+      this.initAttempt = 0
+    } catch (error) {
+      // Permanent misconfiguration (bad credentials, invalid config) won't fix
+      // itself — don't hammer the API. Everything else is treated as transient.
+      if (error instanceof AuthenticationError || error instanceof ConfigurationError) {
+        this.log.error(`Initialization failed and will not be retried automatically: ${sanitizeError(error)}`)
+        return
+      }
+
+      this.initAttempt++
+      const delay = Math.min(
+        INITIAL_INIT_RETRY_MS * Math.pow(2, this.initAttempt - 1),
+        MAX_INIT_RETRY_MS,
+      )
+      this.log.warn(
+        `Initialization failed (attempt ${this.initAttempt}), retrying in ${Math.round(delay / 1000)}s: ${sanitizeError(error)}`,
+      )
+      this.scheduleInitializeRetry(delay)
+    }
+  }
+
+  /**
+   * Schedules a delayed re-initialization attempt unless the platform is
+   * shutting down. Only one retry is ever queued at a time.
+   */
+  private scheduleInitializeRetry(delayMs: number): void {
+    if (this.isShuttingDown || this.initRetryTimer) {
+      return
+    }
+    this.initRetryTimer = setTimeout(() => {
+      this.initRetryTimer = null
+      void this.initialize()
+    }, delayMs)
+  }
+
+  /**
+   * Performs device discovery and accessory setup. Throws on failure so the
+   * caller can decide whether to retry.
+   */
+  private async discoverAndSetup(): Promise<void> {
     this.log.info('Starting My Leviton Decora Smart platform...')
 
-    try {
+    {
       // Clean up any duplicate cache entries before processing
       // This is defensive - duplicates can occur due to race conditions in older versions
       this.deduplicateAccessories()
@@ -233,8 +289,6 @@ export class LevitonDecoraSmartPlatform {
       this.startPolling()
       
       this.log.info('Platform ready')
-    } catch (error) {
-      this.log.error(`Failed to initialize: ${sanitizeError(error)}`)
     }
   }
 
@@ -287,7 +341,12 @@ export class LevitonDecoraSmartPlatform {
       }
     }
 
-    // Setup WebSocket for real-time updates
+    // Setup WebSocket for real-time updates. Close any socket left over from a
+    // previous (failed) initialization attempt before creating a new one.
+    if (this.webSocket) {
+      this.webSocket.close()
+      this.webSocket = null
+    }
     try {
       this.webSocket = createWebSocket(
         loginResponse,
@@ -1087,6 +1146,9 @@ export class LevitonDecoraSmartPlatform {
    * Starts polling for device updates
    */
   private startPolling(): void {
+    if (this.config.pollInterval === undefined && this.config.pollingInterval !== undefined) {
+      this.log.warn("Config option 'pollingInterval' is deprecated; use 'pollInterval' instead.")
+    }
     const intervalSeconds = this.config.pollInterval ?? this.config.pollingInterval ?? 30
     const interval = Math.max(intervalSeconds * 1000, 10000)
     
@@ -1133,11 +1195,15 @@ export class LevitonDecoraSmartPlatform {
           return this.client.getDeviceStatus(device.id, token)
         })
         
-        // Only update HomeKit if we got real data from API
+        // Only update HomeKit if we got real data from API. Include motion/
+        // occupancy so motion sensors stay current via polling when the
+        // WebSocket push channel is unavailable.
         this.handleWebSocketUpdate({
           id: device.id,
           power: status.power,
           brightness: status.brightness,
+          occupancy: status.occupancy,
+          motion: status.motion,
         })
       } catch (err) {
         // On API failure, preserve current HomeKit state - don't update with fallback values
@@ -1195,15 +1261,6 @@ export class LevitonDecoraSmartPlatform {
   }
 
   /**
-   * Starts periodic cleanup
-   */
-  private startPeriodicCleanup(): void {
-    this.cleanupInterval = setInterval(() => {
-      this.client.clearCache()
-    }, 60000)
-  }
-
-  /**
    * Cleans up resources
    */
   private cleanup(): void {
@@ -1211,12 +1268,12 @@ export class LevitonDecoraSmartPlatform {
       clearInterval(this.pollingInterval)
       this.pollingInterval = null
     }
-    
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval)
-      this.cleanupInterval = null
+
+    if (this.initRetryTimer) {
+      clearTimeout(this.initRetryTimer)
+      this.initRetryTimer = null
     }
-    
+
     if (this.webSocket) {
       this.webSocket.close()
       this.webSocket = null

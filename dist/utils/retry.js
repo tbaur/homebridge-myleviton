@@ -67,7 +67,7 @@ function calculateBackoffDelay(attempt, baseDelay, maxDelay, multiplier) {
  * Execute a function with retry logic
  */
 async function withRetry(fn, policy = {}) {
-    const { maxAttempts, baseDelay, maxDelay, backoffMultiplier, retryableErrors, onRetry, } = { ...exports.DEFAULT_RETRY_POLICY, ...policy };
+    const { maxAttempts, baseDelay, maxDelay, backoffMultiplier, retryableErrors, onRetry, shouldRetry, } = { ...exports.DEFAULT_RETRY_POLICY, ...policy };
     let lastError;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
@@ -76,8 +76,11 @@ async function withRetry(fn, policy = {}) {
         catch (error) {
             lastError = error;
             const errorCode = (0, errors_1.getErrorCode)(error);
-            // Check if error is retryable
-            const isRetryable = (0, errors_1.isRetryableError)(error) || retryableErrors.includes(errorCode);
+            // Check if error is retryable. A custom predicate, when provided, takes
+            // full precedence over the default code-based matching.
+            const isRetryable = shouldRetry
+                ? shouldRetry(error)
+                : (0, errors_1.isRetryableError)(error) || retryableErrors.includes(errorCode);
             if (!isRetryable || attempt === maxAttempts) {
                 throw error;
             }

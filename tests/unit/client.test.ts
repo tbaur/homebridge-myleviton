@@ -36,7 +36,9 @@ describe('LevitonApiClient', () => {
     resetGlobalRateLimiter()
     resetGlobalCircuitBreaker()
     resetGlobalCache()
-    client = new LevitonApiClient({ timeout: 1000 })
+    // Single attempt by default keeps the error-handling assertions below
+    // deterministic; retry behavior is covered in its own describe block.
+    client = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 1 })
   })
 
   afterEach(() => {
@@ -335,6 +337,56 @@ describe('LevitonApiClient', () => {
       // Next request should fail due to circuit breaker
       mockJsonResponse([]) // This won't be called
       await expect(client.getDevices('res1', 'token123')).rejects.toThrow(/circuit breaker/i)
+    })
+  })
+
+  describe('retry behavior', () => {
+    it('retries a transient 5xx then succeeds', async () => {
+      const retryClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 3 })
+      mockErrorResponse(503, 'Service Unavailable')
+      mockJsonResponse([{ id: 'd1' }])
+
+      const result = await retryClient.getDevices('res1', 'token123')
+
+      expect(result).toHaveLength(1)
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('retries a network error then succeeds', async () => {
+      const retryClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 3 })
+      mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      mockJsonResponse([])
+
+      const result = await retryClient.getDevices('res1', 'token123')
+
+      expect(result).toEqual([])
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not retry auth (401) errors', async () => {
+      const retryClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 3 })
+      mockErrorResponse(401, 'Unauthorized')
+
+      await expect(retryClient.getDevices('res1', 'token123')).rejects.toThrow(AuthenticationError)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not retry rate-limit (429) errors', async () => {
+      const retryClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 3 })
+      mockErrorResponse(429, 'Too Many Requests')
+
+      await expect(retryClient.getDevices('res1', 'token123')).rejects.toThrow(RateLimitError)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('gives up after maxRetryAttempts on persistent 5xx', async () => {
+      const retryClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 3 })
+      for (let i = 0; i < 3; i++) {
+        mockErrorResponse(500, 'Server Error')
+      }
+
+      await expect(retryClient.getDevices('res1', 'token123')).rejects.toThrow(ApiResponseError)
+      expect(mockFetch).toHaveBeenCalledTimes(3)
     })
   })
 

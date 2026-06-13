@@ -279,6 +279,54 @@ describe('LevitonWebSocket', () => {
       ws.close()
     })
 
+    it('should drop invalid field types from a notification payload', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+      )
+
+      ws.connect()
+      const mock = getLastMockInstance()
+      mock.triggerOpen()
+      // power is a valid value, but brightness/occupancy/motion are the wrong
+      // types and must be dropped rather than pushed into HomeKit.
+      mock.triggerMessage({
+        type: 'notification',
+        notification: {
+          modelId: 'dev1',
+          data: { power: 'ON', brightness: 'bright', occupancy: 'yes', motion: 1 },
+        },
+      })
+
+      expect(mockCallback).toHaveBeenCalledWith({ id: 'dev1', power: 'ON' })
+      ws.close()
+    })
+
+    it('should ignore a payload whose only fields are invalid', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+      )
+
+      ws.connect()
+      const mock = getLastMockInstance()
+      mock.triggerOpen()
+      mock.triggerMessage({
+        type: 'notification',
+        notification: {
+          modelId: 'dev1',
+          data: { brightness: NaN, power: 'MAYBE' },
+        },
+      })
+
+      expect(mockCallback).not.toHaveBeenCalled()
+      ws.close()
+    })
+
     it('should handle malformed messages', () => {
       const ws = new LevitonWebSocket(
         loginResponse,

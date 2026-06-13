@@ -21,15 +21,18 @@ Control your **My Leviton Decora Smart** WiFi devices through Apple HomeKit usin
 
 ### Reliability
 - **Real-Time Updates** — Instant state sync via WebSocket
-- **Automatic State Sync** — Polls device state every 30 seconds as safety net
+- **Automatic State Sync** — Polls device state every 30 seconds as safety net (also refreshes motion/occupancy)
+- **Automatic Retry** — Transient network and 5xx errors are retried with exponential backoff
+- **Self-Healing Startup** — Retries device discovery after a transient outage at boot instead of staying offline until restart
 - **Rate Limiting** — Prevents API throttling (300 requests/minute)
-- **Circuit Breaker** — Graceful degradation during API outages
+- **Circuit Breaker** — Graceful degradation during API outages, with state transitions surfaced in the logs
 - **Auto-Reconnect** — Automatically recovers from connection issues
+- **Account Isolation** — Each configured account has its own circuit breaker, rate limiter, and cache
 - **State Persistence** — Faster startup with cached device data
 - **Token Auto-Refresh** — Seamless authentication management
 
 ### Quality
-- **446 Tests** — Comprehensive test suite with 95%+ code coverage
+- **499 Tests** — Comprehensive test suite with 95%+ code coverage
 - **Child Bridge Support** — Run as isolated bridge for maximum stability
 - **Flexible Logging** — Debug, info, warn, error levels + JSON structured logs
 - **No Analytics** — Zero tracking or data collection
