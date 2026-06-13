@@ -200,6 +200,8 @@ class LevitonWebSocket {
                 this.logger.debug('WebSocket closed by user');
                 return;
             }
+            // Any non-user close means the live push channel is down.
+            this.config.onConnectionChange?.(false);
             // Auth failure - don't reconnect. 401 is not a valid WebSocket close code
             // (codes are 1000-4999), so detect auth failures via the policy-violation
             // code (1008) or an auth-related close reason instead.
@@ -253,6 +255,7 @@ class LevitonWebSocket {
             this.logger.info('WebSocket authenticated and ready');
             this.subscribeToDevices();
             this.startPing();
+            this.config.onConnectionChange?.(true);
             return;
         }
         // Handle notifications

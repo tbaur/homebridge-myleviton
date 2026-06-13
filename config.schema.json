@@ -86,6 +86,22 @@
         "type": "boolean",
         "default": false,
         "description": "Output logs in JSON format for integration with log management tools like Datadog, Splunk, or ELK stack."
+      },
+      "connectivitySensor": {
+        "title": "Expose Cloud Connectivity Sensor",
+        "type": "boolean",
+        "default": false,
+        "description": "Adds a HomeKit contact sensor that reports whether the plugin can reach the Leviton cloud. Use it to get notified or trigger automations when connectivity is lost."
+      },
+      "connectivitySensorName": {
+        "title": "Connectivity Sensor Name",
+        "type": "string",
+        "default": "Leviton Cloud",
+        "placeholder": "Leviton Cloud",
+        "description": "Name shown in HomeKit for the connectivity sensor.",
+        "condition": {
+          "functionBody": "return model.connectivitySensor === true;"
+        }
       }
     }
   },
@@ -134,6 +150,17 @@
             "type": "string"
           }
         }
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Connectivity Sensor",
+      "description": "Optionally expose a HomeKit sensor that tracks Leviton cloud connectivity.",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "connectivitySensor",
+        "connectivitySensorName"
       ]
     },
     {

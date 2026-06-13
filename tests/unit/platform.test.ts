@@ -97,6 +97,7 @@ const createMockHomebridgeAPI = () => {
         Switch: 'Switch',
         Outlet: 'Outlet',
         MotionSensor: 'MotionSensor',
+        ContactSensor: 'ContactSensor',
       },
       Characteristic: {
         On: 'On',
@@ -108,6 +109,9 @@ const createMockHomebridgeAPI = () => {
         SerialNumber: 'SerialNumber',
         Name: 'Name',
         FirmwareRevision: 'FirmwareRevision',
+        StatusActive: 'StatusActive',
+        ContactSensorState: { CONTACT_DETECTED: 0, CONTACT_NOT_DETECTED: 1 },
+        StatusFault: { NO_FAULT: 0, GENERAL_FAULT: 1 },
       },
     },
     platformAccessory: jest.fn().mockImplementation((name: string, uuid: string) => ({
@@ -632,7 +636,8 @@ describe('LevitonDecoraSmartPlatform', () => {
       
       expect(createWebSocket).toHaveBeenCalled()
       const lastCall = createWebSocket.mock.calls[createWebSocket.mock.calls.length - 1]
-      expect(lastCall[4]).toEqual({ connectionTimeout: 15000 })
+      expect(lastCall[4]).toMatchObject({ connectionTimeout: 15000 })
+      expect(typeof lastCall[4].onConnectionChange).toBe('function')
     })
 
     it('should handle login failure gracefully and schedule a retry', async () => {
@@ -788,6 +793,86 @@ describe('LevitonDecoraSmartPlatform', () => {
       await new Promise(resolve => setTimeout(resolve, 100))
       
       expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('Platform ready'))
+    })
+  })
+
+  describe('connectivity sensor', () => {
+    const CONNECTIVITY_UUID = 'uuid-myleviton-connectivity'
+    const oneDevice = () =>
+      mockClient.getDevices.mockResolvedValue([
+        { id: 'dev-1', name: 'Living Room Light', model: 'DW6HD', serial: 'ABC123' },
+      ])
+
+    const registeredAccessories = () =>
+      mockAPI.registerPlatformAccessories.mock.calls.flatMap((call: unknown[]) => call[2] as { UUID: string }[])
+
+    it('does not register a connectivity sensor by default', async () => {
+      oneDevice()
+      new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      expect(registeredAccessories().some(acc => acc.UUID === CONNECTIVITY_UUID)).toBe(false)
+    })
+
+    it('registers a connectivity sensor when enabled', async () => {
+      oneDevice()
+      const config = { ...validConfig, connectivitySensor: true }
+      new LevitonDecoraSmartPlatform(mockLog, config, mockAPI)
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      expect(registeredAccessories().some(acc => acc.UUID === CONNECTIVITY_UUID)).toBe(true)
+      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('Added connectivity sensor'))
+    })
+
+    it('removes a cached connectivity sensor when disabled', async () => {
+      oneDevice()
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const cached = {
+        UUID: CONNECTIVITY_UUID,
+        displayName: 'Leviton Cloud',
+        context: { connectivity: true },
+        getService: jest.fn().mockReturnValue(null),
+        addService: jest.fn().mockReturnValue(mockService()),
+      }
+      platform.configureAccessory(cached)
+
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      const unregistered = mockAPI.unregisterPlatformAccessories.mock.calls
+        .flatMap((call: unknown[]) => call[2] as { UUID: string }[])
+      expect(unregistered.some(acc => acc.UUID === CONNECTIVITY_UUID)).toBe(true)
+    })
+
+    it('reports the sensor offline when the WebSocket connection drops', async () => {
+      const { createWebSocket } = require('../../src/api/websocket')
+      const contactService = mockService('Leviton Cloud')
+      const infoService = mockService('info')
+      mockAPI.platformAccessory.mockImplementation((name: string, uuid: string) => ({
+        displayName: name,
+        UUID: uuid,
+        context: {},
+        getService: jest.fn((svc: string) => (svc === 'AccessoryInformation' ? infoService : null)),
+        addService: jest.fn().mockReturnValue(contactService),
+      }))
+
+      oneDevice()
+      const config = { ...validConfig, connectivitySensor: true }
+      new LevitonDecoraSmartPlatform(mockLog, config, mockAPI)
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      // Grab the onConnectionChange callback the platform wired into the socket
+      // and simulate the live connection dropping.
+      const wsConfig = createWebSocket.mock.calls[createWebSocket.mock.calls.length - 1][4]
+      wsConfig.onConnectionChange(false)
+
+      // CONTACT_NOT_DETECTED (1) is "offline"; same shared mock characteristic
+      // receives both the contact-state and status-fault updates.
+      expect(contactService.getCharacteristic().updateValue).toHaveBeenCalledWith(1)
+      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('connectivity lost'))
     })
   })
 

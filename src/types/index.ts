@@ -40,6 +40,8 @@ export interface LevitonConfig extends PlatformConfig {
   pollInterval?: number
   pollingInterval?: number
   connectionTimeout?: number
+  connectivitySensor?: boolean
+  connectivitySensorName?: string
 }
 
 /**

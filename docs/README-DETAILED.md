@@ -63,7 +63,9 @@ Advanced documentation for power users, developers, and troubleshooting.
       "connectionTimeout": 10000,
       "excludedModels": [],
       "excludedSerials": [],
-      "structuredLogs": false
+      "structuredLogs": false,
+      "connectivitySensor": false,
+      "connectivitySensorName": "Leviton Cloud"
     }
   ]
 }
@@ -83,6 +85,8 @@ Advanced documentation for power users, developers, and troubleshooting.
 | `excludedModels` | string[] | `[]` | Device model numbers to exclude |
 | `excludedSerials` | string[] | `[]` | Device serial numbers to exclude |
 | `structuredLogs` | boolean | `false` | Output logs as JSON for log aggregation tools |
+| `connectivitySensor` | boolean | `false` | Expose a HomeKit contact sensor reporting Leviton cloud reachability |
+| `connectivitySensorName` | string | `"Leviton Cloud"` | Display name for the connectivity sensor |
 
 ### Example: Exclude Specific Devices
 
@@ -178,6 +182,22 @@ Device data is cached to `~/.homebridge/.homebridge-myleviton-state.json`:
 - Provides fallback if API is temporarily unavailable
 - Automatically refreshed on successful API calls
 
+### Connectivity Sensor (optional)
+
+When `connectivitySensor` is enabled, the plugin publishes a dedicated HomeKit
+contact sensor (separate from any device):
+
+- **Contact detected** = the plugin can reach the Leviton cloud
+- **Contact not detected** = connectivity is currently lost (also reflected via `StatusFault`)
+
+State is driven by two signals: the WebSocket connection callback (immediate, on
+authenticate/disconnect) and the polling loop, which doubles as a REST
+reachability heartbeat each cycle. This means the sensor stays accurate whether
+the push channel or the REST API is the part that is down. Transitions are logged
+(`connectivity lost` / `connectivity restored`) so you can alert or build Home
+automations on loss of connectivity. Disabling the option removes the sensor on
+the next restart.
+
 ---
 
 ## Advanced Troubleshooting
@@ -255,6 +275,7 @@ Debug logs show:
 | **Account Isolation** | Each client owns its circuit breaker, rate limiter, and cache |
 | **Auto-Reconnect** | WebSocket reconnects with exponential backoff |
 | **Token Refresh** | Proactive token refresh before expiration |
+| **Connectivity Sensor** | Optional HomeKit contact sensor surfaces cloud reachability for alerting |
 
 ### Resource Cleanup
 
@@ -319,7 +340,7 @@ homebridge-myleviton/
 │   └── types/            # Type definitions
 ├── dist/                 # Compiled JavaScript
 ├── tests/
-│   └── unit/*.test.ts    # Unit tests (499 tests)
+│   └── unit/*.test.ts    # Unit tests
 └── config.schema.json    # Homebridge UI config schema
 ```
 

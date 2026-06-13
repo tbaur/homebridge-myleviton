@@ -16,6 +16,7 @@
 - ✅ Circuit breaker pattern for API resilience (transitions logged)
 - ✅ Per-account isolation of circuit breaker, rate limiter, and cache
 - ✅ Device state persistence for faster startup
+- ✅ Optional cloud-connectivity status sensor (HomeKit contact sensor)
 - ✅ Structured JSON logging (optional)
 - ✅ Token auto-refresh before expiry and on 401
 - ✅ Homebridge v1.6.0+ and v2.0+ support
@@ -50,8 +51,7 @@ homebridge-myleviton/
 
 ## Quality
 
-- 499 tests passing
-- 95%+ code coverage
+- Comprehensive unit test suite with 95%+ code coverage
 - ESLint with zero warnings
 - TypeScript strict mode
 - Full JSDoc documentation

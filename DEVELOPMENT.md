@@ -62,7 +62,7 @@ homebridge-myleviton/
 ├── dist/                 # Compiled JavaScript (auto-generated)
 ├── tests/
 │   ├── setup.js          # Jest setup
-│   └── unit/             # Unit tests (499 tests, 95%+ coverage)
+│   └── unit/             # Unit tests (95%+ coverage)
 │       └── *.test.ts
 ├── config.schema.json    # Homebridge UI configuration schema
 ├── package.json          # Dependencies and scripts
@@ -419,8 +419,7 @@ sudo npm install -g homebridge-myleviton@3.0.0
 
 ### GitHub Actions
 
-`.github/workflows/test.yml` runs on push/PR:
-- Node.js 20.x, 22.x, 24.x
+`.github/workflows/test.yml` runs on push/PR (see the workflow for the current Node.js matrix):
 - TypeScript compilation
 - Linting
 - Tests with coverage

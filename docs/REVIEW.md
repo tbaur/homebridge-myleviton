@@ -53,7 +53,7 @@
 | Area | Status | Details |
 |------|--------|---------|
 | **TypeScript** | ✅ Pass | Full TypeScript with strict types |
-| **Test Coverage** | ✅ Pass | **499 tests, 95%+ line coverage** |
+| **Test Coverage** | ✅ Pass | **Full unit suite, 95%+ line coverage** |
 | **Code Organization** | ✅ Pass | Clean separation: `api/`, `utils/`, `errors/`, `types/` |
 | **Documentation** | ✅ Pass | README, DEVELOPMENT.md, FEATURES.md, CHANGELOG |
 | **Linting** | ✅ Pass | ESLint 9 with TypeScript rules, no errors |
@@ -78,9 +78,10 @@
 | **WebSocket Status** | ✅ Pass | `ws.getStatus()` returns connection state |
 | **Persistence Stats** | ✅ Pass | `persistence.getStats()` returns device count, dirty flag |
 | **Error Timestamps** | ✅ Pass | All errors include `timestamp` field |
-| **Debug Scripts** | ✅ Pass | `scripts/test-websocket.js` for connectivity testing |
+| **Debug Scripts** | ✅ Pass | `scripts/test-websocket.js` for connectivity testing; `scripts/probe-events.mjs` for raw event capture |
+| **Connectivity Sensor** | ✅ Pass | Optional HomeKit contact sensor surfaces Leviton cloud reachability for alerting/automations |
 | **Child Bridge Support** | ✅ Pass | Isolates plugin in separate process |
-| **GitHub Actions** | ✅ Pass | Automated testing on Node 20.x, 22.x, 24.x |
+| **GitHub Actions** | ✅ Pass | Automated testing on the Node.js matrix defined in `.github/workflows/test.yml` |
 | **Coverage Reports** | ✅ Pass | Uploaded to GitHub artifacts |
 
 **No serviceability issues found.**
@@ -99,7 +100,7 @@
 ### Overall: Production Ready ✅
 
 ```
-Tests:       499 passed
+Tests:       all passing
 Coverage:    95%+
 Lint:        0 errors
 Audit:       0 vulnerabilities
