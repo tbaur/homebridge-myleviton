@@ -32,6 +32,26 @@ from commit messages — none are edited or run by hand.
 
 A release therefore reduces to: merge the code PR(s), then merge the Release PR.
 
+## Branch protection
+
+`master` is protected with settings chosen to be compatible with the automated
+flow above:
+
+- **Require a pull request before merging** (0 required approvals) — keeps direct
+  pushes off `master` without blocking a solo maintainer.
+- **Block force-pushes and deletions.**
+- **No required status checks.** The Tests workflow runs on every code PR and is
+  visible there, but it is intentionally *not* a hard merge gate. The Release PR
+  is opened by the built-in `GITHUB_TOKEN`, and GitHub does not trigger workflows
+  for such PRs (loop prevention), so a required check would leave every Release PR
+  permanently unmergeable. The `publish` job re-runs build → lint → test before
+  `npm publish`, so releases are still gated on a green build.
+
+> If enforced required checks on the Release PR are ever wanted, the only way to
+> get them is to have release-please open its PR with a Personal Access Token
+> instead of the built-in token, so the Tests workflow fires. That trades a stored
+> secret for enforced checks; the current setup avoids the secret.
+
 ## Publishing authentication
 
 Publishing uses **npm Trusted Publishing (OIDC)** — there is no `NPM_TOKEN`
