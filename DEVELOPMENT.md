@@ -88,7 +88,7 @@ saveDeviceStates()                // Called on shutdown
 
 // Device Management
 discoverDevices()                 // Discover devices from API
-addAccessory(device, token)       // Register device with Homebridge
+addAccessory(device)              // Register device with Homebridge
 configureAccessory(accessory)     // Restore cached accessory
 setupService(accessory)           // Configure HomeKit service
 

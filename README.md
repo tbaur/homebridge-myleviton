@@ -101,6 +101,18 @@ Your devices will appear in the Home app automatically.
 3. **Enable debug logs** — Set `"loglevel": "debug"` and restart
 4. **Restart Homebridge** — Required after any config change
 
+## Security
+
+Leviton's API has no OAuth or scoped tokens, so this plugin needs your **actual My Leviton account password**. Homebridge stores plugin config in plain text, which means your password lives unencrypted in `config.json` on the Homebridge host — this is a Homebridge limitation, not something the plugin can encrypt away (the process needs the cleartext to log in).
+
+What this means for you:
+
+- **Secure the Homebridge host.** Anyone who can read files on it can read your password. Use disk encryption and restrict OS accounts where practical.
+- **Consider a dedicated Leviton account** for HomeKit so the bridge isn't holding your primary credentials.
+- **Scrub before sharing.** When posting logs or sharing backups, redact both `config.json` and `~/.homebridge/accessories/cachedAccessories`.
+
+The plugin itself talks to Leviton over TLS only (`https`/`wss`), redacts passwords and tokens from its logs, and does not persist the auth token to disk.
+
 ## Requirements
 
 - Homebridge 1.6.0+ or 2.0+
