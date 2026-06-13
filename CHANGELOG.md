@@ -5,6 +5,13 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.0](https://github.com/tbaur/homebridge-myleviton/compare/v3.4.10...v3.5.0) (2026-06-13)
+
+
+### Features
+
+* reliability and security hardening ([#12](https://github.com/tbaur/homebridge-myleviton/issues/12)) ([27ff583](https://github.com/tbaur/homebridge-myleviton/commit/27ff5836350539b2626464d4c39710d770a8ef98))
+
 ## [3.4.10](https://github.com/tbaur/homebridge-myleviton/compare/v3.4.9...v3.4.10) (2026-06-13)
 
 
