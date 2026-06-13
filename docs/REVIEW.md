@@ -1,6 +1,6 @@
 # Security, Reliability, Maintainability & Serviceability Review
 
-*Last reviewed: 2026-02-08*
+*Last reviewed: 2026-06-13*
 
 ---
 
@@ -15,6 +15,8 @@
 | **HTTPS Only** | ✅ Pass | All API calls to `https://my.leviton.com` |
 | **No Secrets in Logs** | ✅ Pass | `SENSITIVE_PATTERNS` regex array catches common patterns |
 | **Stack Trace Sanitization** | ✅ Pass | `sanitizeStackTrace()` removes absolute paths |
+| **Token Redaction** | ✅ Pass | Redaction regex covers token-like `id` values containing `._-`, not just alphanumerics |
+| **WebSocket Payload Validation** | ✅ Pass | Inbound notification fields are type-checked before reaching HomeKit |
 | **npm Audit** | ✅ Pass | `0 vulnerabilities` |
 | **CI Security Job** | ✅ Pass | GitHub Actions runs `npm audit --audit-level=moderate` |
 | **SECURITY.md** | ✅ Pass | Clear disclosure policy with response timelines |
@@ -27,17 +29,20 @@
 
 | Area | Status | Details |
 |------|--------|---------|
-| **Circuit Breaker** | ✅ Pass | Opens after 5 failures, resets after 30s, half-open testing |
+| **Request Retry** | ✅ Pass | `withRetry()` wraps API requests: transient network/5xx retried with exponential backoff + jitter; auth/429 surface immediately |
+| **Self-Healing Startup** | ✅ Pass | Discovery retries with bounded backoff after transient boot-time failure; auth/config errors fail fast |
+| **Account Isolation** | ✅ Pass | Each client instance owns its circuit breaker, rate limiter, and cache (no cross-account sharing) |
+| **Circuit Breaker** | ✅ Pass | Opens after 5 failures, resets after 30s, half-open testing; transitions logged via `onStateChange` |
 | **Rate Limiting** | ✅ Pass | 300 writes/minute with sliding window |
 | **Request Deduplication** | ✅ Pass | Prevents duplicate concurrent requests |
 | **Response Caching** | ✅ Pass | 2s TTL for device status to reduce API load |
 | **Token Auto-Refresh** | ✅ Pass | `ensureValidToken()` + `refreshToken()` with mutex |
 | **API Timeouts** | ✅ Pass | 10s timeout with AbortController |
-| **WebSocket Reconnect** | ✅ Pass | Exponential backoff, max 10 attempts, 60s max delay |
+| **WebSocket Reconnect** | ✅ Pass | Exponential backoff, max 10 attempts, 60s max delay; auth-failure closes (1008/401) do not reconnect |
 | **Device Persistence** | ✅ Pass | Atomic writes (temp file + rename), 24h TTL |
-| **Graceful Shutdown** | ✅ Pass | Saves state, closes WebSocket, clears intervals |
+| **Graceful Shutdown** | ✅ Pass | Saves state, closes WebSocket, clears timers |
 | **Error Recovery** | ✅ Pass | Structured error hierarchy with `isRetryable` flag |
-| **Polling Safety Net** | ✅ Pass | 30s polling runs continuously |
+| **Polling Safety Net** | ✅ Pass | 30s polling runs continuously, refreshing power, brightness, motion, and occupancy |
 
 **No reliability issues found.**
 
@@ -48,7 +53,7 @@
 | Area | Status | Details |
 |------|--------|---------|
 | **TypeScript** | ✅ Pass | Full TypeScript with strict types |
-| **Test Coverage** | ✅ Pass | **446 tests, 95%+ line coverage** |
+| **Test Coverage** | ✅ Pass | **499 tests, 95%+ line coverage** |
 | **Code Organization** | ✅ Pass | Clean separation: `api/`, `utils/`, `errors/`, `types/` |
 | **Documentation** | ✅ Pass | README, DEVELOPMENT.md, FEATURES.md, CHANGELOG |
 | **Linting** | ✅ Pass | ESLint 9 with TypeScript rules, no errors |
@@ -69,12 +74,13 @@
 | **Leveled Logging** | ✅ Pass | debug/info/warn/error levels, configurable |
 | **Structured Logs** | ✅ Pass | Optional JSON logging for log aggregation |
 | **Status Endpoints** | ✅ Pass | `client.getStatus()` returns circuit breaker, rate limiter, cache stats |
+| **Circuit Breaker Logging** | ✅ Pass | State transitions (closed/open/half-open) logged at warn/info for outage visibility |
 | **WebSocket Status** | ✅ Pass | `ws.getStatus()` returns connection state |
 | **Persistence Stats** | ✅ Pass | `persistence.getStats()` returns device count, dirty flag |
 | **Error Timestamps** | ✅ Pass | All errors include `timestamp` field |
 | **Debug Scripts** | ✅ Pass | `scripts/test-websocket.js` for connectivity testing |
 | **Child Bridge Support** | ✅ Pass | Isolates plugin in separate process |
-| **GitHub Actions** | ✅ Pass | Automated testing on Node 20.x, 22.x |
+| **GitHub Actions** | ✅ Pass | Automated testing on Node 20.x, 22.x, 24.x |
 | **Coverage Reports** | ✅ Pass | Uploaded to GitHub artifacts |
 
 **No serviceability issues found.**
@@ -93,7 +99,7 @@
 ### Overall: Production Ready ✅
 
 ```
-Tests:       446 passed
+Tests:       499 passed
 Coverage:    95%+
 Lint:        0 errors
 Audit:       0 vulnerabilities
@@ -123,6 +129,7 @@ This review examined:
 - `src/errors/index.ts` - Error hierarchy
 - `src/utils/validators.ts` - Input validation
 - `src/utils/sanitizers.ts` - Data sanitization
+- `src/utils/retry.ts` - Exponential backoff retry with custom predicates
 - `src/utils/logger.ts` - Logging utilities
 - `.github/workflows/test.yml` - CI pipeline
 - `SECURITY.md` - Security policy

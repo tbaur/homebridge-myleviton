@@ -11,6 +11,15 @@ import { CircuitBreaker } from './circuit-breaker';
 import { ResponseCache } from './cache';
 import type { DeviceInfo, DeviceStatus, LoginResponse, ResidentialPermission, ResidentialAccount, Residence, PowerState } from '../types';
 /**
+ * Minimal logger surface used by the client for resilience observability.
+ * Optional methods so a partial logger (or none) can be supplied.
+ */
+export interface ClientLogger {
+    debug?: (message: string) => void;
+    info?: (message: string) => void;
+    warn?: (message: string) => void;
+}
+/**
  * API configuration
  */
 export interface ApiClientConfig {
@@ -22,6 +31,10 @@ export interface ApiClientConfig {
     useCache: boolean;
     /** Cache TTL in ms */
     cacheTtl: number;
+    /** Maximum attempts for transient (network/5xx) failures before giving up */
+    maxRetryAttempts: number;
+    /** Optional logger for resilience events (circuit breaker, rate limiting) */
+    logger?: ClientLogger;
 }
 /**
  * Default API configuration
@@ -38,6 +51,11 @@ export declare class LevitonApiClient {
     private readonly deduplicator;
     constructor(config?: Partial<ApiClientConfig>);
     /**
+     * Surface circuit-breaker transitions so operators can see when the Leviton
+     * API is being treated as unavailable and when it recovers.
+     */
+    private logCircuitTransition;
+    /**
      * Make an API request with all protections
      */
     private request;
@@ -45,6 +63,12 @@ export declare class LevitonApiClient {
      * Execute the actual request
      */
     private executeRequest;
+    /**
+     * Performs a single fetch + parse cycle, translating low-level failures into
+     * typed errors. Intentionally free of circuit-breaker, rate-limit, and cache
+     * side effects so it can be safely retried.
+     */
+    private fetchAndParse;
     /**
      * Login and get authentication token
      */

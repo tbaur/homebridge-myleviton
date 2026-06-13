@@ -42,6 +42,7 @@ class CircuitBreaker {
     resetTimeout;
     halfOpenMax;
     failureWindow;
+    onStateChange;
     _state = CircuitState.CLOSED;
     failures = 0;
     successes = 0;
@@ -54,12 +55,24 @@ class CircuitBreaker {
         this.resetTimeout = merged.resetTimeout;
         this.halfOpenMax = merged.halfOpenMax;
         this.failureWindow = merged.failureWindow ?? 60000;
+        this.onStateChange = merged.onStateChange;
     }
     /**
      * Current circuit state
      */
     get state() {
         return this._state;
+    }
+    /**
+     * Transition to a new state, notifying observers only on an actual change.
+     */
+    transitionTo(next) {
+        if (this._state === next) {
+            return;
+        }
+        const previous = this._state;
+        this._state = next;
+        this.onStateChange?.(previous, next);
     }
     /**
      * Check if circuit is open
@@ -85,9 +98,9 @@ class CircuitBreaker {
         if (this._state === CircuitState.OPEN) {
             // Check if enough time has passed to try again
             if (this.lastFailureTime && (Date.now() - this.lastFailureTime) >= this.resetTimeout) {
-                this._state = CircuitState.HALF_OPEN;
                 this.halfOpenRequests = 0;
                 this.successes = 0;
+                this.transitionTo(CircuitState.HALF_OPEN);
                 return true;
             }
             return false;
@@ -123,14 +136,14 @@ class CircuitBreaker {
         this.failureTimestamps.push(now);
         if (this._state === CircuitState.HALF_OPEN) {
             // Any failure in half-open state opens the circuit again
-            this._state = CircuitState.OPEN;
             this.halfOpenRequests = 0;
             this.successes = 0;
+            this.transitionTo(CircuitState.OPEN);
         }
         else if (this._state === CircuitState.CLOSED) {
             this.cleanupFailures();
             if (this.failures >= this.failureThreshold) {
-                this._state = CircuitState.OPEN;
+                this.transitionTo(CircuitState.OPEN);
             }
         }
     }
@@ -146,12 +159,12 @@ class CircuitBreaker {
      * Reset the circuit breaker to closed state
      */
     reset() {
-        this._state = CircuitState.CLOSED;
         this.failures = 0;
         this.successes = 0;
         this.lastFailureTime = null;
         this.halfOpenRequests = 0;
         this.failureTimestamps = [];
+        this.transitionTo(CircuitState.CLOSED);
     }
     /**
      * Get current circuit breaker status

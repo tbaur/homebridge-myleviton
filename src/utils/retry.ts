@@ -83,6 +83,7 @@ export async function withRetry<T>(
     backoffMultiplier,
     retryableErrors,
     onRetry,
+    shouldRetry,
   } = { ...DEFAULT_RETRY_POLICY, ...policy }
 
   let lastError: Error | undefined
@@ -94,8 +95,11 @@ export async function withRetry<T>(
       lastError = error as Error
       const errorCode = getErrorCode(error)
       
-      // Check if error is retryable
-      const isRetryable = isRetryableError(error) || retryableErrors.includes(errorCode)
+      // Check if error is retryable. A custom predicate, when provided, takes
+      // full precedence over the default code-based matching.
+      const isRetryable = shouldRetry
+        ? shouldRetry(error)
+        : isRetryableError(error) || retryableErrors.includes(errorCode)
       
       if (!isRetryable || attempt === maxAttempts) {
         throw error

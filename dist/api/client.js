@@ -18,6 +18,7 @@ const cache_1 = require("./cache");
 const request_queue_1 = require("./request-queue");
 const validators_1 = require("../utils/validators");
 const sanitizers_1 = require("../utils/sanitizers");
+const retry_1 = require("../utils/retry");
 /**
  * Default API configuration
  */
@@ -26,6 +27,7 @@ exports.DEFAULT_API_CONFIG = {
     timeout: 10000,
     useCache: true,
     cacheTtl: 2000,
+    maxRetryAttempts: 3,
 };
 /**
  * Default headers for API requests
@@ -42,6 +44,34 @@ function toQueryString(params) {
         .join('&');
 }
 /**
+ * Transient errors worth retrying: network/timeouts and 5xx responses.
+ * Auth (401/403), not-found (404), and rate-limit (429) errors are excluded so
+ * they surface immediately to the caller.
+ */
+function isTransientError(error) {
+    if (error instanceof errors_1.NetworkError) {
+        return true; // includes TimeoutError
+    }
+    if (error instanceof errors_1.ApiResponseError) {
+        return error.httpStatus >= 500 && error.httpStatus < 600;
+    }
+    return false;
+}
+/**
+ * Errors that should count against the circuit breaker: server-side and
+ * connectivity problems. Client errors (4xx) reflect the request, not service
+ * health, and must not trip the breaker.
+ */
+function isCircuitBreakerFailure(error) {
+    if (error instanceof errors_1.NetworkError || error instanceof errors_1.ApiParseError) {
+        return true;
+    }
+    if (error instanceof errors_1.ApiResponseError) {
+        return error.httpStatus >= 500 && error.httpStatus < 600;
+    }
+    return false;
+}
+/**
  * Leviton API client
  */
 class LevitonApiClient {
@@ -52,10 +82,28 @@ class LevitonApiClient {
     deduplicator;
     constructor(config = {}) {
         this.config = { ...exports.DEFAULT_API_CONFIG, ...config };
-        this.rateLimiter = (0, rate_limiter_1.getRateLimiter)();
-        this.circuitBreaker = (0, circuit_breaker_1.getCircuitBreaker)();
-        this.cache = (0, cache_1.getResponseCache)({ ttlMs: this.config.cacheTtl });
+        // Each client owns its resilience state so independent platform instances
+        // (e.g. multiple Leviton accounts) don't share a circuit breaker, rate
+        // limiter, or cache and trip each other.
+        this.rateLimiter = new rate_limiter_1.RateLimiter();
+        this.circuitBreaker = new circuit_breaker_1.CircuitBreaker({
+            onStateChange: (from, to) => this.logCircuitTransition(from, to),
+        });
+        this.cache = new cache_1.ResponseCache({ ttlMs: this.config.cacheTtl });
         this.deduplicator = new request_queue_1.RequestDeduplicator();
+    }
+    /**
+     * Surface circuit-breaker transitions so operators can see when the Leviton
+     * API is being treated as unavailable and when it recovers.
+     */
+    logCircuitTransition(from, to) {
+        const message = `Circuit breaker ${from} -> ${to}`;
+        if (to === circuit_breaker_1.CircuitState.OPEN) {
+            this.config.logger?.warn?.(message);
+        }
+        else {
+            this.config.logger?.info?.(message);
+        }
     }
     /**
      * Make an API request with all protections
@@ -85,14 +133,15 @@ class LevitonApiClient {
     async executeRequest(url, options, requestOptions) {
         const { useCache = false, cacheKey = url, bypassCircuitBreaker = false, debugLog = () => { }, } = requestOptions;
         const method = options.method || 'GET';
-        // Check circuit breaker
+        // Check circuit breaker (gated once per logical request, never retried)
         if (!bypassCircuitBreaker && !this.circuitBreaker.canRequest()) {
             const status = this.circuitBreaker.getStatus();
             throw new errors_1.ApiResponseError(503, `Service unavailable (circuit breaker open). Retry in ${Math.ceil((status.remainingResetTime || 30000) / 1000)}s`);
         }
-        // Rate limit write operations
+        // Rate limit write operations (counted once per logical request, not per retry)
         if (method !== 'GET') {
             if (!this.rateLimiter.tryAcquire()) {
+                this.config.logger?.warn?.(`Rate limit exceeded for ${method} ${url}`);
                 throw new errors_1.ApiResponseError(429, 'Rate limit exceeded');
             }
         }
@@ -100,7 +149,42 @@ class LevitonApiClient {
         if (!bypassCircuitBreaker && this.circuitBreaker.state === circuit_breaker_1.CircuitState.HALF_OPEN) {
             this.circuitBreaker.trackHalfOpenRequest();
         }
-        // Create abort controller for timeout
+        try {
+            // Retry only transient failures (network, timeout, 5xx). Auth (401/403)
+            // and rate-limit (429) errors are surfaced immediately so the platform's
+            // token-refresh path and the caller can react without blocking here.
+            const data = await (0, retry_1.withRetry)(() => this.fetchAndParse(url, options, debugLog), {
+                maxAttempts: Math.max(1, this.config.maxRetryAttempts),
+                baseDelay: 500,
+                maxDelay: 5000,
+                backoffMultiplier: 2,
+                shouldRetry: isTransientError,
+                onRetry: (attempt, error) => debugLog(`[API] Retry ${attempt} after transient error: ${error.message}`),
+            });
+            if (!bypassCircuitBreaker) {
+                this.circuitBreaker.recordSuccess();
+            }
+            // Cache response
+            if (useCache && method === 'GET') {
+                this.cache.set(cacheKey, data);
+            }
+            return data;
+        }
+        catch (error) {
+            // A single failure is recorded per logical request after retries are
+            // exhausted, so retries don't artificially accelerate the breaker.
+            if (!bypassCircuitBreaker && isCircuitBreakerFailure(error)) {
+                this.circuitBreaker.recordFailure();
+            }
+            throw error;
+        }
+    }
+    /**
+     * Performs a single fetch + parse cycle, translating low-level failures into
+     * typed errors. Intentionally free of circuit-breaker, rate-limit, and cache
+     * side effects so it can be safely retried.
+     */
+    async fetchAndParse(url, options, debugLog) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
         try {
@@ -112,67 +196,36 @@ class LevitonApiClient {
                     ...options.headers,
                 },
             });
-            clearTimeout(timeoutId);
-            // Get response text
             const responseText = await response.text();
             debugLog(`[API] Response: ${response.status} ${(0, sanitizers_1.createResponsePreview)(responseText, 100)}`);
-            // Handle non-OK responses
             if (!response.ok) {
-                if (!bypassCircuitBreaker && response.status >= 500) {
-                    this.circuitBreaker.recordFailure();
-                }
                 throw (0, errors_1.createApiError)(response.status, response.statusText, responseText);
             }
-            // Check content type
             const contentType = response.headers.get('content-type') || '';
             if (!contentType.includes('application/json') && !contentType.includes('text/json')) {
-                if (!bypassCircuitBreaker) {
-                    this.circuitBreaker.recordFailure();
-                }
                 throw new errors_1.ApiParseError(`Expected JSON response, got ${contentType}`, responseText);
             }
-            // Parse JSON
             if (!responseText || responseText.trim().length === 0) {
                 throw new errors_1.ApiParseError('Empty response body');
             }
-            let data;
             try {
-                data = JSON.parse(responseText);
+                return JSON.parse(responseText);
             }
             catch (e) {
-                if (!bypassCircuitBreaker) {
-                    this.circuitBreaker.recordFailure();
-                }
                 throw new errors_1.ApiParseError(`Failed to parse JSON: ${e.message}`, responseText);
             }
-            // Record success
-            if (!bypassCircuitBreaker) {
-                this.circuitBreaker.recordSuccess();
-            }
-            // Cache response
-            if (useCache && method === 'GET') {
-                this.cache.set(cacheKey, data);
-            }
-            return data;
         }
         catch (error) {
-            clearTimeout(timeoutId);
-            // Handle abort/timeout
             if (error.name === 'AbortError') {
-                if (!bypassCircuitBreaker) {
-                    this.circuitBreaker.recordFailure();
-                }
                 throw new errors_1.TimeoutError(this.config.timeout);
             }
-            // Network errors
-            if (error instanceof TypeError ||
-                error.message?.includes('fetch')) {
-                if (!bypassCircuitBreaker) {
-                    this.circuitBreaker.recordFailure();
-                }
+            if (error instanceof TypeError || error.message?.includes('fetch')) {
                 throw new errors_1.NetworkError(error.message, { cause: error });
             }
             throw error;
+        }
+        finally {
+            clearTimeout(timeoutId);
         }
     }
     /**

@@ -29,6 +29,11 @@ export interface CircuitBreakerConfig {
     halfOpenMax: number;
     /** Window for counting failures (ms) */
     failureWindow?: number;
+    /**
+     * Invoked whenever the circuit transitions between states. Used for
+     * observability so operators can see when the breaker opens or recovers.
+     */
+    onStateChange?: (from: CircuitState, to: CircuitState) => void;
 }
 /**
  * Default circuit breaker configuration
@@ -55,6 +60,7 @@ export declare class CircuitBreaker {
     private readonly resetTimeout;
     private readonly halfOpenMax;
     private readonly failureWindow;
+    private readonly onStateChange?;
     private _state;
     private failures;
     private successes;
@@ -66,6 +72,10 @@ export declare class CircuitBreaker {
      * Current circuit state
      */
     get state(): CircuitState;
+    /**
+     * Transition to a new state, notifying observers only on an actual change.
+     */
+    private transitionTo;
     /**
      * Check if circuit is open
      */

@@ -142,7 +142,7 @@ const setupMocks = () => {
   const mockAPI = createMockHomebridgeAPI()
   registerPlatform(mockAPI)
   
-  const { getApiClient } = require('../../src/api/client')
+  const { LevitonApiClient } = require('../../src/api/client')
   const mockClient = {
     login: jest.fn().mockResolvedValue({ id: 'test-token', userId: 'user-123' }),
     getResidentialPermissions: jest.fn().mockResolvedValue([{ residentialAccountId: 'account-123' }]),
@@ -155,7 +155,7 @@ const setupMocks = () => {
     clearCache: jest.fn(),
     invalidateDeviceCache: jest.fn(),
   }
-  getApiClient.mockReturnValue(mockClient)
+  LevitonApiClient.mockImplementation(() => mockClient)
   
   const { getDevicePersistence } = require('../../src/api/persistence')
   const mockPersistence = {
@@ -635,7 +635,7 @@ describe('LevitonDecoraSmartPlatform', () => {
       expect(lastCall[4]).toEqual({ connectionTimeout: 15000 })
     })
 
-    it('should handle login failure gracefully', async () => {
+    it('should handle login failure gracefully and schedule a retry', async () => {
       mockClient.login.mockRejectedValue(new Error('Invalid credentials'))
       
       new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
@@ -643,7 +643,12 @@ describe('LevitonDecoraSmartPlatform', () => {
       
       await new Promise(resolve => setTimeout(resolve, 50))
       
-      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('Failed to initialize'))
+      // Transient-looking failures are retried with backoff rather than leaving
+      // the plugin permanently dead.
+      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('Initialization failed'))
+      
+      // Emit shutdown to clear the pending retry timer so the test doesn't leak it.
+      mockAPI.emit('shutdown')
     })
 
     it('should exclude devices by model', async () => {

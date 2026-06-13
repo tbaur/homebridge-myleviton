@@ -18,7 +18,7 @@ const SENSITIVE_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /bearer\s+\S+/gi, replacement: 'Bearer ***' },
   { pattern: /"password"\s*:\s*"[^"]+"/gi, replacement: '"password":"***"' },
   { pattern: /"token"\s*:\s*"[^"]+"/gi, replacement: '"token":"***"' },
-  { pattern: /"id"\s*:\s*"[a-zA-Z0-9]{20,}"/gi, replacement: '"id":"***"' },
+  { pattern: /"id"\s*:\s*"[A-Za-z0-9._-]{20,}"/gi, replacement: '"id":"***"' },
 ]
 
 /**

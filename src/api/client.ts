@@ -16,12 +16,13 @@ import {
   createApiError,
   ValidationError,
 } from '../errors'
-import { RateLimiter, getRateLimiter } from './rate-limiter'
-import { CircuitBreaker, getCircuitBreaker, CircuitState } from './circuit-breaker'
-import { ResponseCache, getResponseCache } from './cache'
+import { RateLimiter } from './rate-limiter'
+import { CircuitBreaker, CircuitState } from './circuit-breaker'
+import { ResponseCache } from './cache'
 import { RequestDeduplicator } from './request-queue'
 import { validateEmail, validatePassword, validateDeviceId, validateToken, validateBrightness, validatePowerState } from '../utils/validators'
 import { maskToken, createResponsePreview } from '../utils/sanitizers'
+import { withRetry } from '../utils/retry'
 import type { 
   DeviceInfo, 
   DeviceStatus, 
@@ -32,6 +33,16 @@ import type {
   PowerState,
   ApiRequestOptions,
 } from '../types'
+
+/**
+ * Minimal logger surface used by the client for resilience observability.
+ * Optional methods so a partial logger (or none) can be supplied.
+ */
+export interface ClientLogger {
+  debug?: (message: string) => void
+  info?: (message: string) => void
+  warn?: (message: string) => void
+}
 
 /**
  * API configuration
@@ -45,6 +56,10 @@ export interface ApiClientConfig {
   useCache: boolean
   /** Cache TTL in ms */
   cacheTtl: number
+  /** Maximum attempts for transient (network/5xx) failures before giving up */
+  maxRetryAttempts: number
+  /** Optional logger for resilience events (circuit breaker, rate limiting) */
+  logger?: ClientLogger
 }
 
 /**
@@ -55,6 +70,7 @@ export const DEFAULT_API_CONFIG: ApiClientConfig = {
   timeout: 10000,
   useCache: true,
   cacheTtl: 2000,
+  maxRetryAttempts: 3,
 }
 
 /**
@@ -74,6 +90,36 @@ function toQueryString(params: Record<string, string>): string {
 }
 
 /**
+ * Transient errors worth retrying: network/timeouts and 5xx responses.
+ * Auth (401/403), not-found (404), and rate-limit (429) errors are excluded so
+ * they surface immediately to the caller.
+ */
+function isTransientError(error: unknown): boolean {
+  if (error instanceof NetworkError) {
+    return true // includes TimeoutError
+  }
+  if (error instanceof ApiResponseError) {
+    return error.httpStatus >= 500 && error.httpStatus < 600
+  }
+  return false
+}
+
+/**
+ * Errors that should count against the circuit breaker: server-side and
+ * connectivity problems. Client errors (4xx) reflect the request, not service
+ * health, and must not trip the breaker.
+ */
+function isCircuitBreakerFailure(error: unknown): boolean {
+  if (error instanceof NetworkError || error instanceof ApiParseError) {
+    return true
+  }
+  if (error instanceof ApiResponseError) {
+    return error.httpStatus >= 500 && error.httpStatus < 600
+  }
+  return false
+}
+
+/**
  * Leviton API client
  */
 export class LevitonApiClient {
@@ -85,10 +131,28 @@ export class LevitonApiClient {
 
   constructor(config: Partial<ApiClientConfig> = {}) {
     this.config = { ...DEFAULT_API_CONFIG, ...config }
-    this.rateLimiter = getRateLimiter()
-    this.circuitBreaker = getCircuitBreaker()
-    this.cache = getResponseCache({ ttlMs: this.config.cacheTtl })
+    // Each client owns its resilience state so independent platform instances
+    // (e.g. multiple Leviton accounts) don't share a circuit breaker, rate
+    // limiter, or cache and trip each other.
+    this.rateLimiter = new RateLimiter()
+    this.circuitBreaker = new CircuitBreaker({
+      onStateChange: (from, to) => this.logCircuitTransition(from, to),
+    })
+    this.cache = new ResponseCache({ ttlMs: this.config.cacheTtl })
     this.deduplicator = new RequestDeduplicator()
+  }
+
+  /**
+   * Surface circuit-breaker transitions so operators can see when the Leviton
+   * API is being treated as unavailable and when it recovers.
+   */
+  private logCircuitTransition(from: CircuitState, to: CircuitState): void {
+    const message = `Circuit breaker ${from} -> ${to}`
+    if (to === CircuitState.OPEN) {
+      this.config.logger?.warn?.(message)
+    } else {
+      this.config.logger?.info?.(message)
+    }
   }
 
   /**
@@ -150,7 +214,7 @@ export class LevitonApiClient {
 
     const method = options.method || 'GET'
 
-    // Check circuit breaker
+    // Check circuit breaker (gated once per logical request, never retried)
     if (!bypassCircuitBreaker && !this.circuitBreaker.canRequest()) {
       const status = this.circuitBreaker.getStatus()
       throw new ApiResponseError(
@@ -159,9 +223,10 @@ export class LevitonApiClient {
       )
     }
 
-    // Rate limit write operations
+    // Rate limit write operations (counted once per logical request, not per retry)
     if (method !== 'GET') {
       if (!this.rateLimiter.tryAcquire()) {
+        this.config.logger?.warn?.(`Rate limit exceeded for ${method} ${url}`)
         throw new ApiResponseError(429, 'Rate limit exceeded')
       }
     }
@@ -171,7 +236,53 @@ export class LevitonApiClient {
       this.circuitBreaker.trackHalfOpenRequest()
     }
 
-    // Create abort controller for timeout
+    try {
+      // Retry only transient failures (network, timeout, 5xx). Auth (401/403)
+      // and rate-limit (429) errors are surfaced immediately so the platform's
+      // token-refresh path and the caller can react without blocking here.
+      const data = await withRetry<T>(
+        () => this.fetchAndParse<T>(url, options, debugLog),
+        {
+          maxAttempts: Math.max(1, this.config.maxRetryAttempts),
+          baseDelay: 500,
+          maxDelay: 5000,
+          backoffMultiplier: 2,
+          shouldRetry: isTransientError,
+          onRetry: (attempt, error) =>
+            debugLog(`[API] Retry ${attempt} after transient error: ${error.message}`),
+        },
+      )
+
+      if (!bypassCircuitBreaker) {
+        this.circuitBreaker.recordSuccess()
+      }
+
+      // Cache response
+      if (useCache && method === 'GET') {
+        this.cache.set(cacheKey, data)
+      }
+
+      return data
+    } catch (error) {
+      // A single failure is recorded per logical request after retries are
+      // exhausted, so retries don't artificially accelerate the breaker.
+      if (!bypassCircuitBreaker && isCircuitBreakerFailure(error)) {
+        this.circuitBreaker.recordFailure()
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Performs a single fetch + parse cycle, translating low-level failures into
+   * typed errors. Intentionally free of circuit-breaker, rate-limit, and cache
+   * side effects so it can be safely retried.
+   */
+  private async fetchAndParse<T>(
+    url: string,
+    options: RequestInit,
+    debugLog: (msg: string) => void,
+  ): Promise<T> {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), this.config.timeout)
 
@@ -185,84 +296,39 @@ export class LevitonApiClient {
         },
       })
 
-      clearTimeout(timeoutId)
-
-      // Get response text
       const responseText = await response.text()
       debugLog(`[API] Response: ${response.status} ${createResponsePreview(responseText, 100)}`)
 
-      // Handle non-OK responses
       if (!response.ok) {
-        if (!bypassCircuitBreaker && response.status >= 500) {
-          this.circuitBreaker.recordFailure()
-        }
         throw createApiError(response.status, response.statusText, responseText)
       }
 
-      // Check content type
       const contentType = response.headers.get('content-type') || ''
       if (!contentType.includes('application/json') && !contentType.includes('text/json')) {
-        if (!bypassCircuitBreaker) {
-          this.circuitBreaker.recordFailure()
-        }
-        throw new ApiParseError(
-          `Expected JSON response, got ${contentType}`,
-          responseText,
-        )
+        throw new ApiParseError(`Expected JSON response, got ${contentType}`, responseText)
       }
 
-      // Parse JSON
       if (!responseText || responseText.trim().length === 0) {
         throw new ApiParseError('Empty response body')
       }
 
-      let data: T
       try {
-        data = JSON.parse(responseText) as T
+        return JSON.parse(responseText) as T
       } catch (e) {
-        if (!bypassCircuitBreaker) {
-          this.circuitBreaker.recordFailure()
-        }
-        throw new ApiParseError(
-          `Failed to parse JSON: ${(e as Error).message}`,
-          responseText,
-        )
+        throw new ApiParseError(`Failed to parse JSON: ${(e as Error).message}`, responseText)
       }
-
-      // Record success
-      if (!bypassCircuitBreaker) {
-        this.circuitBreaker.recordSuccess()
-      }
-
-      // Cache response
-      if (useCache && method === 'GET') {
-        this.cache.set(cacheKey, data)
-      }
-
-      return data
     } catch (error) {
-      clearTimeout(timeoutId)
-
-      // Handle abort/timeout
       if ((error as Error).name === 'AbortError') {
-        if (!bypassCircuitBreaker) {
-          this.circuitBreaker.recordFailure()
-        }
         throw new TimeoutError(this.config.timeout)
       }
 
-      // Network errors
-      if (
-        error instanceof TypeError ||
-        (error as Error).message?.includes('fetch')
-      ) {
-        if (!bypassCircuitBreaker) {
-          this.circuitBreaker.recordFailure()
-        }
+      if (error instanceof TypeError || (error as Error).message?.includes('fetch')) {
         throw new NetworkError((error as Error).message, { cause: error as Error })
       }
 
       throw error
+    } finally {
+      clearTimeout(timeoutId)
     }
   }
 

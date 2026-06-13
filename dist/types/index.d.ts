@@ -171,6 +171,13 @@ export interface RetryPolicy {
     backoffMultiplier: number;
     retryableErrors: string[];
     onRetry?: (attempt: number, error: Error) => void;
+    /**
+     * Optional custom predicate deciding whether an error is retryable. When
+     * provided it fully replaces the default `isRetryableError`/`retryableErrors`
+     * logic, giving callers precise control (e.g. retry only transient network
+     * and 5xx errors, never auth or rate-limit errors).
+     */
+    shouldRetry?: (error: unknown) => boolean;
 }
 /**
  * Request queue item
