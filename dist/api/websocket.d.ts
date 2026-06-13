@@ -28,6 +28,12 @@ export interface WebSocketConfig {
     maxReconnectDelay: number;
     /** Ping interval in ms to keep connection alive */
     pingInterval: number;
+    /**
+     * Optional callback invoked when the live connection state changes:
+     * `true` once authenticated and ready, `false` on a non-user close.
+     * Used to surface real-time connectivity (e.g. a HomeKit status sensor).
+     */
+    onConnectionChange?: (connected: boolean) => void;
 }
 /**
  * Default WebSocket configuration

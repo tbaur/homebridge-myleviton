@@ -52,6 +52,10 @@ const SWITCH_MODELS = ['DW15S', 'D215S']
 const CONTROLLER_MODELS = ['DW4BC']  // Button controllers - no state, skip
 const FAN_MODELS = ['DW4SF', 'D24SF']  // Fan speed controllers
 
+// Optional cloud-connectivity status sensor
+const CONNECTIVITY_UUID_SEED = UUID_PREFIX + 'connectivity'
+const DEFAULT_CONNECTIVITY_NAME = 'Leviton Cloud'
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type HAP = any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -96,6 +100,10 @@ export class LevitonDecoraSmartPlatform {
   private initRetryTimer: ReturnType<typeof setTimeout> | null = null
   private initAttempt = 0
   private isShuttingDown = false
+
+  // Optional cloud-connectivity status sensor
+  private connectivityService: Service | null = null
+  private isCloudOnline = true
 
   // Track recent HomeKit commands to avoid logging them as "external"
   private recentHomeKitCommands: Map<string, number> = new Map()
@@ -234,6 +242,11 @@ export class LevitonDecoraSmartPlatform {
       this.setLoginResponse(loginResponse)
       this.residenceId = residenceId
 
+      // Discovery succeeded — we just reached the cloud. Set up the optional
+      // connectivity sensor and mark it online before processing devices.
+      this.setupConnectivitySensor()
+      this.updateConnectivity(true)
+
       if (devices.length === 0) {
         this.log.error('No devices found in your My Leviton account')
         return
@@ -358,7 +371,11 @@ export class LevitonDecoraSmartPlatform {
           warn: (msg: string) => this.log.warn(msg),
           error: (msg: string) => this.log.error(msg),
         },
-        this.config.connectionTimeout ? { connectionTimeout: this.config.connectionTimeout } : {},
+        {
+          ...(this.config.connectionTimeout ? { connectionTimeout: this.config.connectionTimeout } : {}),
+          // Surface real-time push connectivity on the optional status sensor.
+          onConnectionChange: (connected: boolean) => this.updateConnectivity(connected),
+        },
       )
     } catch (err) {
       this.log.warn(`WebSocket unavailable: ${sanitizeError(err)}`)
@@ -509,6 +526,99 @@ export class LevitonDecoraSmartPlatform {
     // Register with Homebridge
     this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory])
     this.accessories.push(accessory)
+  }
+
+  /**
+   * Creates (or removes) the optional cloud-connectivity status sensor.
+   *
+   * Exposed as a HomeKit ContactSensor: "contact detected" means the plugin can
+   * reach the Leviton cloud, "contact not detected" means it cannot — so users
+   * can build automations or notifications on loss of connectivity. The state is
+   * driven by the WebSocket connection callback and the polling heartbeat.
+   */
+  private setupConnectivitySensor(): void {
+    const uuid = hap.uuid.generate(CONNECTIVITY_UUID_SEED)
+    const existing = this.accessories.find(acc => acc.UUID === uuid)
+
+    // Disabled: remove any previously-created sensor so toggling off takes effect.
+    if (!this.config.connectivitySensor) {
+      if (existing) {
+        this.log.info('Removing connectivity sensor (disabled in config)')
+        this.removeCachedAccessory(existing)
+      }
+      this.connectivityService = null
+      return
+    }
+
+    const name = sanitizeHapName(
+      this.config.connectivitySensorName || DEFAULT_CONNECTIVITY_NAME,
+      DEFAULT_CONNECTIVITY_NAME,
+    )
+
+    let accessory = existing
+    if (!accessory) {
+      accessory = new this.api.platformAccessory(name, uuid)
+      accessory.context = { connectivity: true }
+      this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory])
+      this.accessories.push(accessory)
+      this.log.info(`Added connectivity sensor: ${name}`)
+    } else {
+      accessory.context = { connectivity: true }
+      this.updateAccessoryDisplayName(accessory, name)
+    }
+
+    const service = accessory.getService(hap.Service.ContactSensor) ||
+      accessory.addService(hap.Service.ContactSensor, name)
+    service.setCharacteristic(hap.Characteristic.Name, name)
+    service.getCharacteristic(hap.Characteristic.StatusActive).updateValue(true)
+
+    const infoService = accessory.getService(hap.Service.AccessoryInformation)
+    if (infoService) {
+      infoService
+        .setCharacteristic(hap.Characteristic.Name, name)
+        .setCharacteristic(hap.Characteristic.Manufacturer, 'homebridge-myleviton')
+        .setCharacteristic(hap.Characteristic.Model, 'Cloud Connectivity')
+        .setCharacteristic(hap.Characteristic.SerialNumber, CONNECTIVITY_UUID_SEED)
+    }
+
+    this.connectivityService = service
+    this.api.updatePlatformAccessories([accessory])
+  }
+
+  /**
+   * Reflects the latest cloud-connectivity state on the status sensor.
+   * No-op when the sensor is disabled.
+   */
+  private updateConnectivity(online: boolean): void {
+    if (!this.connectivityService) {
+      return
+    }
+
+    const changed = online !== this.isCloudOnline
+    this.isCloudOnline = online
+
+    this.connectivityService
+      .getCharacteristic(hap.Characteristic.ContactSensorState)
+      .updateValue(
+        online
+          ? hap.Characteristic.ContactSensorState.CONTACT_DETECTED
+          : hap.Characteristic.ContactSensorState.CONTACT_NOT_DETECTED,
+      )
+    this.connectivityService
+      .getCharacteristic(hap.Characteristic.StatusFault)
+      .updateValue(
+        online
+          ? hap.Characteristic.StatusFault.NO_FAULT
+          : hap.Characteristic.StatusFault.GENERAL_FAULT,
+      )
+
+    if (changed) {
+      if (online) {
+        this.log.info('Leviton cloud connectivity restored')
+      } else {
+        this.log.warn('Leviton cloud connectivity lost')
+      }
+    }
   }
 
   /**
@@ -1187,6 +1297,10 @@ export class LevitonDecoraSmartPlatform {
       .map(accessory => accessory.context?.device)
       .filter((device): device is DeviceInfo => Boolean(device?.id))
 
+    // Track whether any device fetch succeeded this cycle so the polling loop
+    // can double as a cloud-reachability heartbeat for the connectivity sensor.
+    let anyPollSucceeded = false
+
     const pollSingleDevice = async (device: DeviceInfo): Promise<void> => {
       try {
         // Fetch actual device status from API (bypass getStatus to avoid fallback values)
@@ -1194,7 +1308,9 @@ export class LevitonDecoraSmartPlatform {
           const token = await this.ensureValidToken()
           return this.client.getDeviceStatus(device.id, token)
         })
-        
+
+        anyPollSucceeded = true
+
         // Only update HomeKit if we got real data from API. Include motion/
         // occupancy so motion sensors stay current via polling when the
         // WebSocket push channel is unavailable.
@@ -1227,6 +1343,11 @@ export class LevitonDecoraSmartPlatform {
     })
 
     await Promise.all(workers)
+
+    // The poll cycle reached (or failed to reach) the cloud — use that as a
+    // heartbeat for the connectivity sensor, covering the case where the
+    // WebSocket is down but REST still works (or vice versa).
+    this.updateConnectivity(anyPollSucceeded)
   }
 
   /**

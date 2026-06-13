@@ -30,6 +30,8 @@ export declare class LevitonDecoraSmartPlatform {
     private initRetryTimer;
     private initAttempt;
     private isShuttingDown;
+    private connectivityService;
+    private isCloudOnline;
     private recentHomeKitCommands;
     constructor(homebridgeLog: (msg: string) => void, config: LevitonConfig, api: HomebridgeAPI);
     /**
@@ -67,6 +69,20 @@ export declare class LevitonDecoraSmartPlatform {
      * Adds a new accessory
      */
     addAccessory(device: DeviceInfo): Promise<void>;
+    /**
+     * Creates (or removes) the optional cloud-connectivity status sensor.
+     *
+     * Exposed as a HomeKit ContactSensor: "contact detected" means the plugin can
+     * reach the Leviton cloud, "contact not detected" means it cannot — so users
+     * can build automations or notifications on loss of connectivity. The state is
+     * driven by the WebSocket connection callback and the polling heartbeat.
+     */
+    private setupConnectivitySensor;
+    /**
+     * Reflects the latest cloud-connectivity state on the status sensor.
+     * No-op when the sensor is disabled.
+     */
+    private updateConnectivity;
     /**
      * Gets a HAP-valid name while keeping the Leviton device name as the source.
      */
