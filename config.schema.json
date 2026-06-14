@@ -28,7 +28,7 @@
         "title": "Password",
         "type": "string",
         "placeholder": "••••••••••••",
-        "description": "Your My Leviton account password. Note: Homebridge stores this in plain text in config.json — keep your Homebridge host secured. Consider a dedicated Leviton account.",
+        "description": "Your My Leviton account password. Note: Homebridge stores this in plain text in config.json — keep your Homebridge host secured. Consider a dedicated Leviton account, or set the MYLEVITON_PASSWORD environment variable and leave this field empty.",
         "x-schema-form": {
           "type": "password"
         }
@@ -52,6 +52,13 @@
         "minimum": 10,
         "maximum": 3600,
         "description": "How often (in seconds) to check device states. Lower values = faster updates but more API calls. Default: 30 seconds."
+      },
+      "pollingInterval": {
+        "title": "Poll Interval (Deprecated)",
+        "type": "integer",
+        "minimum": 10,
+        "maximum": 3600,
+        "description": "Deprecated alias for pollInterval. Use pollInterval instead."
       },
       "connectionTimeout": {
         "title": "Connection Timeout",
@@ -110,7 +117,7 @@
         "minimum": 0,
         "maximum": 3600,
         "placeholder": 0,
-        "description": "Seconds between diagnostics health heartbeats logged to Homebridge (logs/JSON only — not exposed in HomeKit). Set to 0 to disable, or 30–3600 to enable. Pairs well with Structured Logging."
+        "description": "Seconds between diagnostics health heartbeats logged to Homebridge (logs/JSON only — not exposed in HomeKit). Set to 0 to disable, or 30–3600 to enable (values 1–29 are rejected at runtime). Pairs well with Structured Logging."
       }
     }
   },

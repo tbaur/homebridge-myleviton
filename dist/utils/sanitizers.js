@@ -10,6 +10,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sanitizeError = sanitizeError;
 exports.sanitizeString = sanitizeString;
+exports.maskEmail = maskEmail;
 exports.isValidHapName = isValidHapName;
 exports.sanitizeHapName = sanitizeHapName;
 exports.sanitizeObject = sanitizeObject;
@@ -55,6 +56,16 @@ function sanitizeString(str) {
         result = result.replace(pattern, replacement);
     }
     return result;
+}
+/**
+ * Mask an email for logging (show first char and domain).
+ */
+function maskEmail(email) {
+    const at = email.indexOf('@');
+    if (at <= 0) {
+        return '***';
+    }
+    return `${email[0]}***${email.slice(at)}`;
 }
 const HAP_NAME_MAX_LENGTH = 64;
 // Mirrors HAP-NodeJS's allowed character set for the Name characteristic:

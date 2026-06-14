@@ -79,6 +79,8 @@ class LevitonWebSocket {
     // Timestamp of the most recent inbound frame (any message or pong). Used as a
     // liveness signal for diagnostics; null until the first frame arrives.
     lastInboundAt = null;
+    /** Last device notification (not ping/pong) — used to decide whether REST poll can be skipped. */
+    lastNotificationAt = null;
     timers = [];
     reconnectTimer = null;
     pingTimer = null;
@@ -127,6 +129,31 @@ class LevitonWebSocket {
      */
     updateLoginResponse(loginResponse) {
         this.loginResponse = loginResponse;
+    }
+    /**
+     * Close the live connection and reconnect with the current login response.
+     * Used after token refresh so the socket does not keep stale credentials.
+     */
+    forceReconnect() {
+        if (this.isClosed) {
+            return;
+        }
+        // Notify listeners before removing handlers so connectivity state stays accurate.
+        this.config.onConnectionChange?.(false);
+        if (this.ws) {
+            try {
+                this.ws.removeAllListeners();
+                this.ws.close();
+            }
+            catch {
+                // Ignore close errors during forced reconnect
+            }
+            this.ws = null;
+        }
+        this.clearTimers();
+        this.isConnecting = false;
+        this.reconnectAttempt = 0;
+        this.connect();
     }
     /**
      * Legacy method for compatibility - prefer updateLoginResponse
@@ -245,7 +272,7 @@ class LevitonWebSocket {
             data = JSON.parse(message);
         }
         catch {
-            this.logger.error(`Failed to parse WebSocket message: ${message}`);
+            this.logger.error(`Failed to parse WebSocket message: ${(0, sanitizers_1.createResponsePreview)(message, 100)}`);
             return;
         }
         if (!data || typeof data !== 'object') {
@@ -319,6 +346,7 @@ class LevitonWebSocket {
         }
         // Only callback if we have meaningful data
         if (payload.power !== undefined || payload.brightness !== undefined || payload.occupancy !== undefined || payload.motion !== undefined) {
+            this.lastNotificationAt = Date.now();
             this.logger.debug(`Device update: ${payload.id} power=${payload.power} brightness=${payload.brightness}`);
             this.callback(payload);
         }
@@ -334,7 +362,18 @@ class LevitonWebSocket {
             return;
         }
         if (this.reconnectAttempt >= this.config.maxReconnectAttempts) {
-            this.logger.warn(`WebSocket unavailable after ${this.config.maxReconnectAttempts} attempts`);
+            this.logger.warn(`WebSocket unavailable after ${this.config.maxReconnectAttempts} attempts; scheduling long-tail retry in ${Math.round(this.config.maxReconnectDelay / 1000)}s`);
+            const timer = setTimeout(() => {
+                this.removeTimer(timer);
+                this.reconnectTimer = null;
+                if (this.isClosed) {
+                    return;
+                }
+                this.reconnectAttempt = 0;
+                this.connect();
+            }, this.config.maxReconnectDelay);
+            this.reconnectTimer = timer;
+            this.timers.push(timer);
             return;
         }
         const delay = Math.min(this.config.initialReconnectDelay * Math.pow(2, this.reconnectAttempt), this.config.maxReconnectDelay);
@@ -420,6 +459,10 @@ class LevitonWebSocket {
             reconnectAttempt: this.reconnectAttempt,
             lastInboundAt: this.lastInboundAt,
             lastEventAgeSec: this.lastInboundAt === null ? null : Math.round((Date.now() - this.lastInboundAt) / 1000),
+            lastNotificationAt: this.lastNotificationAt,
+            lastNotificationAgeSec: this.lastNotificationAt === null
+                ? null
+                : Math.round((Date.now() - this.lastNotificationAt) / 1000),
             subscribed: this.devices.length,
         };
     }

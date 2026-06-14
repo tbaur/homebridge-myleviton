@@ -119,6 +119,7 @@ export declare class CircuitBreaker {
 }
 /**
  * Get or create the global circuit breaker
+ * @deprecated Prefer constructing CircuitBreaker per API client.
  */
 export declare function getCircuitBreaker(config?: Partial<CircuitBreakerConfig>): CircuitBreaker;
 /**

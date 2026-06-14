@@ -51,7 +51,7 @@ describe('Error Hierarchy', () => {
       expect(json).toHaveProperty('name', 'AuthenticationError')
       expect(json).toHaveProperty('code', 'AUTH_ERROR')
       expect(json).toHaveProperty('message', 'test error')
-      expect(json).toHaveProperty('isRetryable', true)
+      expect(json).toHaveProperty('isRetryable', false)
       expect(json).toHaveProperty('timestamp')
     })
   })
@@ -61,7 +61,7 @@ describe('Error Hierarchy', () => {
       const error = new AuthenticationError('auth failed')
       
       expect(error.code).toBe('AUTH_ERROR')
-      expect(error.isRetryable).toBe(true)
+      expect(error.isRetryable).toBe(false)
       expect(error.httpStatus).toBe(401)
       expect(error.message).toBe('auth failed')
     })
@@ -244,7 +244,7 @@ describe('createApiError factory', () => {
 
 describe('isRetryableError', () => {
   it('should return true for retryable LevitonErrors', () => {
-    expect(isRetryableError(new AuthenticationError())).toBe(true)
+    expect(isRetryableError(new AuthenticationError())).toBe(false)
     expect(isRetryableError(new RateLimitError())).toBe(true)
     expect(isRetryableError(new NetworkError())).toBe(true)
     expect(isRetryableError(new CircuitBreakerError(1000))).toBe(true)

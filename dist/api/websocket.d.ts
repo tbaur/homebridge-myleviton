@@ -63,6 +63,8 @@ export declare class LevitonWebSocket {
     private callback;
     private reconnectAttempt;
     private lastInboundAt;
+    /** Last device notification (not ping/pong) — used to decide whether REST poll can be skipped. */
+    private lastNotificationAt;
     private timers;
     private reconnectTimer;
     private pingTimer;
@@ -88,6 +90,11 @@ export declare class LevitonWebSocket {
      * @param loginResponse - The new full login response
      */
     updateLoginResponse(loginResponse: LoginResponse): void;
+    /**
+     * Close the live connection and reconnect with the current login response.
+     * Used after token refresh so the socket does not keep stale credentials.
+     */
+    forceReconnect(): void;
     /**
      * Legacy method for compatibility - prefer updateLoginResponse
      * @deprecated Use updateLoginResponse instead
@@ -147,6 +154,8 @@ export declare class LevitonWebSocket {
         reconnectAttempt: number;
         lastInboundAt: number | null;
         lastEventAgeSec: number | null;
+        lastNotificationAt: number | null;
+        lastNotificationAgeSec: number | null;
         subscribed: number;
     };
 }

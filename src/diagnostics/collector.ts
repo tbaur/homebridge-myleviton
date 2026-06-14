@@ -249,9 +249,11 @@ export class DiagnosticsCollector {
     }
 
     const ws = readers.wsStatus()
-    const wsAgeSec = ws?.lastEventAgeSec ?? this.uptimeSec()
-    if ((!ws || !ws.isConnected) && wsAgeSec > WS_DOWN_THRESHOLD_SEC) {
-      reasons.push('webSocketDown')
+    if (ws !== null) {
+      const wsAgeSec = ws.lastEventAgeSec ?? this.uptimeSec()
+      if (!ws.isConnected && wsAgeSec > WS_DOWN_THRESHOLD_SEC) {
+        reasons.push('webSocketDown')
+      }
     }
 
     const total = this.recentOutcomes.length

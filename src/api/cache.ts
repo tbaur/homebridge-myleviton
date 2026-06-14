@@ -58,11 +58,11 @@ export class ResponseCache<T = unknown> {
   }
 
   /**
-   * Evict oldest entries if over capacity
+   * Evict oldest entries if over capacity (FIFO — not LRU unless updateOnAccess is enabled).
    */
   private evictIfNeeded(): void {
     while (this.cache.size >= this.maxSize) {
-      // Remove oldest entry (first in map)
+      // Remove oldest entry (first in Map insertion order)
       const oldestKey = this.cache.keys().next().value
       if (oldestKey) {
         this.cache.delete(oldestKey)
@@ -222,12 +222,14 @@ export class ResponseCache<T = unknown> {
 }
 
 /**
- * Global response cache instance
+ * Global response cache instance (test helper).
+ * @deprecated Prefer per-client ResponseCache instances.
  */
 let globalCache: ResponseCache | null = null
 
 /**
  * Get or create the global cache
+ * @deprecated Prefer constructing ResponseCache per API client.
  */
 export function getResponseCache(config?: Partial<CacheConfig>): ResponseCache {
   if (!globalCache) {

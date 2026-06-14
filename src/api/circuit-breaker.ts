@@ -264,12 +264,14 @@ export class CircuitBreaker {
 }
 
 /**
- * Global circuit breaker instance
+ * Global circuit breaker instance (test helper).
+ * @deprecated Prefer per-client CircuitBreaker instances.
  */
 let globalCircuitBreaker: CircuitBreaker | null = null
 
 /**
  * Get or create the global circuit breaker
+ * @deprecated Prefer constructing CircuitBreaker per API client.
  */
 export function getCircuitBreaker(config?: Partial<CircuitBreakerConfig>): CircuitBreaker {
   if (!globalCircuitBreaker) {

@@ -52,6 +52,7 @@ const logger_1 = require("./utils/logger");
 const sanitizers_1 = require("./utils/sanitizers");
 const validators_1 = require("./utils/validators");
 const errors_1 = require("./errors");
+const device_models_1 = require("./platform/device-models");
 /**
  * Installed plugin version, used for diagnostics lifecycle reporting.
  *
@@ -85,13 +86,10 @@ const POLL_DEVICE_CONCURRENCY = 4;
 // leaving the plugin permanently dead until a manual Homebridge restart.
 const INITIAL_INIT_RETRY_MS = 15 * 1000;
 const MAX_INIT_RETRY_MS = 5 * 60 * 1000;
-// Device model arrays for type checking
-const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710', 'DN6HD'];
-const MOTION_DIMMER_MODELS = ['D2MSD'];
-const OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P', 'D215O']; // D215P is plug-in switch, D215O is outdoor plug-in switch
-const SWITCH_MODELS = ['DW15S', 'D215S'];
-const CONTROLLER_MODELS = ['DW4BC']; // Button controllers - no state, skip
-const FAN_MODELS = ['DW4SF', 'D24SF']; // Fan speed controllers
+const MAX_INIT_ATTEMPTS = 30;
+/** Fallback TTL when the login response omits `ttl` (seconds). */
+const DEFAULT_TOKEN_TTL_SEC = 3600;
+const RECENT_HOMEKIT_COMMAND_TTL_MS = 60_000;
 // Optional cloud-connectivity status sensor
 const CONNECTIVITY_UUID_SEED = UUID_PREFIX + 'connectivity';
 const DEFAULT_CONNECTIVITY_NAME = 'Leviton Cloud';
@@ -137,6 +135,9 @@ class LevitonDecoraSmartPlatform {
     lastStatelessCount = 0;
     lastExcludedCount = 0;
     wsHasDisconnected = false;
+    discoveryComplete = false;
+    wsPushConnected = false;
+    lastRestReachabilityAt = null;
     constructor(homebridgeLog, config, api) {
         this.config = config;
         this.api = api;
@@ -169,7 +170,9 @@ class LevitonDecoraSmartPlatform {
         const storagePath = api?.user?.storagePath?.()
             ? path.join(api.user.storagePath(), '.homebridge-myleviton-state.json')
             : undefined;
-        this.devicePersistence = (0, persistence_1.getDevicePersistence)(storagePath);
+        this.devicePersistence = new persistence_1.DevicePersistence(storagePath, {
+            onWarn: (msg) => this.log.warn(msg),
+        });
         // Validate configuration
         if (!this.validateConfig()) {
             return;
@@ -177,7 +180,9 @@ class LevitonDecoraSmartPlatform {
         // Initialize on Homebridge launch
         api.on('didFinishLaunching', async () => {
             await this.initialize();
-            this.startDiagnostics();
+            if (this.discoveryComplete) {
+                this.startDiagnostics();
+            }
         });
         // Cleanup on shutdown
         api.on('shutdown', () => {
@@ -228,6 +233,10 @@ class LevitonDecoraSmartPlatform {
                 return;
             }
             this.initAttempt++;
+            if (this.initAttempt >= MAX_INIT_ATTEMPTS) {
+                this.log.error(`Initialization failed after ${MAX_INIT_ATTEMPTS} attempts; giving up until Homebridge restart: ${(0, sanitizers_1.sanitizeError)(error)}`);
+                return;
+            }
             const delay = Math.min(INITIAL_INIT_RETRY_MS * Math.pow(2, this.initAttempt - 1), MAX_INIT_RETRY_MS);
             this.log.warn(`Initialization failed (attempt ${this.initAttempt}), retrying in ${Math.round(delay / 1000)}s: ${(0, sanitizers_1.sanitizeError)(error)}`);
             this.scheduleInitializeRetry(delay);
@@ -262,9 +271,13 @@ class LevitonDecoraSmartPlatform {
             // Discovery succeeded — we just reached the cloud. Set up the optional
             // connectivity sensor and mark it online before processing devices.
             this.setupConnectivitySensor();
-            this.updateConnectivity(true);
+            this.lastRestReachabilityAt = Date.now();
+            this.recomputeCloudConnectivity(true);
             if (devices.length === 0) {
                 this.log.error('No devices found in your My Leviton account');
+                this.discoveryComplete = true;
+                this.startDiagnostics();
+                this.startPolling();
                 return;
             }
             // Get exclusion lists
@@ -283,7 +296,7 @@ class LevitonDecoraSmartPlatform {
                     excludedCount++;
                     continue;
                 }
-                if (this.isStatelessController(device.model)) {
+                if ((0, device_models_1.isStatelessControllerModel)(device.model)) {
                     statelessCount++;
                 }
                 // Check if we have a cached accessory for this device
@@ -315,6 +328,9 @@ class LevitonDecoraSmartPlatform {
             this.log.info(`Found ${devices.length} Leviton devices: ${controllableCount} controllable (${cachedCount} cached, ${newDevices} new), ${statelessCount} stateless skipped, ${excludedCount} excluded by config`);
             // Start polling
             this.startPolling();
+            this.discoveryComplete = true;
+            this.lastRestReachabilityAt = Date.now();
+            this.startDiagnostics();
             this.log.info('Platform ready');
         }
     }
@@ -329,32 +345,76 @@ class LevitonDecoraSmartPlatform {
         const token = loginResponse.id;
         const personId = loginResponse.userId;
         this.log.info('Authentication successful');
-        // Get residential permissions
+        // Get residential permissions — iterate all accounts/residences and merge devices.
         this.log.info('Loading residence information...');
         const permissions = await this.client.getResidentialPermissions(personId, token, debugLog);
-        if (!permissions.length || !permissions[0].residentialAccountId) {
+        if (!permissions.length) {
             throw new Error('No residential permissions found');
         }
-        const accountId = permissions[0].residentialAccountId;
-        // Get residential account
-        const account = await this.client.getResidentialAccount(accountId, token, debugLog);
-        if (!account.primaryResidenceId || !account.id) {
-            throw new Error('Invalid residential account response');
-        }
-        let residenceId = account.primaryResidenceId;
-        const residenceObjectId = account.id;
-        // Get devices
         this.log.info('Discovering devices...');
-        let devices = await this.client.getDevices(residenceId, token, debugLog);
-        // Try v2 API if no devices found
-        if (!devices.length) {
-            this.log.debug('Trying alternate residence API...');
-            const residences = await this.client.getResidences(residenceObjectId, token, debugLog);
-            if (residences.length && residences[0].id) {
-                residenceId = residences[0].id;
-                devices = await this.client.getDevices(residenceId, token, debugLog);
+        const deviceById = new Map();
+        let residenceId = '';
+        for (const permission of permissions) {
+            const accountId = permission.residentialAccountId;
+            if (!accountId) {
+                continue;
+            }
+            let account;
+            try {
+                account = await this.client.getResidentialAccount(accountId, token, debugLog);
+            }
+            catch (err) {
+                this.log.warn(`Failed to load residential account ${accountId}: ${(0, sanitizers_1.sanitizeError)(err)}`);
+                continue;
+            }
+            if (!account.id) {
+                this.log.debug(`Skipping residential account ${accountId}: missing account id`);
+                continue;
+            }
+            const residenceIds = new Set();
+            if (account.primaryResidenceId) {
+                residenceIds.add(account.primaryResidenceId);
+            }
+            try {
+                const residences = await this.client.getResidences(account.id, token, debugLog);
+                for (const residence of residences) {
+                    if (residence?.id) {
+                        residenceIds.add(residence.id);
+                    }
+                }
+            }
+            catch (err) {
+                this.log.warn(`Could not list all residences for account ${accountId}: ${(0, sanitizers_1.sanitizeError)(err)}. Using known residence ids only.`);
+            }
+            if (residenceIds.size === 0) {
+                this.log.warn(`No residences found for account ${accountId}; skipping account`);
+                continue;
+            }
+            for (const rid of residenceIds) {
+                try {
+                    const residenceDevices = await this.client.getDevices(rid, token, debugLog);
+                    for (const device of residenceDevices) {
+                        if (device?.id) {
+                            deviceById.set(device.id, device);
+                        }
+                    }
+                    if (!residenceId) {
+                        residenceId = rid;
+                    }
+                }
+                catch (err) {
+                    this.log.warn(`Failed to load devices for residence ${rid}: ${(0, sanitizers_1.sanitizeError)(err)}`);
+                }
             }
         }
+        const devices = Array.from(deviceById.values());
+        if (!residenceId && deviceById.size === 0) {
+            throw new Error('No valid residence found in residential permissions');
+        }
+        // Subscribe only to controllable, non-excluded devices (skip stateless controllers).
+        const excludedModels = (this.config.excludedModels || []).map(m => m.toUpperCase());
+        const excludedSerials = (this.config.excludedSerials || []).map(s => s.toUpperCase());
+        const wsDevices = devices.filter(d => !this.isDeviceExcluded(d, excludedModels, excludedSerials) && !(0, device_models_1.isStatelessControllerModel)(d.model));
         // Setup WebSocket for real-time updates. Close any socket left over from a
         // previous (failed) initialization attempt before creating a new one.
         if (this.webSocket) {
@@ -362,7 +422,7 @@ class LevitonDecoraSmartPlatform {
             this.webSocket = null;
         }
         try {
-            this.webSocket = (0, websocket_1.createWebSocket)(loginResponse, devices, this.handleWebSocketUpdate.bind(this), {
+            this.webSocket = (0, websocket_1.createWebSocket)(loginResponse, wsDevices, this.handleWebSocketUpdate.bind(this), {
                 debug: (msg) => this.log.debug(msg),
                 info: (msg) => this.log.info(msg),
                 warn: (msg) => this.log.warn(msg),
@@ -477,10 +537,6 @@ class LevitonDecoraSmartPlatform {
         }
         return excludedModels.includes(device.model.toUpperCase()) ||
             excludedSerials.includes(device.serial.toUpperCase());
-    }
-    /** True for button controllers and other devices with no controllable state. */
-    isStatelessController(model) {
-        return CONTROLLER_MODELS.includes((model || '').toUpperCase());
     }
     /**
      * Adds a new accessory
@@ -812,23 +868,23 @@ class LevitonDecoraSmartPlatform {
         }
         const model = device.model || '';
         // Button controllers don't have controllable state - skip them
-        if (this.isStatelessController(model)) {
+        if ((0, device_models_1.isStatelessControllerModel)(model)) {
             this.log.debug(`Skipping controller device: ${device.name} (${model})`);
             return;
         }
-        if (FAN_MODELS.includes(model)) {
+        if (device_models_1.FAN_MODELS.includes(model)) {
             await this.setupFanService(accessory, device);
         }
-        else if (MOTION_DIMMER_MODELS.includes(model)) {
+        else if (device_models_1.MOTION_DIMMER_MODELS.includes(model)) {
             await this.setupMotionDimmerService(accessory, device);
         }
-        else if (DIMMER_MODELS.includes(model)) {
+        else if (device_models_1.DIMMER_MODELS.includes(model)) {
             await this.setupLightbulbService(accessory, device);
         }
-        else if (OUTLET_MODELS.includes(model)) {
+        else if (device_models_1.OUTLET_MODELS.includes(model)) {
             await this.setupBasicService(accessory, device, hap.Service.Outlet);
         }
-        else if (SWITCH_MODELS.includes(model)) {
+        else if (device_models_1.SWITCH_MODELS.includes(model)) {
             await this.setupBasicService(accessory, device, hap.Service.Switch);
         }
         else {
@@ -1015,12 +1071,14 @@ class LevitonDecoraSmartPlatform {
     /**
      * Creates a power setter handler
      */
+    // HAP-NodeJS set handlers are loosely typed; narrow at the implementation boundary.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     createPowerSetter(device) {
         return async (value, callback) => {
             const startTime = Date.now();
             // Track this HomeKit command to avoid logging it as "external" later
             this.recentHomeKitCommands.set(device.id, Date.now());
+            this.pruneRecentHomeKitCommands();
             this.diagnostics.command();
             try {
                 await this.withTokenRetry(async () => {
@@ -1050,6 +1108,7 @@ class LevitonDecoraSmartPlatform {
             const startTime = Date.now();
             // Track this HomeKit command to avoid logging it as "external" later
             this.recentHomeKitCommands.set(device.id, Date.now());
+            this.pruneRecentHomeKitCommands();
             this.diagnostics.command();
             try {
                 await this.withTokenRetry(async () => {
@@ -1079,7 +1138,8 @@ class LevitonDecoraSmartPlatform {
             this.tokenExpiresAt = Date.now() + loginResponse.ttl * 1000;
         }
         else {
-            this.tokenExpiresAt = null;
+            this.tokenExpiresAt = Date.now() + DEFAULT_TOKEN_TTL_SEC * 1000;
+            this.log.debug(`Login response missing ttl; assuming ${DEFAULT_TOKEN_TTL_SEC}s token lifetime`);
         }
     }
     /**
@@ -1134,10 +1194,10 @@ class LevitonDecoraSmartPlatform {
         this.tokenRefreshPromise = (async () => {
             const loginResponse = await this.client.login(this.config.email, this.config.password);
             this.setLoginResponse(loginResponse);
-            // Update WebSocket with new login response
+            // Update WebSocket with new login response and force reconnect so stale auth is not reused.
             if (this.webSocket) {
                 this.webSocket.updateLoginResponse(loginResponse);
-                this.webSocket.connect();
+                this.webSocket.forceReconnect();
             }
             this.lastRefreshFailureAt = null;
             this.lastTokenRefreshAt = Date.now();
@@ -1160,6 +1220,9 @@ class LevitonDecoraSmartPlatform {
      * Starts polling for device updates
      */
     startPolling() {
+        if (this.pollingInterval) {
+            return;
+        }
         if (this.config.pollInterval === undefined && this.config.pollingInterval !== undefined) {
             this.log.warn("Config option 'pollingInterval' is deprecated; use 'pollInterval' instead.");
         }
@@ -1231,6 +1294,7 @@ class LevitonDecoraSmartPlatform {
             }
         };
         if (pollTargets.length === 0) {
+            await this.pollRestReachabilityHeartbeat();
             return;
         }
         const workerCount = Math.min(POLL_DEVICE_CONCURRENCY, pollTargets.length);
@@ -1247,7 +1311,51 @@ class LevitonDecoraSmartPlatform {
         // The poll cycle reached (or failed to reach) the cloud — use that as a
         // heartbeat for the connectivity sensor, covering the case where the
         // WebSocket is down but REST still works (or vice versa).
-        this.updateConnectivity(anyPollSucceeded);
+        this.recomputeCloudConnectivity(anyPollSucceeded);
+    }
+    /**
+     * Combines WebSocket push and REST poll signals for the connectivity sensor.
+     * Online when WS is connected or a poll succeeded within two poll intervals.
+     */
+    recomputeCloudConnectivity(restReachable) {
+        if (restReachable === true) {
+            this.lastRestReachabilityAt = Date.now();
+        }
+        const pollWindowMs = this.pollingCadenceSeconds() * 1000 * 2;
+        const restFresh = this.lastRestReachabilityAt !== null &&
+            Date.now() - this.lastRestReachabilityAt <= pollWindowMs;
+        this.updateConnectivity(this.wsPushConnected || restFresh);
+    }
+    /**
+     * Proves REST reachability when there are no device poll targets (e.g. all
+     * excluded, zero devices, connectivity-only). Keeps the optional connectivity
+     * sensor accurate when WebSocket is down.
+     */
+    async pollRestReachabilityHeartbeat() {
+        try {
+            const token = await this.ensureValidToken();
+            const personId = this.currentLoginResponse?.userId;
+            if (!personId) {
+                this.recomputeCloudConnectivity(false);
+                return;
+            }
+            await this.client.getResidentialPermissions(personId, token);
+            this.recomputeCloudConnectivity(true);
+        }
+        catch (err) {
+            this.log.debug(`REST connectivity heartbeat failed: ${(0, sanitizers_1.sanitizeError)(err)}`);
+            this.recomputeCloudConnectivity(false);
+        }
+    }
+    /**
+     * Prunes stale HomeKit command timestamps to prevent unbounded map growth.
+     */
+    pruneRecentHomeKitCommands(now = Date.now()) {
+        for (const [deviceId, timestamp] of this.recentHomeKitCommands) {
+            if (now - timestamp > RECENT_HOMEKIT_COMMAND_TTL_MS) {
+                this.recentHomeKitCommands.delete(deviceId);
+            }
+        }
     }
     /**
      * Saves device states to persistence
@@ -1263,12 +1371,17 @@ class LevitonDecoraSmartPlatform {
                         accessory.getService(hap.Service.Outlet);
                     if (service) {
                         const isOn = service.getCharacteristic(hap.Characteristic.On).value;
-                        this.devicePersistence.updateDevice(device.id, {
+                        const update = {
                             id: device.id,
                             name: device.name,
                             model: device.model,
                             power: isOn ? POWER_ON : POWER_OFF,
-                        });
+                        };
+                        const brightnessChar = service.getCharacteristic(hap.Characteristic.Brightness);
+                        if (brightnessChar && typeof brightnessChar.value === 'number') {
+                            update.brightness = brightnessChar.value;
+                        }
+                        this.devicePersistence.updateDevice(device.id, update);
                     }
                 }
             });
@@ -1327,7 +1440,8 @@ class LevitonDecoraSmartPlatform {
         else if (!connected) {
             this.wsHasDisconnected = true;
         }
-        this.updateConnectivity(connected);
+        this.wsPushConnected = connected;
+        this.recomputeCloudConnectivity();
     }
     /**
      * Diagnostics heartbeat interval in milliseconds (0 when disabled).
@@ -1424,7 +1538,7 @@ class LevitonDecoraSmartPlatform {
             if (!device?.model) {
                 continue;
             }
-            const type = deviceTypeForModel(device.model);
+            const type = (0, device_models_1.deviceTypeForModel)(device.model);
             if (type === null) {
                 continue;
             }
@@ -1471,30 +1585,6 @@ class LevitonDecoraSmartPlatform {
     }
 }
 exports.LevitonDecoraSmartPlatform = LevitonDecoraSmartPlatform;
-/**
- * Maps a device model to its HomeKit-facing type for diagnostics gauges.
- * Returns null for stateless controllers (which are not exposed). Unknown
- * models default to `switch`, mirroring setupService's fallback.
- */
-function deviceTypeForModel(model) {
-    const upper = model.toUpperCase();
-    if (CONTROLLER_MODELS.includes(upper)) {
-        return null;
-    }
-    if (FAN_MODELS.includes(upper)) {
-        return 'fan';
-    }
-    if (MOTION_DIMMER_MODELS.includes(upper)) {
-        return 'motionDimmer';
-    }
-    if (DIMMER_MODELS.includes(upper)) {
-        return 'dimmer';
-    }
-    if (OUTLET_MODELS.includes(upper)) {
-        return 'outlet';
-    }
-    return 'switch';
-}
 /** Human-readable label for a diagnostics channel (structured JSON keeps `msg`). */
 function diagnosticLabel(msg) {
     switch (msg) {

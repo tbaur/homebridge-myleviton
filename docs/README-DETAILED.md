@@ -163,11 +163,13 @@ Advanced documentation for power users, developers, and troubleshooting.
 
 ### Device Discovery
 
-1. Fetches all residences from account
-2. For each residence, fetches residential permissions
-3. For each permission, fetches switches (devices)
-4. Creates HomeKit accessories for supported devices
-5. Persists device data for faster subsequent startups
+1. Authenticates with the My Leviton API
+2. Loads **all** residential permissions and merges devices (deduped by id)
+3. For each permission: residential account → primary residence → `iotSwitches`
+4. If a residence returns no devices, tries the v2 residences fallback API
+5. Creates HomeKit accessories for supported, non-excluded devices
+6. Subscribes WebSocket only to controllable (non-excluded, non-stateless) devices
+7. Persists device data for faster subsequent startups
 
 ### Real-Time Updates
 
@@ -192,11 +194,12 @@ contact sensor (separate from any device):
 - **Contact detected** = the plugin can reach the Leviton cloud
 - **Contact not detected** = connectivity is currently lost (also reflected via `StatusFault`)
 
-State is driven by two signals: the WebSocket connection callback (immediate, on
-authenticate/disconnect) and the polling loop, which doubles as a REST
-reachability heartbeat each cycle. This means the sensor stays accurate whether
-the push channel or the REST API is the part that is down. Transitions are logged
-(`connectivity lost` / `connectivity restored`) so you can alert or build Home
+State is driven by two signals combined with **OR** logic: the WebSocket
+connection callback (immediate, on authenticate/disconnect) and the polling loop,
+which doubles as a REST reachability heartbeat each cycle. The sensor reports
+**online** when either push or REST succeeded recently (within two poll intervals).
+This means a brief WebSocket flap does not mark the cloud offline while REST polling
+still works. Transitions are logged (`connectivity lost` / `connectivity restored`) so you can alert or build Home
 automations on loss of connectivity. Disabling the option removes the sensor on
 the next restart.
 
@@ -269,7 +272,10 @@ active cause is listed in `reasons`:
 
 Device counts: `cloud`, `stateless`, and `excluded` are included in structured JSON
 (`devices` group) and in the one-time discovery log at startup; the human-readable
-diagnostics line shows only the live `on/total` gauge. `cloud = total + stateless + excluded`.
+diagnostics line shows only the live `on/total` gauge. At discovery, `cloud`
+counts all devices returned by the API; `total` is the controllable HomeKit
+accessory count (excludes connectivity sensor and stateless controllers); `stateless`
+and `excluded` are breakdown counters from the last discovery pass.
 
 > `reasons` is an array of cause codes (empty when healthy) in both the structured
 > JSON and the `DiagnosticsSnapshot` type. The human-readable line shows the same
@@ -488,12 +494,17 @@ Main platform class registered with Homebridge.
 Handles all communication with My Leviton cloud.
 
 **Key Methods:**
-- `login(email, password)` — Authenticate and get tokens
-- `refreshToken()` — Refresh access token
-- `getResidences()` — Fetch user's residences
-- `getSwitches(residenceId)` — Fetch devices for residence
-- `updateSwitch(id, data)` — Update device state
-- `subscribe(residenceId, callback)` — WebSocket subscription
+- `login(email, password)` — Authenticate and get session token
+- `getResidentialPermissions(personId, token)` — List residential account permissions
+- `getResidentialAccount(accountId, token)` — Get account and primary residence id
+- `getResidences(residenceObjectId, token)` — v2 residences fallback
+- `getDevices(residenceId, token)` — Fetch devices (`iotSwitches`)
+- `getDeviceStatus(deviceId, token)` — Read power, brightness, motion, occupancy
+- `setPower(deviceId, token, power)` — Turn device on/off
+- `setBrightness(deviceId, token, brightness)` — Set dimmer level
+
+Token refresh is handled by the platform (`LevitonDecoraSmartPlatform`), not the client.
+Real-time updates use `LevitonWebSocket` (separate module), not client methods.
 
 ---
 

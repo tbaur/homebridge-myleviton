@@ -20,10 +20,9 @@ export interface RateLimiterConfig {
     maxWaitMs?: number;
 }
 /**
- * Default rate limiter configuration
- * Leviton allows max 99 devices per residence, 20 residences per account
- * At startup: 99 devices × 2 queries (power + brightness) = 198 requests
- * Rate limiter only applies to WRITE operations
+ * Default rate limiter configuration.
+ * Leviton allows max 99 devices per residence. The rate limiter applies only
+ * to non-GET (write) operations; read requests are not throttled by this limiter.
  */
 export declare const DEFAULT_RATE_LIMITER_CONFIG: RateLimiterConfig;
 /**

@@ -61,7 +61,8 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 export type PowerState = 'ON' | 'OFF'
 
 /**
- * Device model identifiers
+ * Device model identifiers.
+ * Canonical model lists live in `src/platform/device-models.ts`.
  */
 export enum DeviceModel {
   // Fan Controllers
@@ -86,11 +87,15 @@ export enum DeviceModel {
   OUTLET_TAMPER = 'DW15R',
   OUTLET_PLUGIN_HP = 'DW15A',
   OUTLET_PLUGIN = 'DW15P',
+  OUTLET_PLUGIN_SWITCH = 'D215P',
   OUTLET_OUTDOOR = 'D215O',
-  
+
   // Switches
   SWITCH_15A = 'DW15S',
   SWITCH_15A_GEN2 = 'D215S',
+
+  // Button controllers (stateless — not exposed in HomeKit)
+  CONTROLLER = 'DW4BC',
 }
 
 /**
@@ -342,7 +347,6 @@ export interface ApiRequestOptions {
   cacheKey?: string
   bypassCircuitBreaker?: boolean
   debugLog?: (msg: string) => void
-  priority?: 'high' | 'normal' | 'low'
 }
 
 /**
@@ -350,6 +354,7 @@ export interface ApiRequestOptions {
  */
 export interface AccessoryContext {
   device: DeviceInfo
-  token: string
+  /** When true, accessory is the optional cloud-connectivity sensor. */
+  connectivity?: boolean
 }
 

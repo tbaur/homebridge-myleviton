@@ -63,7 +63,7 @@
     "test": "NODE_ENV=test jest --coverage",
     "test:watch": "NODE_ENV=test jest --watch",
     "test:unit": "NODE_ENV=test jest --coverage --testPathPattern=tests/unit",
-    "test:integration": "NODE_ENV=test jest --testPathPattern=tests/integration --passWithNoTests",
+    "test:integration": "NODE_ENV=test jest --testPathPattern=tests/integration --collectCoverage=false",
     "lint": "eslint . --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage",
     "lint:fix": "eslint . --fix --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage"
   },

@@ -9,6 +9,7 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
+import { sanitizeError } from '../utils/sanitizers'
 import type { PersistedDeviceState, PersistenceFile, DeviceStatus } from '../types'
 
 /**
@@ -21,6 +22,8 @@ export interface PersistenceConfig {
   maxAge: number
   /** Maximum number of devices to persist */
   maxDevices: number
+  /** Optional warning callback for load/save failures */
+  onWarn?: (message: string) => void
 }
 
 /**
@@ -44,6 +47,7 @@ export class DevicePersistence {
   private readonly storagePath: string
   private readonly maxAge: number
   private readonly maxDevices: number
+  private readonly onWarn?: (message: string) => void
 
   private deviceStates: Map<string, PersistedDeviceState> = new Map()
   private loaded = false
@@ -57,6 +61,7 @@ export class DevicePersistence {
     )
     this.maxAge = merged.maxAge ?? 24 * 60 * 60 * 1000
     this.maxDevices = merged.maxDevices ?? 200
+    this.onWarn = merged.onWarn
   }
 
   /**
@@ -92,8 +97,8 @@ export class DevicePersistence {
           }
         }
       }
-    } catch {
-      // Ignore load errors - start fresh
+    } catch (err) {
+      this.onWarn?.(`Failed to load device persistence from ${this.storagePath}: ${sanitizeError(err)}`)
       this.deviceStates.clear()
     }
 
@@ -136,7 +141,8 @@ export class DevicePersistence {
 
       this.dirty = false
       return true
-    } catch {
+    } catch (err) {
+      this.onWarn?.(`Failed to save device persistence to ${this.storagePath}: ${sanitizeError(err)}`)
       return false
     }
   }
@@ -271,16 +277,21 @@ export class DevicePersistence {
 }
 
 /**
- * Global persistence instance
+ * Global persistence instance (test helper — production code should construct DevicePersistence directly).
+ * @deprecated Prefer `new DevicePersistence()` per platform instance.
  */
 let globalPersistence: DevicePersistence | null = null
 
 /**
  * Get or create the global persistence instance
+ * @deprecated Prefer constructing DevicePersistence per platform instance.
  */
-export function getDevicePersistence(storagePath?: string): DevicePersistence {
+export function getDevicePersistence(
+  storagePath?: string,
+  config: Partial<PersistenceConfig> = {},
+): DevicePersistence {
   if (!globalPersistence) {
-    globalPersistence = new DevicePersistence(storagePath)
+    globalPersistence = new DevicePersistence(storagePath, config)
   }
   return globalPersistence
 }

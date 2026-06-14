@@ -488,6 +488,26 @@ describe('LevitonApiClient', () => {
       expect(sample.ok).toBe(false)
       expect(sample.networked).toBe(false)
     })
+
+    it('reports networked=false for a pre-flight rate-limit rejection', async () => {
+      const { RateLimiter } = require('../../src/api/rate-limiter')
+      const metrics = jest.fn()
+      const metricsClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 1, metrics })
+      const acquireSpy = jest.spyOn(RateLimiter.prototype, 'tryAcquire').mockReturnValue(false)
+
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ power: 'ON' }),
+      })
+
+      await expect(metricsClient.setPower('dev1', 'token123', true)).rejects.toThrow(ApiResponseError)
+
+      expect(metrics).toHaveBeenCalledTimes(1)
+      expect(metrics.mock.calls[0][0].networked).toBe(false)
+
+      acquireSpy.mockRestore()
+    })
   })
 
   describe('onCircuitOpen hook', () => {

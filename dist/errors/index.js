@@ -12,6 +12,7 @@ exports.WebSocketError = exports.ValidationError = exports.ConfigurationError = 
 exports.createApiError = createApiError;
 exports.isRetryableError = isRetryableError;
 exports.getErrorCode = getErrorCode;
+const sanitizers_1 = require("../utils/sanitizers");
 /**
  * Base error class for all Leviton plugin errors
  */
@@ -38,7 +39,7 @@ class LevitonError extends Error {
             isRetryable: this.isRetryable,
             httpStatus: this.httpStatus,
             timestamp: this.timestamp.toISOString(),
-            stack: this.stack,
+            stack: (0, sanitizers_1.sanitizeStackTrace)(this.stack),
         };
     }
 }
@@ -48,7 +49,8 @@ exports.LevitonError = LevitonError;
  */
 class AuthenticationError extends LevitonError {
     code = 'AUTH_ERROR';
-    isRetryable = true;
+    /** Platform handles token refresh; HTTP client must not retry auth failures. */
+    isRetryable = false;
     httpStatus = 401;
     constructor(message = 'Authentication failed', options) {
         super(message, options);

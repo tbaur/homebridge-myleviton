@@ -46,6 +46,7 @@ exports.getDevicePersistence = getDevicePersistence;
 exports.resetGlobalPersistence = resetGlobalPersistence;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const sanitizers_1 = require("../utils/sanitizers");
 /**
  * Default persistence configuration
  */
@@ -65,6 +66,7 @@ class DevicePersistence {
     storagePath;
     maxAge;
     maxDevices;
+    onWarn;
     deviceStates = new Map();
     loaded = false;
     dirty = false;
@@ -73,6 +75,7 @@ class DevicePersistence {
         this.storagePath = storagePath || path.join(process.env.HOME || '/tmp', exports.PERSISTENCE_FILE_NAME);
         this.maxAge = merged.maxAge ?? 24 * 60 * 60 * 1000;
         this.maxDevices = merged.maxDevices ?? 200;
+        this.onWarn = merged.onWarn;
     }
     /**
      * Load persisted device states from disk
@@ -105,8 +108,8 @@ class DevicePersistence {
                 }
             }
         }
-        catch {
-            // Ignore load errors - start fresh
+        catch (err) {
+            this.onWarn?.(`Failed to load device persistence from ${this.storagePath}: ${(0, sanitizers_1.sanitizeError)(err)}`);
             this.deviceStates.clear();
         }
         this.loaded = true;
@@ -144,7 +147,8 @@ class DevicePersistence {
             this.dirty = false;
             return true;
         }
-        catch {
+        catch (err) {
+            this.onWarn?.(`Failed to save device persistence to ${this.storagePath}: ${(0, sanitizers_1.sanitizeError)(err)}`);
             return false;
         }
     }
@@ -264,15 +268,17 @@ class DevicePersistence {
 }
 exports.DevicePersistence = DevicePersistence;
 /**
- * Global persistence instance
+ * Global persistence instance (test helper — production code should construct DevicePersistence directly).
+ * @deprecated Prefer `new DevicePersistence()` per platform instance.
  */
 let globalPersistence = null;
 /**
  * Get or create the global persistence instance
+ * @deprecated Prefer constructing DevicePersistence per platform instance.
  */
-function getDevicePersistence(storagePath) {
+function getDevicePersistence(storagePath, config = {}) {
     if (!globalPersistence) {
-        globalPersistence = new DevicePersistence(storagePath);
+        globalPersistence = new DevicePersistence(storagePath, config);
     }
     return globalPersistence;
 }

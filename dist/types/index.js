@@ -8,7 +8,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DeviceModel = void 0;
 /**
- * Device model identifiers
+ * Device model identifiers.
+ * Canonical model lists live in `src/platform/device-models.ts`.
  */
 var DeviceModel;
 (function (DeviceModel) {
@@ -31,9 +32,12 @@ var DeviceModel;
     DeviceModel["OUTLET_TAMPER"] = "DW15R";
     DeviceModel["OUTLET_PLUGIN_HP"] = "DW15A";
     DeviceModel["OUTLET_PLUGIN"] = "DW15P";
+    DeviceModel["OUTLET_PLUGIN_SWITCH"] = "D215P";
     DeviceModel["OUTLET_OUTDOOR"] = "D215O";
     // Switches
     DeviceModel["SWITCH_15A"] = "DW15S";
     DeviceModel["SWITCH_15A_GEN2"] = "D215S";
+    // Button controllers (stateless — not exposed in HomeKit)
+    DeviceModel["CONTROLLER"] = "DW4BC";
 })(DeviceModel || (exports.DeviceModel = DeviceModel = {}));
 //# sourceMappingURL=index.js.map

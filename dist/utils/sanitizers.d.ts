@@ -15,6 +15,10 @@ export declare function sanitizeError(err: unknown): string;
  */
 export declare function sanitizeString(str: string): string;
 /**
+ * Mask an email for logging (show first char and domain).
+ */
+export declare function maskEmail(email: string): string;
+/**
  * Returns true if the supplied string already passes HAP-NodeJS Name validation.
  * Exposed primarily so callers can avoid redundant work on already-clean inputs.
  */

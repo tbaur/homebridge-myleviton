@@ -19,7 +19,11 @@ Developer documentation for homebridge-myleviton.
 │  │          src/api/client.ts (API Client)             │  │
 │  │  • Leviton cloud API interaction                    │  │
 │  │  • Rate limiting, caching, circuit breaker          │  │
-│  │  • Device state persistence                         │  │
+│  └──────────────────────┬──────────────────────────────┘  │
+│                         │                                 │
+│  ┌──────────────────────▼──────────────────────────────┐  │
+│  │       src/api/persistence.ts (Persistence)          │  │
+│  │  • Device state cache on disk (platform-owned)      │  │
 │  └──────────────────────┬──────────────────────────────┘  │
 │                         │                                 │
 │  ┌──────────────────────▼──────────────────────────────┐  │
@@ -44,6 +48,8 @@ homebridge-myleviton/
 ├── src/                  # TypeScript source (compiled to dist/)
 │   ├── index.ts          # Homebridge entry point
 │   ├── platform.ts       # Platform plugin (HomeKit integration)
+│   ├── platform/         # Device model registry (single source of truth)
+│   │   └── device-models.ts
 │   ├── types/            # Type definitions
 │   ├── errors/           # Structured error hierarchy
 │   ├── api/              # API client components
@@ -64,8 +70,10 @@ homebridge-myleviton/
 ├── dist/                 # Compiled JavaScript (auto-generated)
 ├── tests/
 │   ├── setup.js          # Jest setup
-│   └── unit/             # Unit tests (95%+ coverage)
-│       └── *.test.ts
+│   ├── unit/             # Unit tests (~91% coverage including platform.ts)
+│   │   └── *.test.ts
+│   └── integration/      # Smoke tests (no live API)
+│       └── smoke.test.ts
 ├── config.schema.json    # Homebridge UI configuration schema
 ├── package.json          # Dependencies and scripts
 ├── tsconfig.json         # TypeScript configuration
@@ -94,11 +102,11 @@ addAccessory(device)              // Register device with Homebridge
 configureAccessory(accessory)     // Restore cached accessory
 setupService(accessory)           // Configure HomeKit service
 
-// Service Setup (by device type)
-setupLightbulbService(accessory, device, token)
-setupFanService(accessory, device, token)
-setupBasicService(accessory, device, token, ServiceType)
-setupMotionDimmerService(accessory, device, token)
+// Service Setup (by device type — token is in-memory, not passed to setup methods)
+setupLightbulbService(accessory, device)
+setupFanService(accessory, device)
+setupBasicService(accessory, device, ServiceType)
+setupMotionDimmerService(accessory, device)
 
 // Characteristic Handlers (set only — state pushed via updateValue)
 createPowerSetter(device)
@@ -108,15 +116,10 @@ createBrightnessSetter(device)
 handleWebSocketUpdate(payload)    // WebSocket update handler
 ```
 
-**Device Model Constants:**
+**Device models** live in `src/platform/device-models.ts` (imported by the platform):
 
 ```typescript
-const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710', 'DN6HD']
-const MOTION_DIMMER_MODELS = ['D2MSD']
-const OUTLET_MODELS = ['DW15R', 'DW15A', 'DW15P', 'D215P', 'D215O']
-const SWITCH_MODELS = ['DW15S', 'D215S']
-const CONTROLLER_MODELS = ['DW4BC']  // Skipped - no controllable state
-const FAN_MODELS = ['DW4SF', 'D24SF']
+// See device-models.ts — DIMMER_MODELS, OUTLET_MODELS, FAN_MODELS, etc.
 ```
 
 ### src/api/client.ts - API Client
@@ -132,8 +135,8 @@ Handles all communication with the Leviton cloud.
 | `getResidentialAccount(accountId, token)` | Get residence info |
 | `getDevices(residenceId, token)` | Fetch all devices |
 | `getDeviceStatus(deviceId, token)` | Get device state |
-| `setPower(deviceId, power, token)` | Turn device on/off |
-| `setBrightness(deviceId, brightness, token)` | Set dimmer level |
+| `setPower(deviceId, token, power)` | Turn device on/off |
+| `setBrightness(deviceId, token, brightness)` | Set dimmer level |
 
 ### src/api/websocket.ts - WebSocket Client
 
@@ -145,7 +148,8 @@ Real-time device updates with auto-reconnection.
 |--------|---------|
 | `connect()` | Establish WebSocket connection |
 | `close()` | Close connection |
-| `updateToken(token)` | Update auth token |
+| `updateLoginResponse(loginResponse)` | Update auth after token refresh |
+| `forceReconnect()` | Close and reconnect (e.g. after token refresh) |
 | `isConnected()` | Check connection status |
 
 ### src/ - TypeScript Modules

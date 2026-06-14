@@ -37,7 +37,7 @@ export declare class ResponseCache<T = unknown> {
      */
     private isExpired;
     /**
-     * Evict oldest entries if over capacity
+     * Evict oldest entries if over capacity (FIFO — not LRU unless updateOnAccess is enabled).
      */
     private evictIfNeeded;
     /**
@@ -99,6 +99,7 @@ export declare class ResponseCache<T = unknown> {
 }
 /**
  * Get or create the global cache
+ * @deprecated Prefer constructing ResponseCache per API client.
  */
 export declare function getResponseCache(config?: Partial<CacheConfig>): ResponseCache;
 /**
