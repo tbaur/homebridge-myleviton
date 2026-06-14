@@ -1770,7 +1770,7 @@ describe('Latency logging', () => {
       new Promise(resolve => setTimeout(() => resolve({ id: 'new-token', userId: 'user-123' }), 30)),
     )
     mockClient.setPower.mockImplementation(() =>
-      new Promise(resolve => setTimeout(() => resolve({}), 20)),
+      new Promise(resolve => setTimeout(() => resolve({}), 60)),
     )
     const device = { id: 'dev-1', name: 'Latency Test', model: 'DW15S', serial: 'ABC123' }
     mockClient.getDevices.mockResolvedValue([device])
@@ -1799,7 +1799,10 @@ describe('Latency logging', () => {
       const match = latencyLogCall?.[0].match(/Latency: (\d+)ms/)
       if (match) {
         const reportedLatency = parseInt(match[1], 10)
-        expect(reportedLatency).toBeGreaterThanOrEqual(20)
+        // The mocked setPower takes ~60ms; assert with margin on both sides so
+        // timer/clock granularity can't make this race at the boundary, while
+        // still proving the reported latency reflects the real elapsed time.
+        expect(reportedLatency).toBeGreaterThanOrEqual(40)
         expect(reportedLatency).toBeLessThanOrEqual(elapsed + 50)
       }
     }
