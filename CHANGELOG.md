@@ -5,6 +5,13 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.1](https://github.com/tbaur/homebridge-myleviton/compare/v3.7.0...v3.7.1) (2026-06-14)
+
+
+### Bug Fixes
+
+* render diagnosticsInterval in the Homebridge config UI ([#21](https://github.com/tbaur/homebridge-myleviton/issues/21)) ([0a7fff9](https://github.com/tbaur/homebridge-myleviton/commit/0a7fff94762cdf7c4aaf16149fe17d7698c263de))
+
 ## [3.7.0](https://github.com/tbaur/homebridge-myleviton/compare/v3.6.0...v3.7.0) (2026-06-14)
 
 
