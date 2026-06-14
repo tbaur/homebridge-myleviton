@@ -5,6 +5,13 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.7](https://github.com/tbaur/homebridge-myleviton/compare/v3.7.6...v3.7.7) (2026-06-14)
+
+
+### Bug Fixes
+
+* stop adding Brightness to fan/switch/outlet on shutdown ([#33](https://github.com/tbaur/homebridge-myleviton/issues/33)) ([282cc30](https://github.com/tbaur/homebridge-myleviton/commit/282cc30d7269636f6ff029739848f927540cad2d))
+
 ## [3.7.6](https://github.com/tbaur/homebridge-myleviton/compare/v3.7.5...v3.7.6) (2026-06-14)
 
 
