@@ -41,9 +41,11 @@ export interface WebSocketStatusLike {
 }
 /** Absolute device gauges, computed by the platform from its accessories. */
 export interface DeviceGauges {
+    cloud: number;
     total: number;
     on: number;
     byType: Record<string, number>;
+    stateless: number;
     excluded: number;
 }
 /**

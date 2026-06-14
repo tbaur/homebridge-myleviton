@@ -257,7 +257,7 @@ active cause is listed in `reasons`:
 | Group | Fields | Kind |
 |-------|--------|------|
 | `lifecycle` | `health`, `reasons`, `uptimeSec`, `pluginVersion` | gauges |
-| `devices` | `total`, `on`, `byType{}`, `excluded` | gauges |
+| `devices` | `cloud`, `total`, `on`, `byType{}`, `stateless`, `excluded` | gauges |
 | `websocket` | `state`, `lastEventAgeSec`, `subscribed` (gauges); `reconnects` (delta) | mixed |
 | `circuitBreaker` | `state`, `lastTripAt` (gauges); `trips` (delta) | mixed |
 | `rateLimiter` | `available` (gauge); `throttled` (delta) | mixed |
@@ -266,6 +266,11 @@ active cause is listed in `reasons`:
 | `token` | `expiresInSec`, `lastRefreshAt` (gauges); `refreshes` (delta) | mixed |
 | `api` | `p50Ms`, `p95Ms` (gauges over a bounded recent-latency window); `requests`, `errors` (deltas) | mixed |
 | `activity` | `commandsSent`, `externalChanges`, `retries` | deltas |
+
+Device counts: `cloud` is everything Leviton returned at discovery; `total`/`on`
+are controllable HomeKit devices only; `stateless` covers button controllers
+(e.g. DW4BC) with no on/off state; `excluded` is your config filter only.
+`cloud = total + stateless + excluded`.
 
 > `reasons` is an array of cause codes (empty when healthy) in both the structured
 > JSON and the `DiagnosticsSnapshot` type. The human-readable line shows the same
@@ -277,13 +282,13 @@ active cause is listed in `reasons`:
 {
   "timestamp": "2026-06-14T12:00:00.000Z",
   "level": "info",
-  "message": "Health: healthy | devices 1/3 on | ws connected | api p50 82ms p95 240ms (req 12, err 0)",
+  "message": "Health: healthy | devices 1/3 on (5 cloud, 1 stateless, 0 excluded) | ws connected | api p50 82ms p95 240ms (req 12, err 0)",
   "msg": "health",
   "health": "healthy",
   "reasons": [],
   "uptimeSec": 3600,
   "pluginVersion": "3.7.0",
-  "devices": { "total": 3, "on": 1, "byType": { "dimmer": 2, "switch": 1 }, "excluded": 0 },
+  "devices": { "cloud": 5, "total": 3, "on": 1, "byType": { "dimmer": 2, "switch": 1 }, "stateless": 1, "excluded": 0 },
   "websocket": { "state": "connected", "lastEventAgeSec": 4, "subscribed": 3, "reconnects": 0 },
   "circuitBreaker": { "state": "CLOSED", "lastTripAt": null, "trips": 0 },
   "rateLimiter": { "available": 300, "throttled": 0 },

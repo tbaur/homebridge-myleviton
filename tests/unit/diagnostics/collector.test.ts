@@ -65,7 +65,7 @@ const makeReaders = (): MutableReaders => {
       cache: { size: cache.size, hits: cache.hits, misses: cache.misses },
     }),
     wsStatus: () => ws.value,
-    devices: () => ({ total: 4, on: 2, byType: { dimmer: 3, switch: 1 }, excluded: 1 }),
+    devices: () => ({ cloud: 5, total: 4, on: 2, byType: { dimmer: 3, switch: 1 }, stateless: 1, excluded: 0 }),
     tokenExpiresInSec: () => tokenExpiresInSec.value,
     tokenLastRefreshAt: () => tokenLastRefreshAt.value,
     tokenRefreshFailureActive: () => tokenRefreshFailureActive.value,
@@ -212,7 +212,7 @@ describe('DiagnosticsCollector', () => {
       const report = collector.buildHeartbeat(m.readers)
       expect(report.lifecycle.pluginVersion).toBe('3.7.0')
       expect(report.lifecycle.uptimeSec).toBe(5)
-      expect(report.devices).toEqual({ total: 4, on: 2, byType: { dimmer: 3, switch: 1 }, excluded: 1 })
+      expect(report.devices).toEqual({ cloud: 5, total: 4, on: 2, byType: { dimmer: 3, switch: 1 }, stateless: 1, excluded: 0 })
       expect(report.websocket.state).toBe('connected')
       expect(report.websocket.subscribed).toBe(3)
       expect(report.websocket.lastEventAgeSec).toBe(2)

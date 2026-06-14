@@ -135,6 +135,8 @@ export class LevitonDecoraSmartPlatform {
   private diagnosticsTimer: ReturnType<typeof setInterval> | null = null
   private lastDiagnosticsHealth: 'healthy' | 'degraded' | null = null
   private lastTokenRefreshAt: number | null = null
+  private lastCloudDeviceCount = 0
+  private lastStatelessCount = 0
   private lastExcludedCount = 0
   private wsHasDisconnected = false
 
@@ -299,6 +301,7 @@ export class LevitonDecoraSmartPlatform {
 
       let newDevices = 0
       let excludedCount = 0
+      let statelessCount = 0
       let cachedCount = 0
 
       for (const device of devices) {
@@ -309,6 +312,10 @@ export class LevitonDecoraSmartPlatform {
           }
           excludedCount++
           continue
+        }
+
+        if (this.isStatelessController(device.model)) {
+          statelessCount++
         }
 
         // Check if we have a cached accessory for this device
@@ -337,9 +344,14 @@ export class LevitonDecoraSmartPlatform {
         }
       }
 
+      this.lastCloudDeviceCount = devices.length
+      this.lastStatelessCount = statelessCount
       this.lastExcludedCount = excludedCount
 
-      this.log.info(`Found ${devices.length} devices (${cachedCount} cached, ${newDevices} new, ${excludedCount} excluded)`)
+      const controllableCount = devices.length - excludedCount - statelessCount
+      this.log.info(
+        `Found ${devices.length} Leviton devices: ${controllableCount} controllable (${cachedCount} cached, ${newDevices} new), ${statelessCount} stateless skipped, ${excludedCount} excluded by config`,
+      )
       
       // Start polling
       this.startPolling()
@@ -543,6 +555,11 @@ export class LevitonDecoraSmartPlatform {
     }
     return excludedModels.includes(device.model.toUpperCase()) || 
            excludedSerials.includes(device.serial.toUpperCase())
+  }
+
+  /** True for button controllers and other devices with no controllable state. */
+  private isStatelessController(model: string | undefined): boolean {
+    return CONTROLLER_MODELS.includes((model || '').toUpperCase())
   }
 
   /**
@@ -931,7 +948,7 @@ export class LevitonDecoraSmartPlatform {
     const model = device.model || ''
 
     // Button controllers don't have controllable state - skip them
-    if (CONTROLLER_MODELS.includes(model)) {
+    if (this.isStatelessController(model)) {
       this.log.debug(`Skipping controller device: ${device.name} (${model})`)
       return
     }
@@ -1614,7 +1631,7 @@ export class LevitonDecoraSmartPlatform {
       }
     }
 
-    return { total, on, byType, excluded: this.lastExcludedCount }
+    return { cloud: this.lastCloudDeviceCount, total, on, byType, stateless: this.lastStatelessCount, excluded: this.lastExcludedCount }
   }
 
   /**
@@ -1706,7 +1723,7 @@ function formatDiagnosticLine(report: DiagnosticsSnapshot): string {
   const reasonText = lifecycle.reasons.length > 0 ? ` [${lifecycle.reasons.join(', ')}]` : ''
   return (
     `${diagnosticLabel(report.msg)}: ${lifecycle.health}${reasonText} | ` +
-    `devices ${devices.on}/${devices.total} on | ` +
+    `devices ${devices.on}/${devices.total} on (${devices.cloud} cloud, ${devices.stateless} stateless, ${devices.excluded} excluded) | ` +
     `ws ${websocket.state} | ` +
     `api p50 ${api.p50Ms}ms p95 ${api.p95Ms}ms (req ${api.requests}, err ${api.errors})`
   )
