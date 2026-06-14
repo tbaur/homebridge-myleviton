@@ -5,6 +5,13 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.3](https://github.com/tbaur/homebridge-myleviton/compare/v3.7.2...v3.7.3) (2026-06-14)
+
+
+### Bug Fixes
+
+* clarify device counts in discovery and diagnostics logs ([#25](https://github.com/tbaur/homebridge-myleviton/issues/25)) ([12a8614](https://github.com/tbaur/homebridge-myleviton/commit/12a8614d869b40948ecfa0273083bcd5937c66c8))
+
 ## [3.7.2](https://github.com/tbaur/homebridge-myleviton/compare/v3.7.1...v3.7.2) (2026-06-14)
 
 
