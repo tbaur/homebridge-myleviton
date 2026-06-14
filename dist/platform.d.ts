@@ -37,6 +37,8 @@ export declare class LevitonDecoraSmartPlatform {
     private diagnosticsTimer;
     private lastDiagnosticsHealth;
     private lastTokenRefreshAt;
+    private lastCloudDeviceCount;
+    private lastStatelessCount;
     private lastExcludedCount;
     private wsHasDisconnected;
     constructor(homebridgeLog: (msg: string) => void, config: LevitonConfig, api: HomebridgeAPI);
@@ -71,6 +73,8 @@ export declare class LevitonDecoraSmartPlatform {
      * Checks if device should be excluded
      */
     private isDeviceExcluded;
+    /** True for button controllers and other devices with no controllable state. */
+    private isStatelessController;
     /**
      * Adds a new accessory
      */

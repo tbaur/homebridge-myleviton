@@ -260,9 +260,15 @@ export interface DiagnosticsSnapshot {
     pluginVersion: string
   }
   devices: {
+    /** Total devices returned by Leviton at last discovery. */
+    cloud: number
+    /** Controllable HomeKit devices (excludes stateless controllers and config exclusions). */
     total: number
     on: number
     byType: Record<string, number>
+    /** Button controllers and other stateless devices not exposed to HomeKit. */
+    stateless: number
+    /** Devices excluded by `excludedModels` / `excludedSerials` config. */
     excluded: number
   }
   websocket: {

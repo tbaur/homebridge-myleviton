@@ -688,7 +688,7 @@ describe('LevitonDecoraSmartPlatform', () => {
       
       await new Promise(resolve => setTimeout(resolve, 50))
       
-      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('1 excluded'))
+      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('1 excluded by config'))
     })
 
     it('should exclude devices by serial', async () => {
@@ -707,7 +707,31 @@ describe('LevitonDecoraSmartPlatform', () => {
       
       await new Promise(resolve => setTimeout(resolve, 50))
       
-      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('1 excluded'))
+      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('1 excluded by config'))
+    })
+
+    it('reports cloud, controllable, stateless, and config-excluded counts at discovery', async () => {
+      mockClient.getDevices.mockResolvedValue([
+        { id: 'dev-1', name: 'Living Room Light', model: 'DW6HD', serial: 'ABC123' },
+        { id: 'dev-2', name: 'Button Controller', model: 'DW4BC', serial: 'BTN123' },
+        { id: 'dev-3', name: 'Excluded Switch', model: 'DW15S', serial: 'EXCLUDE-ME' },
+      ])
+
+      const configWithExclusions: LevitonConfig = {
+        ...validConfig,
+        excludedSerials: ['EXCLUDE-ME'],
+      }
+
+      new LevitonDecoraSmartPlatform(mockLog, configWithExclusions, mockAPI)
+      mockAPI.emit('didFinishLaunching')
+
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      expect(mockLog).toHaveBeenCalledWith(
+        expect.stringContaining('Found 3 Leviton devices: 1 controllable'),
+      )
+      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('1 stateless skipped'))
+      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('1 excluded by config'))
     })
 
     it('should remove cached accessories for excluded devices', async () => {
