@@ -267,10 +267,9 @@ active cause is listed in `reasons`:
 | `api` | `p50Ms`, `p95Ms` (gauges over a bounded recent-latency window); `requests`, `errors` (deltas) | mixed |
 | `activity` | `commandsSent`, `externalChanges`, `retries` | deltas |
 
-Device counts: `cloud` is everything Leviton returned at discovery; `total`/`on`
-are controllable HomeKit devices only; `stateless` covers button controllers
-(e.g. DW4BC) with no on/off state; `excluded` is your config filter only.
-`cloud = total + stateless + excluded`.
+Device counts: `cloud`, `stateless`, and `excluded` are included in structured JSON
+(`devices` group) and in the one-time discovery log at startup; the human-readable
+diagnostics line shows only the live `on/total` gauge. `cloud = total + stateless + excluded`.
 
 > `reasons` is an array of cause codes (empty when healthy) in both the structured
 > JSON and the `DiagnosticsSnapshot` type. The human-readable line shows the same
@@ -282,7 +281,7 @@ are controllable HomeKit devices only; `stateless` covers button controllers
 {
   "timestamp": "2026-06-14T12:00:00.000Z",
   "level": "info",
-  "message": "Health: healthy | devices 1/3 on (5 cloud, 1 stateless, 0 excluded) | ws connected | api p50 82ms p95 240ms (req 12, err 0)",
+  "message": "Health: healthy | devices 1/3 on | ws connected | api p50 82ms p95 240ms (req 12, err 0)",
   "msg": "health",
   "health": "healthy",
   "reasons": [],

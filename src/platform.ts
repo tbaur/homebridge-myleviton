@@ -1723,7 +1723,7 @@ function formatDiagnosticLine(report: DiagnosticsSnapshot): string {
   const reasonText = lifecycle.reasons.length > 0 ? ` [${lifecycle.reasons.join(', ')}]` : ''
   return (
     `${diagnosticLabel(report.msg)}: ${lifecycle.health}${reasonText} | ` +
-    `devices ${devices.on}/${devices.total} on (${devices.cloud} cloud, ${devices.stateless} stateless, ${devices.excluded} excluded) | ` +
+    `devices ${devices.on}/${devices.total} on | ` +
     `ws ${websocket.state} | ` +
     `api p50 ${api.p50Ms}ms p95 ${api.p95Ms}ms (req ${api.requests}, err ${api.errors})`
   )
