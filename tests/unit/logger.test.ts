@@ -120,10 +120,20 @@ describe('StructuredLogger', () => {
       expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('[test]'))
     })
 
-    it('should log with context', () => {
+    it('should ignore context in plain-text mode', () => {
       logger.info('message', { extra: 'data' })
-      
-      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('message'))
+
+      expect(mockLog).toHaveBeenCalledWith('message')
+      expect(mockLog.mock.calls[0][0]).not.toContain('"extra"')
+    })
+
+    it('should merge context into structured JSON output', () => {
+      const structured = new StructuredLogger(mockLog, { structured: true })
+      structured.info('message', { extra: 'data' })
+
+      const parsed = JSON.parse(mockLog.mock.calls[0][0])
+      expect(parsed.message).toBe('message')
+      expect(parsed.extra).toBe('data')
     })
 
     it('should log debug messages', () => {

@@ -136,11 +136,8 @@ export class StructuredLogger {
       return JSON.stringify(entry)
     }
 
-    // Traditional string format — append sanitized context when provided.
+    // Plain-text Homebridge logs: message only. Context is for structured mode.
     if (typeof message === 'string') {
-      if (context && Object.keys(context).length > 0) {
-        return `${message} ${JSON.stringify(sanitizeObject(context as Record<string, unknown>))}`
-      }
       return message
     }
 
