@@ -11,18 +11,36 @@ import * as path from 'path'
 import { LevitonApiClient } from './api/client'
 import { LevitonWebSocket, createWebSocket } from './api/websocket'
 import { DevicePersistence, getDevicePersistence } from './api/persistence'
+import { DiagnosticsCollector } from './diagnostics/collector'
+import type { DiagnosticsReaders, DeviceGauges } from './diagnostics/collector'
 import { createStructuredLogger, StructuredLogger } from './utils/logger'
 import { sanitizeError, sanitizeHapName, isValidHapName } from './utils/sanitizers'
 import { validateConfig as validateConfigSchema } from './utils/validators'
-import { AuthenticationError, ConfigurationError } from './errors'
+import { AuthenticationError, ConfigurationError, ApiResponseError } from './errors'
 import type {
   LevitonConfig,
   DeviceInfo,
   DeviceStatus,
+  DeviceType,
   PowerState,
   WebSocketPayload,
   LoginResponse,
+  DiagnosticsSnapshot,
 } from './types'
+
+/**
+ * Resolve the installed plugin version for diagnostics lifecycle reporting.
+ * Read lazily via require so it works from both dist/ and ts-jest without
+ * pulling package.json outside the TypeScript rootDir.
+ */
+function getPluginVersion(): string {
+  try {
+     
+    return (require('../package.json').version as string) || 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
 
 // Plugin constants
 const PLUGIN_NAME = 'homebridge-myleviton'
@@ -108,6 +126,15 @@ export class LevitonDecoraSmartPlatform {
   // Track recent HomeKit commands to avoid logging them as "external"
   private recentHomeKitCommands: Map<string, number> = new Map()
 
+  // Opt-in diagnostics subsystem (off unless diagnosticsInterval > 0)
+  private readonly diagnostics: DiagnosticsCollector
+  private diagnosticsTimer: ReturnType<typeof setInterval> | null = null
+  private lastDiagnosticsHealth: 'healthy' | 'degraded' | null = null
+  private lastBreakerState: string | null = null
+  private lastTokenRefreshAt: number | null = null
+  private lastExcludedCount = 0
+  private wsHasDisconnected = false
+
   constructor(
     homebridgeLog: (msg: string) => void,
     config: LevitonConfig,
@@ -121,7 +148,15 @@ export class LevitonDecoraSmartPlatform {
       structured: config?.structuredLogs || false,
       level: config?.loglevel || 'info',
     })
-    
+
+    // Diagnostics collector is created before the client so the client's metrics
+    // hook can feed it. Counters always accumulate (cheap, in-memory); reports
+    // are only emitted when diagnosticsInterval > 0.
+    this.diagnostics = new DiagnosticsCollector({
+      pluginVersion: getPluginVersion(),
+      config: config ?? ({} as LevitonConfig),
+    })
+
     // Setup API client. Each platform instance owns its own client (and thus its
     // own circuit breaker, rate limiter, and cache) so multiple configured
     // accounts don't share resilience state and trip each other.
@@ -132,6 +167,7 @@ export class LevitonDecoraSmartPlatform {
         info: (msg: string) => this.log.info(msg),
         warn: (msg: string) => this.log.warn(msg),
       },
+      metrics: sample => this.diagnostics.apiRequest(sample.durationMs, sample.ok),
     })
     
     // Setup device persistence
@@ -148,6 +184,7 @@ export class LevitonDecoraSmartPlatform {
     // Initialize on Homebridge launch
     api.on('didFinishLaunching', async () => {
       await this.initialize()
+      this.startDiagnostics()
     })
     
     // Cleanup on shutdown
@@ -296,6 +333,8 @@ export class LevitonDecoraSmartPlatform {
         }
       }
 
+      this.lastExcludedCount = excludedCount
+
       this.log.info(`Found ${devices.length} devices (${cachedCount} cached, ${newDevices} new, ${excludedCount} excluded)`)
       
       // Start polling
@@ -373,8 +412,9 @@ export class LevitonDecoraSmartPlatform {
         },
         {
           ...(this.config.connectionTimeout ? { connectionTimeout: this.config.connectionTimeout } : {}),
-          // Surface real-time push connectivity on the optional status sensor.
-          onConnectionChange: (connected: boolean) => this.updateConnectivity(connected),
+          // Surface real-time push connectivity on the optional status sensor and
+          // feed reconnect counts into diagnostics.
+          onConnectionChange: (connected: boolean) => this.handleWsConnectionChange(connected),
         },
       )
     } catch (err) {
@@ -448,6 +488,7 @@ export class LevitonDecoraSmartPlatform {
         const lastCommandTime = device?.id ? this.recentHomeKitCommands.get(device.id) : undefined
         const isRecentCommand = lastCommandTime && (Date.now() - lastCommandTime) < 5000 // 5 second window
         if (!isRecentCommand) {
+          this.diagnostics.externalChange()
           this.log.info(`${accessory.displayName}: ${newBrightness}% (external)`, {
             deviceId: device?.id,
             operation: 'externalBrightnessUpdate',
@@ -467,6 +508,7 @@ export class LevitonDecoraSmartPlatform {
         const lastCommandTime = device?.id ? this.recentHomeKitCommands.get(device.id) : undefined
         const isRecentCommand = lastCommandTime && (Date.now() - lastCommandTime) < 5000 // 5 second window
         if (!isRecentCommand) {
+          this.diagnostics.externalChange()
           this.log.info(`${accessory.displayName}: ${power} (external)`, {
             deviceId: device?.id,
             operation: 'externalPowerUpdate',
@@ -1116,6 +1158,7 @@ export class LevitonDecoraSmartPlatform {
       const startTime = Date.now()
       // Track this HomeKit command to avoid logging it as "external" later
       this.recentHomeKitCommands.set(device.id, Date.now())
+      this.diagnostics.command()
       try {
         await this.withTokenRetry(async () => {
           const token = await this.ensureValidToken()
@@ -1129,6 +1172,7 @@ export class LevitonDecoraSmartPlatform {
         })
         callback()
       } catch (err) {
+        this.recordThrottleIfRateLimited(err)
         callback(new Error(sanitizeError(err)))
       }
     }
@@ -1143,6 +1187,7 @@ export class LevitonDecoraSmartPlatform {
       const startTime = Date.now()
       // Track this HomeKit command to avoid logging it as "external" later
       this.recentHomeKitCommands.set(device.id, Date.now())
+      this.diagnostics.command()
       try {
         await this.withTokenRetry(async () => {
           const token = await this.ensureValidToken()
@@ -1156,6 +1201,7 @@ export class LevitonDecoraSmartPlatform {
         })
         callback()
       } catch (err) {
+        this.recordThrottleIfRateLimited(err)
         callback(new Error(sanitizeError(err)))
       }
     }
@@ -1193,6 +1239,7 @@ export class LevitonDecoraSmartPlatform {
       if (err instanceof AuthenticationError) {
         this.log.warn('Authentication failed, refreshing token and retrying...')
         await this.refreshToken()
+        this.diagnostics.retry()
         return await operation()
       }
       throw err
@@ -1238,6 +1285,8 @@ export class LevitonDecoraSmartPlatform {
       }
 
       this.lastRefreshFailureAt = null
+      this.lastTokenRefreshAt = Date.now()
+      this.diagnostics.tokenRefresh()
       this.log.info('Token refreshed successfully')
       return loginResponse
     })()
@@ -1300,6 +1349,9 @@ export class LevitonDecoraSmartPlatform {
     // Track whether any device fetch succeeded this cycle so the polling loop
     // can double as a cloud-reachability heartbeat for the connectivity sensor.
     let anyPollSucceeded = false
+    let pollOk = 0
+    let pollFailed = 0
+    const cycleStart = Date.now()
 
     const pollSingleDevice = async (device: DeviceInfo): Promise<void> => {
       try {
@@ -1310,6 +1362,7 @@ export class LevitonDecoraSmartPlatform {
         })
 
         anyPollSucceeded = true
+        pollOk++
 
         // Only update HomeKit if we got real data from API. Include motion/
         // occupancy so motion sensors stay current via polling when the
@@ -1323,6 +1376,7 @@ export class LevitonDecoraSmartPlatform {
         })
       } catch (err) {
         // On API failure, preserve current HomeKit state - don't update with fallback values
+        pollFailed++
         this.log.debug(`Polling skipped for ${device.name}: ${sanitizeError(err)}`)
       }
     }
@@ -1343,6 +1397,8 @@ export class LevitonDecoraSmartPlatform {
     })
 
     await Promise.all(workers)
+
+    this.diagnostics.pollCycle(pollOk, pollFailed, Date.now() - cycleStart)
 
     // The poll cycle reached (or failed to reach) the cloud — use that as a
     // heartbeat for the connectivity sensor, covering the case where the
@@ -1385,6 +1441,17 @@ export class LevitonDecoraSmartPlatform {
    * Cleans up resources
    */
   private cleanup(): void {
+    // Emit the cumulative stop snapshot before tearing down the heartbeat timer.
+    if (this.diagnosticsTimer) {
+      try {
+        this.emitDiagnostic('info', this.diagnostics.snapshot('diagnostics.stop', this.buildDiagnosticsReaders()))
+      } catch (err) {
+        this.log.debug(`Failed to emit diagnostics stop snapshot: ${sanitizeError(err)}`)
+      }
+      clearInterval(this.diagnosticsTimer)
+      this.diagnosticsTimer = null
+    }
+
     if (this.pollingInterval) {
       clearInterval(this.pollingInterval)
       this.pollingInterval = null
@@ -1402,6 +1469,189 @@ export class LevitonDecoraSmartPlatform {
   }
 
   /**
+   * Records a rate-limit rejection on the diagnostics collector when a write
+   * was throttled client-side (HTTP 429 from the rate limiter).
+   */
+  private recordThrottleIfRateLimited(err: unknown): void {
+    if (err instanceof ApiResponseError && err.httpStatus === 429) {
+      this.diagnostics.throttle()
+    }
+  }
+
+  /**
+   * Handles WebSocket connection-state changes: drives the connectivity sensor
+   * and counts reconnections (a recovery after a prior disconnect) for diagnostics.
+   */
+  private handleWsConnectionChange(connected: boolean): void {
+    if (connected && this.wsHasDisconnected) {
+      this.diagnostics.wsReconnect()
+      this.wsHasDisconnected = false
+    } else if (!connected) {
+      this.wsHasDisconnected = true
+    }
+    this.updateConnectivity(connected)
+  }
+
+  /**
+   * Diagnostics heartbeat interval in milliseconds (0 when disabled).
+   */
+  private diagnosticsIntervalMs(): number {
+    const seconds = this.config?.diagnosticsInterval
+    if (typeof seconds !== 'number' || seconds <= 0) {
+      return 0
+    }
+    return seconds * 1000
+  }
+
+  /**
+   * Effective polling cadence in seconds (mirrors startPolling's clamping).
+   */
+  private pollingCadenceSeconds(): number {
+    const intervalSeconds = this.config.pollInterval ?? this.config.pollingInterval ?? 30
+    return Math.max(intervalSeconds, 10)
+  }
+
+  /**
+   * Starts the diagnostics subsystem: emits the boot snapshot and schedules the
+   * heartbeat. No-op unless diagnosticsInterval > 0.
+   */
+  private startDiagnostics(): void {
+    const interval = this.diagnosticsIntervalMs()
+    if (interval <= 0 || this.isShuttingDown) {
+      return
+    }
+
+    const readers = this.buildDiagnosticsReaders()
+    this.lastBreakerState = readers.clientStatus().circuitBreaker.state
+    const startReport = this.diagnostics.snapshot('diagnostics.start', readers)
+    this.lastDiagnosticsHealth = startReport.lifecycle.health
+    this.emitDiagnostic('info', startReport)
+
+    this.diagnosticsTimer = setInterval(() => this.diagnosticsHeartbeat(), interval)
+  }
+
+  /**
+   * Emits a single heartbeat (per-interval deltas) and logs health transitions.
+   */
+  private diagnosticsHeartbeat(): void {
+    // Detect circuit-breaker trips at heartbeat granularity (edge into OPEN).
+    const breakerState = this.client.getStatus().circuitBreaker.state
+    if (breakerState === 'OPEN' && this.lastBreakerState !== 'OPEN') {
+      this.diagnostics.breakerTrip()
+    }
+    this.lastBreakerState = breakerState
+
+    const report = this.diagnostics.buildHeartbeat(this.buildDiagnosticsReaders())
+    this.emitDiagnostic('info', report)
+
+    const health = report.lifecycle.health
+    if (this.lastDiagnosticsHealth !== null && health !== this.lastDiagnosticsHealth) {
+      const isDegraded = health === 'degraded'
+      const transition: DiagnosticsSnapshot = {
+        ...report,
+        msg: isDegraded ? 'health.degraded' : 'health.recovered',
+      }
+      this.emitDiagnostic(isDegraded ? 'warn' : 'info', transition)
+    }
+    this.lastDiagnosticsHealth = health
+  }
+
+  /**
+   * Builds the synchronous, in-memory readers the collector uses. Never performs
+   * network I/O.
+   */
+  private buildDiagnosticsReaders(): DiagnosticsReaders {
+    return {
+      clientStatus: () => this.client.getStatus(),
+      wsStatus: () => (this.webSocket ? this.webSocket.getStatus() : null),
+      devices: () => this.collectDeviceGauges(),
+      tokenExpiresInSec: () =>
+        this.tokenExpiresAt === null
+          ? null
+          : Math.round((this.tokenExpiresAt - Date.now()) / 1000),
+      tokenLastRefreshAt: () => this.lastTokenRefreshAt,
+      tokenRefreshFailureActive: () =>
+        this.lastRefreshFailureAt !== null &&
+        Date.now() - this.lastRefreshFailureAt < TOKEN_REFRESH_FAILURE_COOLDOWN_MS,
+      pollingCadenceSec: () => this.pollingCadenceSeconds(),
+    }
+  }
+
+  /**
+   * Computes absolute device gauges from the current accessories (the optional
+   * connectivity sensor and stateless controllers are excluded).
+   */
+  private collectDeviceGauges(): DeviceGauges {
+    const byType: Record<string, number> = {}
+    let total = 0
+    let on = 0
+
+    for (const accessory of this.accessories) {
+      if (accessory.context?.connectivity) {
+        continue
+      }
+      const device = accessory.context?.device as DeviceInfo | undefined
+      if (!device?.model) {
+        continue
+      }
+      const type = deviceTypeForModel(device.model)
+      if (type === null) {
+        continue
+      }
+
+      total++
+      byType[type] = (byType[type] || 0) + 1
+
+      const service = this.getPrimaryService(accessory)
+      if (service && service.getCharacteristic(hap.Characteristic.On).value === true) {
+        on++
+      }
+    }
+
+    return { total, on, byType, excluded: this.lastExcludedCount }
+  }
+
+  /**
+   * Returns the primary controllable service for an accessory, if any.
+   */
+  private getPrimaryService(accessory: PlatformAccessory): Service | undefined {
+    return (
+      accessory.getService(hap.Service.Fan) ||
+      accessory.getService(hap.Service.Lightbulb) ||
+      accessory.getService(hap.Service.Switch) ||
+      accessory.getService(hap.Service.Outlet) ||
+      undefined
+    )
+  }
+
+  /**
+   * Emits a diagnostics report as a human-readable line plus structured JSON
+   * fields (when structuredLogs is enabled). The report is already redacted.
+   */
+  private emitDiagnostic(level: 'info' | 'warn', report: DiagnosticsSnapshot): void {
+    const context: Record<string, unknown> = {
+      msg: report.msg,
+      health: report.lifecycle.health,
+      reasons: report.lifecycle.reasons.join(', '),
+      uptimeSec: report.lifecycle.uptimeSec,
+      pluginVersion: report.lifecycle.pluginVersion,
+      devices: report.devices,
+      websocket: report.websocket,
+      circuitBreaker: report.circuitBreaker,
+      rateLimiter: report.rateLimiter,
+      cache: report.cache,
+      polling: report.polling,
+      token: report.token,
+      api: report.api,
+      activity: report.activity,
+    }
+    if (report.config) {
+      context.config = report.config
+    }
+    this.log[level](formatDiagnosticLine(report), context)
+  }
+
+  /**
    * Removes all accessories
    */
   removeAccessories(): void {
@@ -1409,6 +1659,45 @@ export class LevitonDecoraSmartPlatform {
     this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, this.accessories)
     this.accessories.length = 0
   }
+}
+
+/**
+ * Maps a device model to its HomeKit-facing type for diagnostics gauges.
+ * Returns null for stateless controllers (which are not exposed). Unknown
+ * models default to `switch`, mirroring setupService's fallback.
+ */
+function deviceTypeForModel(model: string): DeviceType | null {
+  const upper = model.toUpperCase()
+  if (CONTROLLER_MODELS.includes(upper)) {
+    return null
+  }
+  if (FAN_MODELS.includes(upper)) {
+    return 'fan'
+  }
+  if (MOTION_DIMMER_MODELS.includes(upper)) {
+    return 'motionDimmer'
+  }
+  if (DIMMER_MODELS.includes(upper)) {
+    return 'dimmer'
+  }
+  if (OUTLET_MODELS.includes(upper)) {
+    return 'outlet'
+  }
+  return 'switch'
+}
+
+/**
+ * Builds the concise human-readable summary line for a diagnostics report.
+ */
+function formatDiagnosticLine(report: DiagnosticsSnapshot): string {
+  const { lifecycle, devices, websocket, api } = report
+  const reasonText = lifecycle.reasons.length > 0 ? ` [${lifecycle.reasons.join(', ')}]` : ''
+  return (
+    `${report.msg}: ${lifecycle.health}${reasonText} | ` +
+    `devices ${devices.on}/${devices.total} on | ` +
+    `ws ${websocket.state} | ` +
+    `api p50 ${api.p50Ms}ms p95 ${api.p95Ms}ms (req ${api.requests}, err ${api.errors})`
+  )
 }
 
 /**

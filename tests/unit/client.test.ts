@@ -390,6 +390,75 @@ describe('LevitonApiClient', () => {
     })
   })
 
+  describe('metrics hook', () => {
+    it('fires with ok=true and a duration on a successful request', async () => {
+      const metrics = jest.fn()
+      const metricsClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 1, metrics })
+      mockJsonResponse([{ id: 'd1' }])
+
+      await metricsClient.getDevices('res1', 'token123')
+
+      expect(metrics).toHaveBeenCalledTimes(1)
+      const sample = metrics.mock.calls[0][0]
+      expect(sample.ok).toBe(true)
+      expect(typeof sample.durationMs).toBe('number')
+      expect(sample.durationMs).toBeGreaterThanOrEqual(0)
+    })
+
+    it('fires with ok=false on an error response', async () => {
+      const metrics = jest.fn()
+      const metricsClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 1, metrics })
+      mockErrorResponse(500, 'Server Error')
+
+      await expect(metricsClient.getDevices('res1', 'token123')).rejects.toThrow(ApiResponseError)
+
+      expect(metrics).toHaveBeenCalledTimes(1)
+      expect(metrics.mock.calls[0][0].ok).toBe(false)
+    })
+
+    it('fires with ok=false on a timeout', async () => {
+      const metrics = jest.fn()
+      const metricsClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 1, metrics })
+      mockFetch.mockImplementationOnce(() => new Promise((_, reject) => {
+        const error = new Error('aborted')
+        error.name = 'AbortError'
+        setTimeout(() => reject(error), 20)
+      }))
+
+      await expect(metricsClient.getDevices('res1', 'token123')).rejects.toThrow(TimeoutError)
+
+      expect(metrics).toHaveBeenCalledTimes(1)
+      expect(metrics.mock.calls[0][0].ok).toBe(false)
+    })
+
+    it('fires once per logical request even when retries occur', async () => {
+      const metrics = jest.fn()
+      const metricsClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 3, metrics })
+      mockErrorResponse(503, 'Service Unavailable')
+      mockJsonResponse([{ id: 'd1' }])
+
+      await metricsClient.getDevices('res1', 'token123')
+
+      // Two network attempts, but one logical request → one metrics sample.
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+      expect(metrics).toHaveBeenCalledTimes(1)
+      expect(metrics.mock.calls[0][0].ok).toBe(true)
+    })
+
+    it('does not fire on a cache hit', async () => {
+      const metrics = jest.fn()
+      const metricsClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 1, metrics })
+      mockJsonResponse({ power: 'ON', brightness: 75 })
+
+      await metricsClient.getDeviceStatus('dev1', 'token123')
+      await metricsClient.getDeviceStatus('dev1', 'token123')
+
+      // Second call is served from cache (no network request) → only one sample.
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      expect(metrics).toHaveBeenCalledTimes(1)
+    })
+  })
+
   describe('cache management', () => {
     it('should clear cache', () => {
       client.clearCache()

@@ -158,6 +158,11 @@ const setupMocks = () => {
     setBrightness: jest.fn().mockResolvedValue({}),
     clearCache: jest.fn(),
     invalidateDeviceCache: jest.fn(),
+    getStatus: jest.fn().mockReturnValue({
+      circuitBreaker: { state: 'CLOSED' },
+      rateLimiter: { remaining: 300 },
+      cache: { size: 0, hits: 0, misses: 0 },
+    }),
   }
   LevitonApiClient.mockImplementation(() => mockClient)
   
@@ -177,7 +182,18 @@ const setupMocks = () => {
   createWebSocket.mockReturnValue({
     close: jest.fn(),
     updateToken: jest.fn(),
+    updateLoginResponse: jest.fn(),
+    connect: jest.fn(),
     isConnected: jest.fn().mockReturnValue(false),
+    getStatus: jest.fn().mockReturnValue({
+      isConnected: true,
+      isConnecting: false,
+      isClosed: false,
+      reconnectAttempt: 0,
+      lastInboundAt: Date.now(),
+      lastEventAgeSec: 1,
+      subscribed: 1,
+    }),
   })
   
   return { mockLog, mockAPI, mockClient, mockPersistence }
@@ -888,6 +904,176 @@ describe('LevitonDecoraSmartPlatform', () => {
       mockAPI.emit('shutdown')
       
       expect(mockPersistence.save).toHaveBeenCalled()
+    })
+  })
+
+  describe('diagnostics', () => {
+    const healthyStatus = {
+      circuitBreaker: { state: 'CLOSED' },
+      rateLimiter: { remaining: 300 },
+      cache: { size: 0, hits: 0, misses: 0 },
+    }
+    const openStatus = {
+      circuitBreaker: { state: 'OPEN' },
+      rateLimiter: { remaining: 300 },
+      cache: { size: 0, hits: 0, misses: 0 },
+    }
+
+    const healthLines = () =>
+      mockLog.mock.calls.filter(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).startsWith('health:'),
+      )
+
+    it('emits no diagnostics output when diagnosticsInterval is 0 (default)', async () => {
+      mockClient.getDevices.mockResolvedValue([
+        { id: 'dev-1', name: 'Living Room Light', model: 'DW6HD', serial: 'ABC123' },
+      ])
+
+      new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      expect(
+        mockLog.mock.calls.some(
+          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('diagnostics.start'),
+        ),
+      ).toBe(false)
+      expect(healthLines().length).toBe(0)
+    })
+
+    it('emits a start snapshot and periodic heartbeats when enabled', () => {
+      jest.useFakeTimers()
+      mockClient.getStatus.mockReturnValue(healthyStatus)
+
+      const platform = new LevitonDecoraSmartPlatform(
+        mockLog,
+        { ...validConfig, diagnosticsInterval: 60 },
+        mockAPI,
+      )
+      const internals = platform as unknown as {
+        residenceId: string | null
+        startDiagnostics: () => void
+        cleanup: () => void
+      }
+      internals.residenceId = 'residence-123'
+      internals.startDiagnostics()
+
+      expect(
+        mockLog.mock.calls.some(
+          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('diagnostics.start'),
+        ),
+      ).toBe(true)
+
+      mockLog.mockClear()
+      jest.advanceTimersByTime(60000)
+      expect(healthLines().length).toBe(1)
+
+      jest.advanceTimersByTime(60000)
+      expect(healthLines().length).toBe(2)
+
+      internals.cleanup()
+      jest.useRealTimers()
+    })
+
+    it('emits a cumulative stop snapshot and clears the timer on cleanup', () => {
+      mockClient.getStatus.mockReturnValue(healthyStatus)
+
+      const platform = new LevitonDecoraSmartPlatform(
+        mockLog,
+        { ...validConfig, diagnosticsInterval: 60 },
+        mockAPI,
+      )
+      const internals = platform as unknown as {
+        residenceId: string | null
+        startDiagnostics: () => void
+        cleanup: () => void
+        diagnosticsTimer: ReturnType<typeof setInterval> | null
+      }
+      internals.residenceId = 'residence-123'
+      internals.startDiagnostics()
+
+      mockLog.mockClear()
+      internals.cleanup()
+
+      expect(
+        mockLog.mock.calls.some(
+          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('diagnostics.stop'),
+        ),
+      ).toBe(true)
+      expect(internals.diagnosticsTimer).toBeNull()
+    })
+
+    it('logs a degraded transition when the circuit breaker opens', () => {
+      jest.useFakeTimers()
+      mockClient.getStatus.mockReturnValue(healthyStatus)
+
+      const platform = new LevitonDecoraSmartPlatform(
+        mockLog,
+        { ...validConfig, diagnosticsInterval: 60 },
+        mockAPI,
+      )
+      const internals = platform as unknown as {
+        residenceId: string | null
+        startDiagnostics: () => void
+        cleanup: () => void
+      }
+      internals.residenceId = 'residence-123'
+      internals.startDiagnostics()
+
+      // The breaker trips between heartbeats.
+      mockClient.getStatus.mockReturnValue(openStatus)
+      mockLog.mockClear()
+      jest.advanceTimersByTime(60000)
+
+      expect(
+        mockLog.mock.calls.some(
+          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('health.degraded'),
+        ),
+      ).toBe(true)
+
+      internals.cleanup()
+      jest.useRealTimers()
+    })
+
+    it('counts commandsSent for HomeKit writes and externalChanges for external updates', async () => {
+      mockClient.getStatus.mockReturnValue(healthyStatus)
+      const device = { id: 'dev-1', name: 'Test Light', model: 'DW6HD', serial: 'ABC123' }
+      mockClient.getDevices.mockResolvedValue([device])
+
+      const platform = new LevitonDecoraSmartPlatform(
+        mockLog,
+        { ...validConfig, diagnosticsInterval: 60 },
+        mockAPI,
+      )
+      const accessory = mockAccessory(device)
+      platform.configureAccessory(accessory)
+
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      const internals = platform as unknown as {
+        handleWebSocketUpdate: (payload: { id: string; power: string }) => void
+        buildDiagnosticsReaders: () => unknown
+        diagnostics: { snapshot: (msg: string, readers: unknown) => { activity: { commandsSent: number; externalChanges: number } } }
+        cleanup: () => void
+      }
+
+      // External (non-HomeKit) state change.
+      internals.handleWebSocketUpdate({ id: 'dev-1', power: 'ON' })
+
+      // HomeKit-originated write.
+      const onChar = accessory.getService().getCharacteristic()
+      const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as
+        | ((value: boolean, callback: () => void) => Promise<void>)
+        | undefined
+      expect(setHandler).toBeDefined()
+      await setHandler!(true, jest.fn())
+
+      const snap = internals.diagnostics.snapshot('test', internals.buildDiagnosticsReaders())
+      expect(snap.activity.commandsSent).toBe(1)
+      expect(snap.activity.externalChanges).toBeGreaterThanOrEqual(1)
+
+      internals.cleanup()
     })
   })
 })

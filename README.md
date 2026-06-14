@@ -31,10 +31,11 @@ Control your **My Leviton Decora Smart** WiFi devices through Apple HomeKit usin
 - **State Persistence** — Faster startup with cached device data
 - **Token Auto-Refresh** — Seamless authentication management
 - **Connectivity Sensor** *(optional)* — Exposes a HomeKit contact sensor that reports whether the plugin can reach the Leviton cloud, so you can alert or automate on outages
+- **Diagnostics** *(optional)* — Opt-in health/activity heartbeat, boot/shutdown snapshots, and degraded/recovered transitions logged to Homebridge (logs/JSON only, never in HomeKit)
 
 ### Quality
 <!-- Canonical test count lives here only; keep other docs number-free to avoid 5-place updates. -->
-- **503 Tests** — Comprehensive test suite with 95%+ code coverage
+- **539 Tests** — Comprehensive test suite with 95%+ code coverage
 - **Child Bridge Support** — Run as isolated bridge for maximum stability
 - **Flexible Logging** — Debug, info, warn, error levels + JSON structured logs
 - **No Analytics** — Zero tracking or data collection
@@ -100,6 +101,7 @@ Your devices will appear in the Home app automatically.
 | `structuredLogs` | | Output logs as JSON for log aggregation tools |
 | `connectivitySensor` | | Expose a HomeKit contact sensor for Leviton cloud reachability (default: off) |
 | `connectivitySensorName` | | Name for the connectivity sensor (default: "Leviton Cloud") |
+| `diagnosticsInterval` | | Seconds between diagnostics health heartbeats in the logs; `0` disables (default), else `30`–`3600` |
 
 ## Not Working?
 

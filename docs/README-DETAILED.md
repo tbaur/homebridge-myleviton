@@ -65,7 +65,8 @@ Advanced documentation for power users, developers, and troubleshooting.
       "excludedSerials": [],
       "structuredLogs": false,
       "connectivitySensor": false,
-      "connectivitySensorName": "Leviton Cloud"
+      "connectivitySensorName": "Leviton Cloud",
+      "diagnosticsInterval": 0
     }
   ]
 }
@@ -87,6 +88,7 @@ Advanced documentation for power users, developers, and troubleshooting.
 | `structuredLogs` | boolean | `false` | Output logs as JSON for log aggregation tools |
 | `connectivitySensor` | boolean | `false` | Expose a HomeKit contact sensor reporting Leviton cloud reachability |
 | `connectivitySensorName` | string | `"Leviton Cloud"` | Display name for the connectivity sensor |
+| `diagnosticsInterval` | number | `0` | Diagnostics heartbeat interval in seconds. `0` disables diagnostics; otherwise `30`–`3600`. Logs/JSON only — never exposed in HomeKit. See [Diagnostics](#diagnostics-optional). |
 
 ### Example: Exclude Specific Devices
 
@@ -197,6 +199,104 @@ the push channel or the REST API is the part that is down. Transitions are logge
 (`connectivity lost` / `connectivity restored`) so you can alert or build Home
 automations on loss of connectivity. Disabling the option removes the sensor on
 the next restart.
+
+### Diagnostics (optional)
+
+Set `diagnosticsInterval` to a value between `30` and `3600` seconds to turn on an
+opt-in diagnostics subsystem. It is **off by default** (`0`) and is **logs/JSON
+only — nothing is ever exposed in HomeKit**. Credentials are never logged (the
+token appears only as `expiresInSec`), and the heartbeat reads in-memory state
+only — it never makes a network call.
+
+It pairs naturally with `structuredLogs: true`, which renders each report as a
+JSON object for log-aggregation tools.
+
+```json
+{
+  "platform": "MyLevitonDecoraSmart",
+  "email": "your@email.com",
+  "password": "yourpassword",
+  "structuredLogs": true,
+  "diagnosticsInterval": 300
+}
+```
+
+#### Channels
+
+Each channel logs a human-readable line plus, when `structuredLogs` is enabled,
+a JSON object. All channels are gated behind `diagnosticsInterval > 0`.
+
+| `msg` | Level | When | Counter semantics |
+|-------|-------|------|-------------------|
+| `health` | info | Every `diagnosticsInterval` seconds | Per-interval **deltas** |
+| `diagnostics.start` | info | At boot (after discovery) | Session **cumulative** + redacted config echo |
+| `diagnostics.stop` | info | At shutdown | Session **cumulative** + redacted config echo |
+| `health.degraded` | warn | When the health rollup flips to degraded | — |
+| `health.recovered` | info | When the health rollup flips back to healthy | — |
+
+Counters (`reconnects`, `trips`, `throttled`, `refreshes`, polling `ok`/`failed`,
+api `requests`/`errors`, and the whole `activity` group) are **per-interval
+deltas** in a `health` heartbeat and **session-cumulative totals** in the
+`diagnostics.start` / `diagnostics.stop` snapshots. Everything else is an
+absolute gauge.
+
+#### Health rollup
+
+Health is `degraded` (otherwise `healthy`) if any of the following hold, and each
+active cause is listed in `reasons`:
+
+| Reason | Condition |
+|--------|-----------|
+| `circuitBreakerOpen` | The API circuit breaker is open |
+| `webSocketDown` | The WebSocket has been disconnected for more than 60s |
+| `apiErrorRateHigh` | Recent API error rate exceeds 50% (with a minimum sample size) |
+| `tokenRefreshFailing` | A token refresh is currently in its failure cooldown |
+
+#### JSON field groups
+
+| Group | Fields | Kind |
+|-------|--------|------|
+| `lifecycle` | `health`, `reasons`, `uptimeSec`, `pluginVersion` | gauges |
+| `devices` | `total`, `on`, `byType{}`, `excluded` | gauges |
+| `websocket` | `state`, `lastEventAgeSec`, `subscribed` (gauges); `reconnects` (delta) | mixed |
+| `circuitBreaker` | `state`, `lastTripAt` (gauges); `trips` (delta) | mixed |
+| `rateLimiter` | `available` (gauge); `throttled` (delta) | mixed |
+| `cache` | `size` (gauge); `hitRate` (computed over the interval from hit/miss deltas) | mixed |
+| `polling` | `cadenceSec`, `lastDurationMs` (gauges); `ok`, `failed` (deltas) | mixed |
+| `token` | `expiresInSec`, `lastRefreshAt` (gauges); `refreshes` (delta) | mixed |
+| `api` | `p50Ms`, `p95Ms` (gauges over a bounded recent-latency window); `requests`, `errors` (deltas) | mixed |
+| `activity` | `commandsSent`, `externalChanges`, `retries` | deltas |
+
+> `reasons` is rendered as a comma-separated string in the log object (empty when
+> healthy); it is an array of cause codes on the underlying `DiagnosticsSnapshot`.
+
+#### Example heartbeat (structured)
+
+```json
+{
+  "timestamp": "2026-06-14T12:00:00.000Z",
+  "level": "info",
+  "message": "health: healthy | devices 1/3 on | ws connected | api p50 82ms p95 240ms (req 12, err 0)",
+  "msg": "health",
+  "health": "healthy",
+  "reasons": "",
+  "uptimeSec": 3600,
+  "pluginVersion": "3.7.0",
+  "devices": { "total": 3, "on": 1, "byType": { "dimmer": 2, "switch": 1 }, "excluded": 0 },
+  "websocket": { "state": "connected", "lastEventAgeSec": 4, "subscribed": 3, "reconnects": 0 },
+  "circuitBreaker": { "state": "CLOSED", "lastTripAt": null, "trips": 0 },
+  "rateLimiter": { "available": 300, "throttled": 0 },
+  "cache": { "size": 3, "hitRate": 0.82 },
+  "polling": { "cadenceSec": 30, "lastDurationMs": 120, "ok": 10, "failed": 0 },
+  "token": { "expiresInSec": 86200, "lastRefreshAt": null, "refreshes": 0 },
+  "api": { "p50Ms": 82, "p95Ms": 240, "requests": 12, "errors": 0 },
+  "activity": { "commandsSent": 2, "externalChanges": 1, "retries": 0 }
+}
+```
+
+The boot/shutdown snapshots use the same shape with cumulative counters plus a
+redacted `config` echo (e.g. `diagnosticsInterval`, `pollInterval`,
+`structuredLogs`, exclusion counts — never the email, password, or token).
 
 ---
 

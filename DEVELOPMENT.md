@@ -54,6 +54,8 @@ homebridge-myleviton/
 │   │   ├── cache.ts
 │   │   ├── request-queue.ts
 │   │   └── persistence.ts
+│   ├── diagnostics/      # Opt-in health/activity diagnostics
+│   │   └── collector.ts  # DiagnosticsCollector (heartbeats, snapshots, rollup)
 │   └── utils/            # Utility functions
 │       ├── validators.ts
 │       ├── sanitizers.ts
@@ -176,6 +178,9 @@ LevitonError (base)
 - `cache.ts` - TTL/LRU response cache
 - `request-queue.ts` - Priority queue with deduplication
 - `persistence.ts` - File-based state persistence
+
+**Diagnostics** (`src/diagnostics/`):
+- `collector.ts` - `DiagnosticsCollector`: opt-in (`diagnosticsInterval`) health heartbeats (per-interval deltas + gauges), cumulative boot/shutdown snapshots, p50/p95 API latency, and degraded/recovered health rollup. Logs/JSON only; never surfaced in HomeKit.
 
 **Utilities** (`src/utils/`):
 - `validators.ts` - Input validation

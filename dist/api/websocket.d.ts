@@ -62,6 +62,7 @@ export declare class LevitonWebSocket {
     private devices;
     private callback;
     private reconnectAttempt;
+    private lastInboundAt;
     private timers;
     private reconnectTimer;
     private pingTimer;
@@ -144,6 +145,9 @@ export declare class LevitonWebSocket {
         isConnecting: boolean;
         isClosed: boolean;
         reconnectAttempt: number;
+        lastInboundAt: number | null;
+        lastEventAgeSec: number | null;
+        subscribed: number;
     };
 }
 /**

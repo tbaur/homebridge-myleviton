@@ -76,6 +76,9 @@ class LevitonWebSocket {
     devices;
     callback;
     reconnectAttempt = 0;
+    // Timestamp of the most recent inbound frame (any message or pong). Used as a
+    // liveness signal for diagnostics; null until the first frame arrives.
+    lastInboundAt = null;
     timers = [];
     reconnectTimer = null;
     pingTimer = null;
@@ -225,7 +228,12 @@ class LevitonWebSocket {
             this.logger.error(`WebSocket error: ${error.message || 'Unknown error'}`);
         });
         this.ws.on('message', (data) => {
+            this.lastInboundAt = Date.now();
             this.handleMessage(data.toString());
+        });
+        // Pongs are inbound liveness too, even when no device updates are flowing.
+        this.ws.on('pong', () => {
+            this.lastInboundAt = Date.now();
         });
     }
     /**
@@ -410,6 +418,9 @@ class LevitonWebSocket {
             isConnecting: this.isConnecting,
             isClosed: this.isClosed,
             reconnectAttempt: this.reconnectAttempt,
+            lastInboundAt: this.lastInboundAt,
+            lastEventAgeSec: this.lastInboundAt === null ? null : Math.round((Date.now() - this.lastInboundAt) / 1000),
+            subscribed: this.devices.length,
         };
     }
 }

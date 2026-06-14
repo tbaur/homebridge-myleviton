@@ -102,6 +102,14 @@
         "condition": {
           "functionBody": "return model.connectivitySensor === true;"
         }
+      },
+      "diagnosticsInterval": {
+        "title": "Diagnostics Heartbeat Interval",
+        "type": "integer",
+        "default": 0,
+        "minimum": 0,
+        "maximum": 3600,
+        "description": "Seconds between diagnostics health heartbeats logged to Homebridge (logs/JSON only — not exposed in HomeKit). 0 disables diagnostics; otherwise use 30–3600. Pairs well with Structured Logging."
       }
     }
   },
@@ -171,7 +179,8 @@
       "expanded": false,
       "items": [
         "structuredLogs",
-        "connectionTimeout"
+        "connectionTimeout",
+        "diagnosticsInterval"
       ]
     }
   ]

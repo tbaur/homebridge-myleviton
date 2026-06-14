@@ -47,10 +47,24 @@ const path = __importStar(require("path"));
 const client_1 = require("./api/client");
 const websocket_1 = require("./api/websocket");
 const persistence_1 = require("./api/persistence");
+const collector_1 = require("./diagnostics/collector");
 const logger_1 = require("./utils/logger");
 const sanitizers_1 = require("./utils/sanitizers");
 const validators_1 = require("./utils/validators");
 const errors_1 = require("./errors");
+/**
+ * Resolve the installed plugin version for diagnostics lifecycle reporting.
+ * Read lazily via require so it works from both dist/ and ts-jest without
+ * pulling package.json outside the TypeScript rootDir.
+ */
+function getPluginVersion() {
+    try {
+        return require('../package.json').version || 'unknown';
+    }
+    catch {
+        return 'unknown';
+    }
+}
 // Plugin constants
 const PLUGIN_NAME = 'homebridge-myleviton';
 const PLATFORM_NAME = 'MyLevitonDecoraSmart';
@@ -110,6 +124,14 @@ class LevitonDecoraSmartPlatform {
     isCloudOnline = true;
     // Track recent HomeKit commands to avoid logging them as "external"
     recentHomeKitCommands = new Map();
+    // Opt-in diagnostics subsystem (off unless diagnosticsInterval > 0)
+    diagnostics;
+    diagnosticsTimer = null;
+    lastDiagnosticsHealth = null;
+    lastBreakerState = null;
+    lastTokenRefreshAt = null;
+    lastExcludedCount = 0;
+    wsHasDisconnected = false;
     constructor(homebridgeLog, config, api) {
         this.config = config;
         this.api = api;
@@ -117,6 +139,13 @@ class LevitonDecoraSmartPlatform {
         this.log = (0, logger_1.createStructuredLogger)(homebridgeLog, {
             structured: config?.structuredLogs || false,
             level: config?.loglevel || 'info',
+        });
+        // Diagnostics collector is created before the client so the client's metrics
+        // hook can feed it. Counters always accumulate (cheap, in-memory); reports
+        // are only emitted when diagnosticsInterval > 0.
+        this.diagnostics = new collector_1.DiagnosticsCollector({
+            pluginVersion: getPluginVersion(),
+            config: config ?? {},
         });
         // Setup API client. Each platform instance owns its own client (and thus its
         // own circuit breaker, rate limiter, and cache) so multiple configured
@@ -128,6 +157,7 @@ class LevitonDecoraSmartPlatform {
                 info: (msg) => this.log.info(msg),
                 warn: (msg) => this.log.warn(msg),
             },
+            metrics: sample => this.diagnostics.apiRequest(sample.durationMs, sample.ok),
         });
         // Setup device persistence
         const storagePath = api?.user?.storagePath?.()
@@ -141,6 +171,7 @@ class LevitonDecoraSmartPlatform {
         // Initialize on Homebridge launch
         api.on('didFinishLaunching', async () => {
             await this.initialize();
+            this.startDiagnostics();
         });
         // Cleanup on shutdown
         api.on('shutdown', () => {
@@ -267,6 +298,7 @@ class LevitonDecoraSmartPlatform {
                     newDevices++;
                 }
             }
+            this.lastExcludedCount = excludedCount;
             this.log.info(`Found ${devices.length} devices (${cachedCount} cached, ${newDevices} new, ${excludedCount} excluded)`);
             // Start polling
             this.startPolling();
@@ -324,8 +356,9 @@ class LevitonDecoraSmartPlatform {
                 error: (msg) => this.log.error(msg),
             }, {
                 ...(this.config.connectionTimeout ? { connectionTimeout: this.config.connectionTimeout } : {}),
-                // Surface real-time push connectivity on the optional status sensor.
-                onConnectionChange: (connected) => this.updateConnectivity(connected),
+                // Surface real-time push connectivity on the optional status sensor and
+                // feed reconnect counts into diagnostics.
+                onConnectionChange: (connected) => this.handleWsConnectionChange(connected),
             });
         }
         catch (err) {
@@ -385,6 +418,7 @@ class LevitonDecoraSmartPlatform {
                 const lastCommandTime = device?.id ? this.recentHomeKitCommands.get(device.id) : undefined;
                 const isRecentCommand = lastCommandTime && (Date.now() - lastCommandTime) < 5000; // 5 second window
                 if (!isRecentCommand) {
+                    this.diagnostics.externalChange();
                     this.log.info(`${accessory.displayName}: ${newBrightness}% (external)`, {
                         deviceId: device?.id,
                         operation: 'externalBrightnessUpdate',
@@ -402,6 +436,7 @@ class LevitonDecoraSmartPlatform {
                 const lastCommandTime = device?.id ? this.recentHomeKitCommands.get(device.id) : undefined;
                 const isRecentCommand = lastCommandTime && (Date.now() - lastCommandTime) < 5000; // 5 second window
                 if (!isRecentCommand) {
+                    this.diagnostics.externalChange();
                     this.log.info(`${accessory.displayName}: ${power} (external)`, {
                         deviceId: device?.id,
                         operation: 'externalPowerUpdate',
@@ -969,6 +1004,7 @@ class LevitonDecoraSmartPlatform {
             const startTime = Date.now();
             // Track this HomeKit command to avoid logging it as "external" later
             this.recentHomeKitCommands.set(device.id, Date.now());
+            this.diagnostics.command();
             try {
                 await this.withTokenRetry(async () => {
                     const token = await this.ensureValidToken();
@@ -983,6 +1019,7 @@ class LevitonDecoraSmartPlatform {
                 callback();
             }
             catch (err) {
+                this.recordThrottleIfRateLimited(err);
                 callback(new Error((0, sanitizers_1.sanitizeError)(err)));
             }
         };
@@ -996,6 +1033,7 @@ class LevitonDecoraSmartPlatform {
             const startTime = Date.now();
             // Track this HomeKit command to avoid logging it as "external" later
             this.recentHomeKitCommands.set(device.id, Date.now());
+            this.diagnostics.command();
             try {
                 await this.withTokenRetry(async () => {
                     const token = await this.ensureValidToken();
@@ -1010,6 +1048,7 @@ class LevitonDecoraSmartPlatform {
                 callback();
             }
             catch (err) {
+                this.recordThrottleIfRateLimited(err);
                 callback(new Error((0, sanitizers_1.sanitizeError)(err)));
             }
         };
@@ -1046,6 +1085,7 @@ class LevitonDecoraSmartPlatform {
             if (err instanceof errors_1.AuthenticationError) {
                 this.log.warn('Authentication failed, refreshing token and retrying...');
                 await this.refreshToken();
+                this.diagnostics.retry();
                 return await operation();
             }
             throw err;
@@ -1083,6 +1123,8 @@ class LevitonDecoraSmartPlatform {
                 this.webSocket.connect();
             }
             this.lastRefreshFailureAt = null;
+            this.lastTokenRefreshAt = Date.now();
+            this.diagnostics.tokenRefresh();
             this.log.info('Token refreshed successfully');
             return loginResponse;
         })();
@@ -1142,6 +1184,9 @@ class LevitonDecoraSmartPlatform {
         // Track whether any device fetch succeeded this cycle so the polling loop
         // can double as a cloud-reachability heartbeat for the connectivity sensor.
         let anyPollSucceeded = false;
+        let pollOk = 0;
+        let pollFailed = 0;
+        const cycleStart = Date.now();
         const pollSingleDevice = async (device) => {
             try {
                 // Fetch actual device status from API (bypass getStatus to avoid fallback values)
@@ -1150,6 +1195,7 @@ class LevitonDecoraSmartPlatform {
                     return this.client.getDeviceStatus(device.id, token);
                 });
                 anyPollSucceeded = true;
+                pollOk++;
                 // Only update HomeKit if we got real data from API. Include motion/
                 // occupancy so motion sensors stay current via polling when the
                 // WebSocket push channel is unavailable.
@@ -1163,6 +1209,7 @@ class LevitonDecoraSmartPlatform {
             }
             catch (err) {
                 // On API failure, preserve current HomeKit state - don't update with fallback values
+                pollFailed++;
                 this.log.debug(`Polling skipped for ${device.name}: ${(0, sanitizers_1.sanitizeError)(err)}`);
             }
         };
@@ -1179,6 +1226,7 @@ class LevitonDecoraSmartPlatform {
             }
         });
         await Promise.all(workers);
+        this.diagnostics.pollCycle(pollOk, pollFailed, Date.now() - cycleStart);
         // The poll cycle reached (or failed to reach) the cloud — use that as a
         // heartbeat for the connectivity sensor, covering the case where the
         // WebSocket is down but REST still works (or vice versa).
@@ -1217,6 +1265,17 @@ class LevitonDecoraSmartPlatform {
      * Cleans up resources
      */
     cleanup() {
+        // Emit the cumulative stop snapshot before tearing down the heartbeat timer.
+        if (this.diagnosticsTimer) {
+            try {
+                this.emitDiagnostic('info', this.diagnostics.snapshot('diagnostics.stop', this.buildDiagnosticsReaders()));
+            }
+            catch (err) {
+                this.log.debug(`Failed to emit diagnostics stop snapshot: ${(0, sanitizers_1.sanitizeError)(err)}`);
+            }
+            clearInterval(this.diagnosticsTimer);
+            this.diagnosticsTimer = null;
+        }
         if (this.pollingInterval) {
             clearInterval(this.pollingInterval);
             this.pollingInterval = null;
@@ -1231,6 +1290,168 @@ class LevitonDecoraSmartPlatform {
         }
     }
     /**
+     * Records a rate-limit rejection on the diagnostics collector when a write
+     * was throttled client-side (HTTP 429 from the rate limiter).
+     */
+    recordThrottleIfRateLimited(err) {
+        if (err instanceof errors_1.ApiResponseError && err.httpStatus === 429) {
+            this.diagnostics.throttle();
+        }
+    }
+    /**
+     * Handles WebSocket connection-state changes: drives the connectivity sensor
+     * and counts reconnections (a recovery after a prior disconnect) for diagnostics.
+     */
+    handleWsConnectionChange(connected) {
+        if (connected && this.wsHasDisconnected) {
+            this.diagnostics.wsReconnect();
+            this.wsHasDisconnected = false;
+        }
+        else if (!connected) {
+            this.wsHasDisconnected = true;
+        }
+        this.updateConnectivity(connected);
+    }
+    /**
+     * Diagnostics heartbeat interval in milliseconds (0 when disabled).
+     */
+    diagnosticsIntervalMs() {
+        const seconds = this.config?.diagnosticsInterval;
+        if (typeof seconds !== 'number' || seconds <= 0) {
+            return 0;
+        }
+        return seconds * 1000;
+    }
+    /**
+     * Effective polling cadence in seconds (mirrors startPolling's clamping).
+     */
+    pollingCadenceSeconds() {
+        const intervalSeconds = this.config.pollInterval ?? this.config.pollingInterval ?? 30;
+        return Math.max(intervalSeconds, 10);
+    }
+    /**
+     * Starts the diagnostics subsystem: emits the boot snapshot and schedules the
+     * heartbeat. No-op unless diagnosticsInterval > 0.
+     */
+    startDiagnostics() {
+        const interval = this.diagnosticsIntervalMs();
+        if (interval <= 0 || this.isShuttingDown) {
+            return;
+        }
+        const readers = this.buildDiagnosticsReaders();
+        this.lastBreakerState = readers.clientStatus().circuitBreaker.state;
+        const startReport = this.diagnostics.snapshot('diagnostics.start', readers);
+        this.lastDiagnosticsHealth = startReport.lifecycle.health;
+        this.emitDiagnostic('info', startReport);
+        this.diagnosticsTimer = setInterval(() => this.diagnosticsHeartbeat(), interval);
+    }
+    /**
+     * Emits a single heartbeat (per-interval deltas) and logs health transitions.
+     */
+    diagnosticsHeartbeat() {
+        // Detect circuit-breaker trips at heartbeat granularity (edge into OPEN).
+        const breakerState = this.client.getStatus().circuitBreaker.state;
+        if (breakerState === 'OPEN' && this.lastBreakerState !== 'OPEN') {
+            this.diagnostics.breakerTrip();
+        }
+        this.lastBreakerState = breakerState;
+        const report = this.diagnostics.buildHeartbeat(this.buildDiagnosticsReaders());
+        this.emitDiagnostic('info', report);
+        const health = report.lifecycle.health;
+        if (this.lastDiagnosticsHealth !== null && health !== this.lastDiagnosticsHealth) {
+            const isDegraded = health === 'degraded';
+            const transition = {
+                ...report,
+                msg: isDegraded ? 'health.degraded' : 'health.recovered',
+            };
+            this.emitDiagnostic(isDegraded ? 'warn' : 'info', transition);
+        }
+        this.lastDiagnosticsHealth = health;
+    }
+    /**
+     * Builds the synchronous, in-memory readers the collector uses. Never performs
+     * network I/O.
+     */
+    buildDiagnosticsReaders() {
+        return {
+            clientStatus: () => this.client.getStatus(),
+            wsStatus: () => (this.webSocket ? this.webSocket.getStatus() : null),
+            devices: () => this.collectDeviceGauges(),
+            tokenExpiresInSec: () => this.tokenExpiresAt === null
+                ? null
+                : Math.round((this.tokenExpiresAt - Date.now()) / 1000),
+            tokenLastRefreshAt: () => this.lastTokenRefreshAt,
+            tokenRefreshFailureActive: () => this.lastRefreshFailureAt !== null &&
+                Date.now() - this.lastRefreshFailureAt < TOKEN_REFRESH_FAILURE_COOLDOWN_MS,
+            pollingCadenceSec: () => this.pollingCadenceSeconds(),
+        };
+    }
+    /**
+     * Computes absolute device gauges from the current accessories (the optional
+     * connectivity sensor and stateless controllers are excluded).
+     */
+    collectDeviceGauges() {
+        const byType = {};
+        let total = 0;
+        let on = 0;
+        for (const accessory of this.accessories) {
+            if (accessory.context?.connectivity) {
+                continue;
+            }
+            const device = accessory.context?.device;
+            if (!device?.model) {
+                continue;
+            }
+            const type = deviceTypeForModel(device.model);
+            if (type === null) {
+                continue;
+            }
+            total++;
+            byType[type] = (byType[type] || 0) + 1;
+            const service = this.getPrimaryService(accessory);
+            if (service && service.getCharacteristic(hap.Characteristic.On).value === true) {
+                on++;
+            }
+        }
+        return { total, on, byType, excluded: this.lastExcludedCount };
+    }
+    /**
+     * Returns the primary controllable service for an accessory, if any.
+     */
+    getPrimaryService(accessory) {
+        return (accessory.getService(hap.Service.Fan) ||
+            accessory.getService(hap.Service.Lightbulb) ||
+            accessory.getService(hap.Service.Switch) ||
+            accessory.getService(hap.Service.Outlet) ||
+            undefined);
+    }
+    /**
+     * Emits a diagnostics report as a human-readable line plus structured JSON
+     * fields (when structuredLogs is enabled). The report is already redacted.
+     */
+    emitDiagnostic(level, report) {
+        const context = {
+            msg: report.msg,
+            health: report.lifecycle.health,
+            reasons: report.lifecycle.reasons.join(', '),
+            uptimeSec: report.lifecycle.uptimeSec,
+            pluginVersion: report.lifecycle.pluginVersion,
+            devices: report.devices,
+            websocket: report.websocket,
+            circuitBreaker: report.circuitBreaker,
+            rateLimiter: report.rateLimiter,
+            cache: report.cache,
+            polling: report.polling,
+            token: report.token,
+            api: report.api,
+            activity: report.activity,
+        };
+        if (report.config) {
+            context.config = report.config;
+        }
+        this.log[level](formatDiagnosticLine(report), context);
+    }
+    /**
      * Removes all accessories
      */
     removeAccessories() {
@@ -1240,6 +1461,41 @@ class LevitonDecoraSmartPlatform {
     }
 }
 exports.LevitonDecoraSmartPlatform = LevitonDecoraSmartPlatform;
+/**
+ * Maps a device model to its HomeKit-facing type for diagnostics gauges.
+ * Returns null for stateless controllers (which are not exposed). Unknown
+ * models default to `switch`, mirroring setupService's fallback.
+ */
+function deviceTypeForModel(model) {
+    const upper = model.toUpperCase();
+    if (CONTROLLER_MODELS.includes(upper)) {
+        return null;
+    }
+    if (FAN_MODELS.includes(upper)) {
+        return 'fan';
+    }
+    if (MOTION_DIMMER_MODELS.includes(upper)) {
+        return 'motionDimmer';
+    }
+    if (DIMMER_MODELS.includes(upper)) {
+        return 'dimmer';
+    }
+    if (OUTLET_MODELS.includes(upper)) {
+        return 'outlet';
+    }
+    return 'switch';
+}
+/**
+ * Builds the concise human-readable summary line for a diagnostics report.
+ */
+function formatDiagnosticLine(report) {
+    const { lifecycle, devices, websocket, api } = report;
+    const reasonText = lifecycle.reasons.length > 0 ? ` [${lifecycle.reasons.join(', ')}]` : '';
+    return (`${report.msg}: ${lifecycle.health}${reasonText} | ` +
+        `devices ${devices.on}/${devices.total} on | ` +
+        `ws ${websocket.state} | ` +
+        `api p50 ${api.p50Ms}ms p95 ${api.p95Ms}ms (req ${api.requests}, err ${api.errors})`);
+}
 /**
  * Homebridge plugin registration
  */

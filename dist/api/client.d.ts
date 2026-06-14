@@ -20,6 +20,15 @@ export interface ClientLogger {
     warn?: (message: string) => void;
 }
 /**
+ * A single request measurement reported to the optional `metrics` hook.
+ */
+export interface RequestMetric {
+    /** Wall-clock duration of the logical request in milliseconds. */
+    durationMs: number;
+    /** Whether the request ultimately succeeded. */
+    ok: boolean;
+}
+/**
  * API configuration
  */
 export interface ApiClientConfig {
@@ -35,6 +44,12 @@ export interface ApiClientConfig {
     maxRetryAttempts: number;
     /** Optional logger for resilience events (circuit breaker, rate limiting) */
     logger?: ClientLogger;
+    /**
+     * Optional metrics hook fired around EVERY logical request, including
+     * timeouts, network errors, circuit-breaker rejections, and rate-limit
+     * rejections. Cache hits are not reported (no request is made).
+     */
+    metrics?: (sample: RequestMetric) => void;
 }
 /**
  * Default API configuration
@@ -60,9 +75,16 @@ export declare class LevitonApiClient {
      */
     private request;
     /**
-     * Execute the actual request
+     * Execute the actual request, reporting a metrics sample around the full
+     * logical request (including breaker/rate-limit rejections, timeouts, and
+     * errors) when a `metrics` hook is configured.
      */
     private executeRequest;
+    /**
+     * Run a single logical request with circuit breaker, rate limiting, retry,
+     * and caching protections.
+     */
+    private runRequest;
     /**
      * Performs a single fetch + parse cycle, translating low-level failures into
      * typed errors. Intentionally free of circuit-breaker, rate-limit, and cache
