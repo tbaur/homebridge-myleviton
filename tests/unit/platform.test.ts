@@ -1015,6 +1015,61 @@ describe('LevitonDecoraSmartPlatform', () => {
       
       expect(mockPersistence.save).toHaveBeenCalled()
     })
+
+    it('does not read Brightness from fan, switch, or outlet services on shutdown', async () => {
+      const { mockLog, mockAPI, mockPersistence: persistence } = setupMocks()
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+
+      const createTrackedService = (allowed: string[]): MockServiceShape => {
+        const service = mockService()
+        service.testCharacteristic.mockImplementation((char: string) => allowed.includes(char))
+        service.getCharacteristic.mockImplementation((char: string) => {
+          const characteristic = mockCharacteristic()
+          if (char === 'On') {
+            characteristic.value = true
+          }
+          if (char === 'RotationSpeed') {
+            characteristic.value = 42
+          }
+          return characteristic
+        })
+        return service
+      }
+
+      const fanService = createTrackedService(['On', 'RotationSpeed'])
+      const switchService = createTrackedService(['On'])
+
+      const fanAccessory = {
+        context: {
+          device: { id: 'fan-1', name: 'Bedroom Fan', model: 'DW4SF', serial: 'FAN1' },
+        },
+        getService: jest.fn((type: string) => (type === 'Fan' ? fanService : undefined)),
+      }
+      const switchAccessory = {
+        context: {
+          device: { id: 'sw-1', name: 'Hall Switch', model: 'DW15S', serial: 'SW1' },
+        },
+        getService: jest.fn((type: string) => (type === 'Switch' ? switchService : undefined)),
+      }
+
+      const internals = platform as unknown as {
+        accessories: Array<typeof fanAccessory>
+        saveDeviceStates: () => void
+      }
+      internals.accessories = [fanAccessory, switchAccessory]
+      internals.saveDeviceStates()
+
+      expect(fanService.getCharacteristic).not.toHaveBeenCalledWith('Brightness')
+      expect(switchService.getCharacteristic).not.toHaveBeenCalledWith('Brightness')
+
+      expect(persistence.updateDevice).toHaveBeenCalledWith('fan-1', expect.objectContaining({
+        power: 'ON',
+        brightness: 42,
+      }))
+      const switchUpdate = persistence.updateDevice.mock.calls.find(call => call[0] === 'sw-1')?.[1]
+      expect(switchUpdate).toMatchObject({ power: 'ON' })
+      expect(switchUpdate?.brightness).toBeUndefined()
+    })
   })
 
   describe('diagnostics', () => {
