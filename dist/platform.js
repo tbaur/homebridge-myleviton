@@ -86,7 +86,6 @@ const POLL_DEVICE_CONCURRENCY = 4;
 // leaving the plugin permanently dead until a manual Homebridge restart.
 const INITIAL_INIT_RETRY_MS = 15 * 1000;
 const MAX_INIT_RETRY_MS = 5 * 60 * 1000;
-const MAX_INIT_ATTEMPTS = 30;
 /** Fallback TTL when the login response omits `ttl` (seconds). */
 const DEFAULT_TOKEN_TTL_SEC = 3600;
 const RECENT_HOMEKIT_COMMAND_TTL_MS = 60_000;
@@ -233,10 +232,9 @@ class LevitonDecoraSmartPlatform {
                 return;
             }
             this.initAttempt++;
-            if (this.initAttempt >= MAX_INIT_ATTEMPTS) {
-                this.log.error(`Initialization failed after ${MAX_INIT_ATTEMPTS} attempts; giving up until Homebridge restart: ${(0, sanitizers_1.sanitizeError)(error)}`);
-                return;
-            }
+            // Retry indefinitely with capped exponential backoff. A home plugin runs
+            // unattended, so a long Leviton/network outage must never leave it
+            // permanently inert; it should recover on its own once the cloud returns.
             const delay = Math.min(INITIAL_INIT_RETRY_MS * Math.pow(2, this.initAttempt - 1), MAX_INIT_RETRY_MS);
             this.log.warn(`Initialization failed (attempt ${this.initAttempt}), retrying in ${Math.round(delay / 1000)}s: ${(0, sanitizers_1.sanitizeError)(error)}`);
             this.scheduleInitializeRetry(delay);
