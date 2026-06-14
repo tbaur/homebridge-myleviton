@@ -36,6 +36,12 @@ export interface LevitonConfig extends PlatformConfig {
     connectionTimeout?: number;
     connectivitySensor?: boolean;
     connectivitySensorName?: string;
+    /**
+     * Diagnostics heartbeat interval in seconds. `0` (default) disables the
+     * diagnostics subsystem entirely. Any other value must be between 30 and 3600.
+     * Diagnostics are logs/JSON only and never surfaced in HomeKit.
+     */
+    diagnosticsInterval?: number;
 }
 /**
  * Log levels
@@ -202,6 +208,73 @@ export interface Metrics {
     cacheMisses: number;
     websocketReconnects: number;
     circuitBreakerTrips: number;
+}
+/**
+ * A single diagnostics report (heartbeat or boot/shutdown snapshot).
+ *
+ * Counters (`reconnects`, `trips`, `throttled`, `refreshes`, polling `ok`/`failed`,
+ * api `requests`/`errors`, and the `activity` group) are PER-INTERVAL DELTAS in a
+ * heartbeat and SESSION CUMULATIVE totals in a snapshot. Everything else is an
+ * absolute gauge read from in-memory state.
+ */
+export interface DiagnosticsSnapshot {
+    /** Channel identifier, e.g. `health`, `diagnostics.start`, `diagnostics.stop`. */
+    msg: string;
+    lifecycle: {
+        health: 'healthy' | 'degraded';
+        reasons: string[];
+        uptimeSec: number;
+        pluginVersion: string;
+    };
+    devices: {
+        total: number;
+        on: number;
+        byType: Record<string, number>;
+        excluded: number;
+    };
+    websocket: {
+        state: string;
+        lastEventAgeSec: number | null;
+        subscribed: number;
+        reconnects: number;
+    };
+    circuitBreaker: {
+        state: string;
+        lastTripAt: number | null;
+        trips: number;
+    };
+    rateLimiter: {
+        available: number;
+        throttled: number;
+    };
+    cache: {
+        size: number;
+        hitRate: number;
+    };
+    polling: {
+        cadenceSec: number;
+        lastDurationMs: number | null;
+        ok: number;
+        failed: number;
+    };
+    token: {
+        expiresInSec: number | null;
+        lastRefreshAt: number | null;
+        refreshes: number;
+    };
+    api: {
+        p50Ms: number;
+        p95Ms: number;
+        requests: number;
+        errors: number;
+    };
+    activity: {
+        commandsSent: number;
+        externalChanges: number;
+        retries: number;
+    };
+    /** Redacted config echo, present only on boot/shutdown snapshots. */
+    config?: Record<string, unknown>;
 }
 /**
  * Structured log entry

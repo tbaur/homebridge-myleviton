@@ -17,6 +17,7 @@
 - ✅ Per-account isolation of circuit breaker, rate limiter, and cache
 - ✅ Device state persistence for faster startup
 - ✅ Optional cloud-connectivity status sensor (HomeKit contact sensor)
+- ✅ Optional diagnostics subsystem (health heartbeat, boot/shutdown snapshots, degraded/recovered transitions — logs/JSON only)
 - ✅ Structured JSON logging (optional)
 - ✅ Token auto-refresh before expiry and on 401
 - ✅ Homebridge v1.6.0+ and v2.0+ support

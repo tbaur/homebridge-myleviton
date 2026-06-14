@@ -202,6 +202,19 @@ describe('validateConfig', () => {
     expect(() => validateConfig({ ...validConfig, connectionTimeout: 1000 })).toThrow(ConfigurationError)
     expect(() => validateConfig({ ...validConfig, connectionTimeout: 100000 })).toThrow(ConfigurationError)
   })
+
+  it('should accept diagnosticsInterval of 0 (off) or within 30-3600', () => {
+    expect(() => validateConfig({ ...validConfig, diagnosticsInterval: 0 })).not.toThrow()
+    expect(() => validateConfig({ ...validConfig, diagnosticsInterval: 30 })).not.toThrow()
+    expect(() => validateConfig({ ...validConfig, diagnosticsInterval: 3600 })).not.toThrow()
+  })
+
+  it('should reject invalid diagnosticsInterval', () => {
+    expect(() => validateConfig({ ...validConfig, diagnosticsInterval: 5 })).toThrow(ConfigurationError)
+    expect(() => validateConfig({ ...validConfig, diagnosticsInterval: 5000 })).toThrow(ConfigurationError)
+    expect(() => validateConfig({ ...validConfig, diagnosticsInterval: 'often' })).toThrow(ConfigurationError)
+    expect(() => validateConfig({ ...validConfig, diagnosticsInterval: NaN })).toThrow(ConfigurationError)
+  })
 })
 
 describe('assertDefined', () => {

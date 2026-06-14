@@ -128,9 +128,30 @@ class LevitonApiClient {
         return this.executeRequest(url, options, requestOptions);
     }
     /**
-     * Execute the actual request
+     * Execute the actual request, reporting a metrics sample around the full
+     * logical request (including breaker/rate-limit rejections, timeouts, and
+     * errors) when a `metrics` hook is configured.
      */
     async executeRequest(url, options, requestOptions) {
+        if (!this.config.metrics) {
+            return this.runRequest(url, options, requestOptions);
+        }
+        const startTime = Date.now();
+        let ok = false;
+        try {
+            const result = await this.runRequest(url, options, requestOptions);
+            ok = true;
+            return result;
+        }
+        finally {
+            this.config.metrics({ durationMs: Date.now() - startTime, ok });
+        }
+    }
+    /**
+     * Run a single logical request with circuit breaker, rate limiting, retry,
+     * and caching protections.
+     */
+    async runRequest(url, options, requestOptions) {
         const { useCache = false, cacheKey = url, bypassCircuitBreaker = false, debugLog = () => { }, } = requestOptions;
         const method = options.method || 'GET';
         // Check circuit breaker (gated once per logical request, never retried)

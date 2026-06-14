@@ -248,7 +248,17 @@ export function validateConfig(config: unknown): LevitonConfig {
       errors.push('connectionTimeout must be a number between 5000 and 60000')
     }
   }
-  
+
+  if (cfg.diagnosticsInterval !== undefined) {
+    const interval = cfg.diagnosticsInterval as number
+    // 0 disables diagnostics; any other value must be within the heartbeat range.
+    if (typeof interval !== 'number' || !Number.isFinite(interval)) {
+      errors.push('diagnosticsInterval must be a number')
+    } else if (interval !== 0 && (interval < 30 || interval > 3600)) {
+      errors.push('diagnosticsInterval must be 0 (off) or between 30 and 3600')
+    }
+  }
+
   if (errors.length > 0) {
     throw new ConfigurationError(
       `Configuration validation failed: ${errors.join('; ')}`,

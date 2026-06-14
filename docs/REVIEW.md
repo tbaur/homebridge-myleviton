@@ -1,6 +1,6 @@
 # Security, Reliability, Maintainability & Serviceability Review
 
-*Last reviewed: 2026-06-13*
+*Last reviewed: 2026-06-14*
 
 ---
 
@@ -80,6 +80,9 @@
 | **Error Timestamps** | ✅ Pass | All errors include `timestamp` field |
 | **Debug Scripts** | ✅ Pass | `scripts/test-websocket.js` for connectivity testing; `scripts/probe-events.mjs` for raw event capture |
 | **Connectivity Sensor** | ✅ Pass | Optional HomeKit contact sensor surfaces Leviton cloud reachability for alerting/automations |
+| **Diagnostics Heartbeat** | ✅ Pass | Opt-in (`diagnosticsInterval`) health/activity heartbeat with per-interval deltas, gauges, and p50/p95 API latency (logs/JSON only) |
+| **Health Rollup** | ✅ Pass | Degraded/recovered transitions logged from breaker, WebSocket liveness, API error rate, and token-refresh state |
+| **Lifecycle Snapshots** | ✅ Pass | Cumulative `diagnostics.start`/`diagnostics.stop` snapshots with redacted config echo |
 | **Child Bridge Support** | ✅ Pass | Isolates plugin in separate process |
 | **GitHub Actions** | ✅ Pass | Automated testing on the Node.js matrix defined in `.github/workflows/test.yml` |
 | **Coverage Reports** | ✅ Pass | Uploaded to GitHub artifacts |

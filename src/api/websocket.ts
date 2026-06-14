@@ -111,6 +111,9 @@ export class LevitonWebSocket {
   private callback: (payload: WebSocketPayload) => void
 
   private reconnectAttempt = 0
+  // Timestamp of the most recent inbound frame (any message or pong). Used as a
+  // liveness signal for diagnostics; null until the first frame arrives.
+  private lastInboundAt: number | null = null
   private timers: ReturnType<typeof setTimeout>[] = []
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private pingTimer: ReturnType<typeof setInterval> | null = null
@@ -285,7 +288,13 @@ export class LevitonWebSocket {
     })
 
     this.ws.on('message', (data: WebSocket.RawData) => {
+      this.lastInboundAt = Date.now()
       this.handleMessage(data.toString())
+    })
+
+    // Pongs are inbound liveness too, even when no device updates are flowing.
+    this.ws.on('pong', () => {
+      this.lastInboundAt = Date.now()
     })
   }
 
@@ -498,12 +507,19 @@ export class LevitonWebSocket {
     isConnecting: boolean
     isClosed: boolean
     reconnectAttempt: number
+    lastInboundAt: number | null
+    lastEventAgeSec: number | null
+    subscribed: number
   } {
     return {
       isConnected: this.isConnected,
       isConnecting: this.isConnecting,
       isClosed: this.isClosed,
       reconnectAttempt: this.reconnectAttempt,
+      lastInboundAt: this.lastInboundAt,
+      lastEventAgeSec:
+        this.lastInboundAt === null ? null : Math.round((Date.now() - this.lastInboundAt) / 1000),
+      subscribed: this.devices.length,
     }
   }
 }

@@ -33,6 +33,13 @@ export declare class LevitonDecoraSmartPlatform {
     private connectivityService;
     private isCloudOnline;
     private recentHomeKitCommands;
+    private readonly diagnostics;
+    private diagnosticsTimer;
+    private lastDiagnosticsHealth;
+    private lastBreakerState;
+    private lastTokenRefreshAt;
+    private lastExcludedCount;
+    private wsHasDisconnected;
     constructor(homebridgeLog: (msg: string) => void, config: LevitonConfig, api: HomebridgeAPI);
     /**
      * Validates plugin configuration using comprehensive schema validation
@@ -245,6 +252,52 @@ export declare class LevitonDecoraSmartPlatform {
      * Cleans up resources
      */
     private cleanup;
+    /**
+     * Records a rate-limit rejection on the diagnostics collector when a write
+     * was throttled client-side (HTTP 429 from the rate limiter).
+     */
+    private recordThrottleIfRateLimited;
+    /**
+     * Handles WebSocket connection-state changes: drives the connectivity sensor
+     * and counts reconnections (a recovery after a prior disconnect) for diagnostics.
+     */
+    private handleWsConnectionChange;
+    /**
+     * Diagnostics heartbeat interval in milliseconds (0 when disabled).
+     */
+    private diagnosticsIntervalMs;
+    /**
+     * Effective polling cadence in seconds (mirrors startPolling's clamping).
+     */
+    private pollingCadenceSeconds;
+    /**
+     * Starts the diagnostics subsystem: emits the boot snapshot and schedules the
+     * heartbeat. No-op unless diagnosticsInterval > 0.
+     */
+    private startDiagnostics;
+    /**
+     * Emits a single heartbeat (per-interval deltas) and logs health transitions.
+     */
+    private diagnosticsHeartbeat;
+    /**
+     * Builds the synchronous, in-memory readers the collector uses. Never performs
+     * network I/O.
+     */
+    private buildDiagnosticsReaders;
+    /**
+     * Computes absolute device gauges from the current accessories (the optional
+     * connectivity sensor and stateless controllers are excluded).
+     */
+    private collectDeviceGauges;
+    /**
+     * Returns the primary controllable service for an accessory, if any.
+     */
+    private getPrimaryService;
+    /**
+     * Emits a diagnostics report as a human-readable line plus structured JSON
+     * fields (when structuredLogs is enabled). The report is already redacted.
+     */
+    private emitDiagnostic;
     /**
      * Removes all accessories
      */

@@ -633,6 +633,63 @@ describe('LevitonWebSocket', () => {
       expect(status).toHaveProperty('isConnecting')
       expect(status).toHaveProperty('isClosed')
       expect(status).toHaveProperty('reconnectAttempt')
+      expect(status).toHaveProperty('lastInboundAt')
+      expect(status).toHaveProperty('lastEventAgeSec')
+      expect(status).toHaveProperty('subscribed')
+    })
+
+    it('reports null liveness before any inbound frame and the subscribed count', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+      )
+
+      const status = ws.getStatus()
+      expect(status.lastInboundAt).toBeNull()
+      expect(status.lastEventAgeSec).toBeNull()
+      expect(status.subscribed).toBe(devices.length)
+      ws.close()
+    })
+
+    it('updates lastInboundAt when a message arrives', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+      )
+
+      ws.connect()
+      const mock = getLastMockInstance()
+      mock.triggerOpen()
+      mock.triggerMessage({ type: 'status', status: 'ready' })
+
+      const status = ws.getStatus()
+      expect(typeof status.lastInboundAt).toBe('number')
+      expect(status.lastEventAgeSec).not.toBeNull()
+      expect(status.lastEventAgeSec).toBeGreaterThanOrEqual(0)
+      ws.close()
+    })
+
+    it('updates lastInboundAt when a pong arrives', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+      )
+
+      ws.connect()
+      const mock = getLastMockInstance()
+      mock.triggerOpen()
+      expect(ws.getStatus().lastInboundAt).toBeNull()
+
+      mock.emit('pong')
+
+      expect(typeof ws.getStatus().lastInboundAt).toBe('number')
+      ws.close()
     })
   })
 
