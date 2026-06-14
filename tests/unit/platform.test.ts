@@ -1085,6 +1085,35 @@ describe('LevitonDecoraSmartPlatform', () => {
       jest.useRealTimers()
     })
 
+    it('does not append JSON to diagnostics lines when structuredLogs is false', () => {
+      mockClient.getStatus.mockReturnValue(healthyStatus)
+
+      const platform = new LevitonDecoraSmartPlatform(
+        mockLog,
+        { ...validConfig, diagnosticsInterval: 60, structuredLogs: false },
+        mockAPI,
+      )
+      const internals = platform as unknown as {
+        residenceId: string | null
+        startDiagnostics: () => void
+        cleanup: () => void
+      }
+      internals.residenceId = 'residence-123'
+      internals.startDiagnostics()
+
+      const startLine = mockLog.mock.calls.find(
+        (call: unknown[]) =>
+          typeof call[0] === 'string' && (call[0] as string).includes('Diagnostics start'),
+      )?.[0] as string | undefined
+
+      expect(startLine).toBeDefined()
+      expect(startLine).toMatch(/^Diagnostics start:/)
+      expect(startLine).not.toContain('"msg"')
+      expect(startLine).not.toContain('"devices"')
+
+      internals.cleanup()
+    })
+
     it('emits a cumulative stop snapshot and clears the timer on cleanup', () => {
       mockClient.getStatus.mockReturnValue(healthyStatus)
 
@@ -1792,7 +1821,7 @@ describe('Latency logging', () => {
       await setHandler(true, callback)
       
       expect(mockLog).toHaveBeenCalledWith(
-        expect.stringMatching(/Test Light: ON \(Latency: \d+ms\)/),
+        expect.stringMatching(/^Test Light: ON \(Latency: \d+ms\)$/),
       )
     }
   })
@@ -1821,7 +1850,7 @@ describe('Latency logging', () => {
       await brightnessHandler(75, callback)
       
       expect(mockLog).toHaveBeenCalledWith(
-        expect.stringMatching(/Test Dimmer: 75% \(Latency: \d+ms\)/),
+        expect.stringMatching(/^Test Dimmer: 75% \(Latency: \d+ms\)$/),
       )
     }
   })

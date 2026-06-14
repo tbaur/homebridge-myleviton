@@ -1566,8 +1566,6 @@ class LevitonDecoraSmartPlatform {
      * fields (when structuredLogs is enabled). The report is already redacted.
      */
     emitDiagnostic(level, report) {
-        // Spread the typed report so the structured JSON mirrors DiagnosticsSnapshot
-        // exactly (notably keeping `reasons` an array for log-aggregation filters).
         const { lifecycle, ...groups } = report;
         const context = {
             ...groups,
