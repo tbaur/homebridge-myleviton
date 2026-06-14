@@ -5,6 +5,13 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.8](https://github.com/tbaur/homebridge-myleviton/compare/v3.7.7...v3.7.8) (2026-06-14)
+
+
+### Bug Fixes
+
+* retry init indefinitely and stop spurious WS disconnect flap ([#35](https://github.com/tbaur/homebridge-myleviton/issues/35)) ([f666d7c](https://github.com/tbaur/homebridge-myleviton/commit/f666d7c9276c11121a16ec6a09bfc0125eb2eaf1))
+
 ## [3.7.7](https://github.com/tbaur/homebridge-myleviton/compare/v3.7.6...v3.7.7) (2026-06-14)
 
 
