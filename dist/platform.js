@@ -53,11 +53,14 @@ const sanitizers_1 = require("./utils/sanitizers");
 const validators_1 = require("./utils/validators");
 const errors_1 = require("./errors");
 /**
- * Resolve the installed plugin version for diagnostics lifecycle reporting.
- * Read lazily via require so it works from both dist/ and ts-jest without
- * pulling package.json outside the TypeScript rootDir.
+ * Installed plugin version, used for diagnostics lifecycle reporting.
+ *
+ * Resolved once via `require` rather than a static `import`: `package.json`
+ * lives outside the TypeScript `rootDir` (`src/`), so importing it would alter
+ * the emitted `dist/` layout. The require resolves correctly from both the
+ * compiled `dist/` output and ts-jest.
  */
-function getPluginVersion() {
+function readPluginVersion() {
     try {
         return require('../package.json').version || 'unknown';
     }
@@ -65,6 +68,7 @@ function getPluginVersion() {
         return 'unknown';
     }
 }
+const PLUGIN_VERSION = readPluginVersion();
 // Plugin constants
 const PLUGIN_NAME = 'homebridge-myleviton';
 const PLATFORM_NAME = 'MyLevitonDecoraSmart';
@@ -128,7 +132,6 @@ class LevitonDecoraSmartPlatform {
     diagnostics;
     diagnosticsTimer = null;
     lastDiagnosticsHealth = null;
-    lastBreakerState = null;
     lastTokenRefreshAt = null;
     lastExcludedCount = 0;
     wsHasDisconnected = false;
@@ -144,7 +147,7 @@ class LevitonDecoraSmartPlatform {
         // hook can feed it. Counters always accumulate (cheap, in-memory); reports
         // are only emitted when diagnosticsInterval > 0.
         this.diagnostics = new collector_1.DiagnosticsCollector({
-            pluginVersion: getPluginVersion(),
+            pluginVersion: PLUGIN_VERSION,
             config: config ?? {},
         });
         // Setup API client. Each platform instance owns its own client (and thus its
@@ -157,7 +160,8 @@ class LevitonDecoraSmartPlatform {
                 info: (msg) => this.log.info(msg),
                 warn: (msg) => this.log.warn(msg),
             },
-            metrics: sample => this.diagnostics.apiRequest(sample.durationMs, sample.ok),
+            metrics: sample => this.diagnostics.apiRequest(sample.durationMs, sample.ok, sample.networked),
+            onCircuitOpen: () => this.diagnostics.breakerTrip(),
         });
         // Setup device persistence
         const storagePath = api?.user?.storagePath?.()
@@ -1335,38 +1339,43 @@ class LevitonDecoraSmartPlatform {
      */
     startDiagnostics() {
         const interval = this.diagnosticsIntervalMs();
-        if (interval <= 0 || this.isShuttingDown) {
+        if (interval <= 0 || this.isShuttingDown || this.diagnosticsTimer) {
             return;
         }
-        const readers = this.buildDiagnosticsReaders();
-        this.lastBreakerState = readers.clientStatus().circuitBreaker.state;
-        const startReport = this.diagnostics.snapshot('diagnostics.start', readers);
-        this.lastDiagnosticsHealth = startReport.lifecycle.health;
-        this.emitDiagnostic('info', startReport);
+        // Diagnostics must never be able to crash the host. A failure here only
+        // means we skip the boot snapshot; the heartbeat is still scheduled.
+        try {
+            const startReport = this.diagnostics.snapshot('diagnostics.start', this.buildDiagnosticsReaders());
+            this.lastDiagnosticsHealth = startReport.lifecycle.health;
+            this.emitDiagnostic('info', startReport);
+        }
+        catch (err) {
+            this.log.debug(`Failed to emit diagnostics start snapshot: ${(0, sanitizers_1.sanitizeError)(err)}`);
+        }
         this.diagnosticsTimer = setInterval(() => this.diagnosticsHeartbeat(), interval);
     }
     /**
      * Emits a single heartbeat (per-interval deltas) and logs health transitions.
+     * Wrapped so a reader failure can never escape the timer and crash Homebridge.
      */
     diagnosticsHeartbeat() {
-        // Detect circuit-breaker trips at heartbeat granularity (edge into OPEN).
-        const breakerState = this.client.getStatus().circuitBreaker.state;
-        if (breakerState === 'OPEN' && this.lastBreakerState !== 'OPEN') {
-            this.diagnostics.breakerTrip();
+        try {
+            const report = this.diagnostics.buildHeartbeat(this.buildDiagnosticsReaders());
+            this.emitDiagnostic('info', report);
+            const health = report.lifecycle.health;
+            if (this.lastDiagnosticsHealth !== null && health !== this.lastDiagnosticsHealth) {
+                const isDegraded = health === 'degraded';
+                const transition = {
+                    ...report,
+                    msg: isDegraded ? 'health.degraded' : 'health.recovered',
+                };
+                this.emitDiagnostic(isDegraded ? 'warn' : 'info', transition);
+            }
+            this.lastDiagnosticsHealth = health;
         }
-        this.lastBreakerState = breakerState;
-        const report = this.diagnostics.buildHeartbeat(this.buildDiagnosticsReaders());
-        this.emitDiagnostic('info', report);
-        const health = report.lifecycle.health;
-        if (this.lastDiagnosticsHealth !== null && health !== this.lastDiagnosticsHealth) {
-            const isDegraded = health === 'degraded';
-            const transition = {
-                ...report,
-                msg: isDegraded ? 'health.degraded' : 'health.recovered',
-            };
-            this.emitDiagnostic(isDegraded ? 'warn' : 'info', transition);
+        catch (err) {
+            this.log.debug(`Diagnostics heartbeat failed: ${(0, sanitizers_1.sanitizeError)(err)}`);
         }
-        this.lastDiagnosticsHealth = health;
     }
     /**
      * Builds the synchronous, in-memory readers the collector uses. Never performs
@@ -1430,25 +1439,13 @@ class LevitonDecoraSmartPlatform {
      * fields (when structuredLogs is enabled). The report is already redacted.
      */
     emitDiagnostic(level, report) {
+        // Spread the typed report so the structured JSON mirrors DiagnosticsSnapshot
+        // exactly (notably keeping `reasons` an array for log-aggregation filters).
+        const { lifecycle, ...groups } = report;
         const context = {
-            msg: report.msg,
-            health: report.lifecycle.health,
-            reasons: report.lifecycle.reasons.join(', '),
-            uptimeSec: report.lifecycle.uptimeSec,
-            pluginVersion: report.lifecycle.pluginVersion,
-            devices: report.devices,
-            websocket: report.websocket,
-            circuitBreaker: report.circuitBreaker,
-            rateLimiter: report.rateLimiter,
-            cache: report.cache,
-            polling: report.polling,
-            token: report.token,
-            api: report.api,
-            activity: report.activity,
+            ...groups,
+            ...lifecycle,
         };
-        if (report.config) {
-            context.config = report.config;
-        }
         this.log[level](formatDiagnosticLine(report), context);
     }
     /**

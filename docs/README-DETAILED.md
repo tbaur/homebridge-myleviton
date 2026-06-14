@@ -267,8 +267,9 @@ active cause is listed in `reasons`:
 | `api` | `p50Ms`, `p95Ms` (gauges over a bounded recent-latency window); `requests`, `errors` (deltas) | mixed |
 | `activity` | `commandsSent`, `externalChanges`, `retries` | deltas |
 
-> `reasons` is rendered as a comma-separated string in the log object (empty when
-> healthy); it is an array of cause codes on the underlying `DiagnosticsSnapshot`.
+> `reasons` is an array of cause codes (empty when healthy) in both the structured
+> JSON and the `DiagnosticsSnapshot` type. The human-readable line shows the same
+> causes in brackets, e.g. `health.degraded [circuitBreakerOpen]`.
 
 #### Example heartbeat (structured)
 
@@ -279,7 +280,7 @@ active cause is listed in `reasons`:
   "message": "health: healthy | devices 1/3 on | ws connected | api p50 82ms p95 240ms (req 12, err 0)",
   "msg": "health",
   "health": "healthy",
-  "reasons": "",
+  "reasons": [],
   "uptimeSec": 3600,
   "pluginVersion": "3.7.0",
   "devices": { "total": 3, "on": 1, "byType": { "dimmer": 2, "switch": 1 }, "excluded": 0 },

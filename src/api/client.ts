@@ -52,6 +52,12 @@ export interface RequestMetric {
   durationMs: number
   /** Whether the request ultimately succeeded. */
   ok: boolean
+  /**
+   * Whether a network fetch was actually attempted. False for pre-flight
+   * rejections (circuit breaker open, rate-limit exceeded), which return in
+   * ~0ms and would otherwise skew latency percentiles.
+   */
+  networked: boolean
 }
 
 /**
@@ -76,6 +82,11 @@ export interface ApiClientConfig {
    * rejections. Cache hits are not reported (no request is made).
    */
   metrics?: (sample: RequestMetric) => void
+  /**
+   * Optional hook fired whenever the circuit breaker transitions into the open
+   * state, so observers can count trips at the moment they happen.
+   */
+  onCircuitOpen?: () => void
 }
 
 /**
@@ -166,6 +177,7 @@ export class LevitonApiClient {
     const message = `Circuit breaker ${from} -> ${to}`
     if (to === CircuitState.OPEN) {
       this.config.logger?.warn?.(message)
+      this.config.onCircuitOpen?.()
     } else {
       this.config.logger?.info?.(message)
     }
@@ -229,23 +241,28 @@ export class LevitonApiClient {
 
     const startTime = Date.now()
     let ok = false
+    let networked = false
     try {
-      const result = await this.runRequest<T>(url, options, requestOptions)
+      const result = await this.runRequest<T>(url, options, requestOptions, () => {
+        networked = true
+      })
       ok = true
       return result
     } finally {
-      this.config.metrics({ durationMs: Date.now() - startTime, ok })
+      this.config.metrics({ durationMs: Date.now() - startTime, ok, networked })
     }
   }
 
   /**
    * Run a single logical request with circuit breaker, rate limiting, retry,
-   * and caching protections.
+   * and caching protections. `markNetworked` is invoked once the request clears
+   * the pre-flight gates and is about to hit the network.
    */
   private async runRequest<T>(
     url: string,
     options: RequestInit,
     requestOptions: ApiRequestOptions,
+    markNetworked: () => void = () => {},
   ): Promise<T> {
     const {
       useCache = false,
@@ -277,6 +294,9 @@ export class LevitonApiClient {
     if (!bypassCircuitBreaker && this.circuitBreaker.state === CircuitState.HALF_OPEN) {
       this.circuitBreaker.trackHalfOpenRequest()
     }
+
+    // Pre-flight gates cleared; a network fetch is about to be attempted.
+    markNetworked()
 
     try {
       // Retry only transient failures (network, timeout, 5xx). Auth (401/403)

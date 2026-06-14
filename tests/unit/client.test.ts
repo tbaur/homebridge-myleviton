@@ -457,6 +457,51 @@ describe('LevitonApiClient', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1)
       expect(metrics).toHaveBeenCalledTimes(1)
     })
+
+    it('reports networked=true when a fetch is attempted', async () => {
+      const metrics = jest.fn()
+      const metricsClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 1, metrics })
+      mockJsonResponse([{ id: 'd1' }])
+
+      await metricsClient.getDevices('res1', 'token123')
+
+      expect(metrics.mock.calls[0][0].networked).toBe(true)
+    })
+
+    it('reports networked=false for a pre-flight circuit-breaker rejection', async () => {
+      const metrics = jest.fn()
+      const metricsClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 1, metrics })
+
+      // Five 5xx failures (failureThreshold) open the breaker.
+      for (let i = 0; i < 5; i++) {
+        mockErrorResponse(500, 'Server Error')
+        await expect(metricsClient.getDevices('res1', 'token123')).rejects.toThrow(ApiResponseError)
+      }
+
+      metrics.mockClear()
+      // The next request is rejected before any fetch is attempted.
+      await expect(metricsClient.getDevices('res1', 'token123')).rejects.toThrow(ApiResponseError)
+
+      expect(mockFetch).toHaveBeenCalledTimes(5)
+      expect(metrics).toHaveBeenCalledTimes(1)
+      const sample = metrics.mock.calls[0][0]
+      expect(sample.ok).toBe(false)
+      expect(sample.networked).toBe(false)
+    })
+  })
+
+  describe('onCircuitOpen hook', () => {
+    it('fires once when the breaker transitions into the open state', async () => {
+      const onCircuitOpen = jest.fn()
+      const breakerClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 1, onCircuitOpen })
+
+      for (let i = 0; i < 5; i++) {
+        mockErrorResponse(500, 'Server Error')
+        await expect(breakerClient.getDevices('res1', 'token123')).rejects.toThrow(ApiResponseError)
+      }
+
+      expect(onCircuitOpen).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('cache management', () => {

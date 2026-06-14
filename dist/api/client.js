@@ -100,6 +100,7 @@ class LevitonApiClient {
         const message = `Circuit breaker ${from} -> ${to}`;
         if (to === circuit_breaker_1.CircuitState.OPEN) {
             this.config.logger?.warn?.(message);
+            this.config.onCircuitOpen?.();
         }
         else {
             this.config.logger?.info?.(message);
@@ -138,20 +139,24 @@ class LevitonApiClient {
         }
         const startTime = Date.now();
         let ok = false;
+        let networked = false;
         try {
-            const result = await this.runRequest(url, options, requestOptions);
+            const result = await this.runRequest(url, options, requestOptions, () => {
+                networked = true;
+            });
             ok = true;
             return result;
         }
         finally {
-            this.config.metrics({ durationMs: Date.now() - startTime, ok });
+            this.config.metrics({ durationMs: Date.now() - startTime, ok, networked });
         }
     }
     /**
      * Run a single logical request with circuit breaker, rate limiting, retry,
-     * and caching protections.
+     * and caching protections. `markNetworked` is invoked once the request clears
+     * the pre-flight gates and is about to hit the network.
      */
-    async runRequest(url, options, requestOptions) {
+    async runRequest(url, options, requestOptions, markNetworked = () => { }) {
         const { useCache = false, cacheKey = url, bypassCircuitBreaker = false, debugLog = () => { }, } = requestOptions;
         const method = options.method || 'GET';
         // Check circuit breaker (gated once per logical request, never retried)
@@ -170,6 +175,8 @@ class LevitonApiClient {
         if (!bypassCircuitBreaker && this.circuitBreaker.state === circuit_breaker_1.CircuitState.HALF_OPEN) {
             this.circuitBreaker.trackHalfOpenRequest();
         }
+        // Pre-flight gates cleared; a network fetch is about to be attempted.
+        markNetworked();
         try {
             // Retry only transient failures (network, timeout, 5xx). Auth (401/403)
             // and rate-limit (429) errors are surfaced immediately so the platform's

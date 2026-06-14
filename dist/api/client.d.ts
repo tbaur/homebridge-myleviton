@@ -27,6 +27,12 @@ export interface RequestMetric {
     durationMs: number;
     /** Whether the request ultimately succeeded. */
     ok: boolean;
+    /**
+     * Whether a network fetch was actually attempted. False for pre-flight
+     * rejections (circuit breaker open, rate-limit exceeded), which return in
+     * ~0ms and would otherwise skew latency percentiles.
+     */
+    networked: boolean;
 }
 /**
  * API configuration
@@ -50,6 +56,11 @@ export interface ApiClientConfig {
      * rejections. Cache hits are not reported (no request is made).
      */
     metrics?: (sample: RequestMetric) => void;
+    /**
+     * Optional hook fired whenever the circuit breaker transitions into the open
+     * state, so observers can count trips at the moment they happen.
+     */
+    onCircuitOpen?: () => void;
 }
 /**
  * Default API configuration
@@ -82,7 +93,8 @@ export declare class LevitonApiClient {
     private executeRequest;
     /**
      * Run a single logical request with circuit breaker, rate limiting, retry,
-     * and caching protections.
+     * and caching protections. `markNetworked` is invoked once the request clears
+     * the pre-flight gates and is about to hit the network.
      */
     private runRequest;
     /**

@@ -36,7 +36,6 @@ export declare class LevitonDecoraSmartPlatform {
     private readonly diagnostics;
     private diagnosticsTimer;
     private lastDiagnosticsHealth;
-    private lastBreakerState;
     private lastTokenRefreshAt;
     private lastExcludedCount;
     private wsHasDisconnected;
@@ -277,6 +276,7 @@ export declare class LevitonDecoraSmartPlatform {
     private startDiagnostics;
     /**
      * Emits a single heartbeat (per-interval deltas) and logs health transitions.
+     * Wrapped so a reader failure can never escape the timer and crash Homebridge.
      */
     private diagnosticsHeartbeat;
     /**

@@ -156,6 +156,17 @@ describe('DiagnosticsCollector', () => {
       }
       expect(collector.percentile(0)).toBe(500)
     })
+
+    it('excludes non-networked rejections from the latency window', () => {
+      const collector = new DiagnosticsCollector({ pluginVersion: '1.0.0', config: baseConfig() })
+      collector.apiRequest(100, true, true)
+      collector.apiRequest(200, true, true)
+      // Instant pre-flight rejection (~0ms): counted as a request/error but must
+      // not drag the latency percentiles toward zero.
+      collector.apiRequest(0, false, false)
+      expect(collector.percentile(0)).toBe(100)
+      expect(collector.percentile(100)).toBe(200)
+    })
   })
 
   describe('cache hit rate over the interval', () => {

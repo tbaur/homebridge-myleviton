@@ -26,7 +26,8 @@ export declare function isValidHapName(name: string): boolean;
  */
 export declare function sanitizeHapName(name: string, fallback?: string): string;
 /**
- * Sanitize an object by redacting sensitive fields
+ * Sanitize an object by redacting sensitive fields. Nested objects and arrays
+ * are handled recursively; arrays keep their array shape.
  */
 export declare function sanitizeObject<T extends Record<string, unknown>>(obj: T): T;
 /**
