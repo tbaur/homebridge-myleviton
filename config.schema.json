@@ -109,11 +109,8 @@
         "default": 0,
         "minimum": 0,
         "maximum": 3600,
-        "oneOf": [
-          { "title": "Disabled", "const": 0 },
-          { "minimum": 30, "maximum": 3600 }
-        ],
-        "description": "Seconds between diagnostics health heartbeats logged to Homebridge (logs/JSON only — not exposed in HomeKit). 0 disables diagnostics; otherwise use 30–3600 (values 1–29 are rejected). Pairs well with Structured Logging."
+        "placeholder": 0,
+        "description": "Seconds between diagnostics health heartbeats logged to Homebridge (logs/JSON only — not exposed in HomeKit). Set to 0 to disable, or 30–3600 to enable. Pairs well with Structured Logging."
       }
     }
   },
