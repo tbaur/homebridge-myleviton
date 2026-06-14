@@ -269,7 +269,7 @@ active cause is listed in `reasons`:
 
 > `reasons` is an array of cause codes (empty when healthy) in both the structured
 > JSON and the `DiagnosticsSnapshot` type. The human-readable line shows the same
-> causes in brackets, e.g. `health.degraded [circuitBreakerOpen]`.
+> causes in brackets, e.g. `Health degraded: degraded [circuitBreakerOpen]`.
 
 #### Example heartbeat (structured)
 
@@ -277,7 +277,7 @@ active cause is listed in `reasons`:
 {
   "timestamp": "2026-06-14T12:00:00.000Z",
   "level": "info",
-  "message": "health: healthy | devices 1/3 on | ws connected | api p50 82ms p95 240ms (req 12, err 0)",
+  "message": "Health: healthy | devices 1/3 on | ws connected | api p50 82ms p95 240ms (req 12, err 0)",
   "msg": "health",
   "health": "healthy",
   "reasons": [],
