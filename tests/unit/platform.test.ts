@@ -921,7 +921,7 @@ describe('LevitonDecoraSmartPlatform', () => {
 
     const healthLines = () =>
       mockLog.mock.calls.filter(
-        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).startsWith('health:'),
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).startsWith('Health:'),
       )
 
     it('emits no diagnostics output when diagnosticsInterval is 0 (default)', async () => {
@@ -935,7 +935,7 @@ describe('LevitonDecoraSmartPlatform', () => {
 
       expect(
         mockLog.mock.calls.some(
-          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('diagnostics.start'),
+          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('Diagnostics start'),
         ),
       ).toBe(false)
       expect(healthLines().length).toBe(0)
@@ -960,7 +960,7 @@ describe('LevitonDecoraSmartPlatform', () => {
 
       expect(
         mockLog.mock.calls.some(
-          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('diagnostics.start'),
+          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('Diagnostics start'),
         ),
       ).toBe(true)
 
@@ -997,7 +997,7 @@ describe('LevitonDecoraSmartPlatform', () => {
 
       expect(
         mockLog.mock.calls.some(
-          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('diagnostics.stop'),
+          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('Diagnostics stop'),
         ),
       ).toBe(true)
       expect(internals.diagnosticsTimer).toBeNull()
@@ -1027,7 +1027,7 @@ describe('LevitonDecoraSmartPlatform', () => {
 
       expect(
         mockLog.mock.calls.some(
-          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('health.degraded'),
+          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('Health degraded'),
         ),
       ).toBe(true)
 
