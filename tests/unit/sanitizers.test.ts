@@ -170,6 +170,30 @@ describe('sanitizeObject', () => {
     
     expect(result.message).not.toContain('secret')
   })
+
+  it('should preserve arrays as arrays', () => {
+    const obj = { reasons: ['circuitBreakerOpen', 'webSocketDown'] }
+    const result = sanitizeObject(obj)
+
+    expect(Array.isArray(result.reasons)).toBe(true)
+    expect(result.reasons).toEqual(['circuitBreakerOpen', 'webSocketDown'])
+  })
+
+  it('should sanitize array elements and nested objects within arrays', () => {
+    const obj = {
+      items: [
+        { name: 'ok', password: 'hunter2' },
+        'password=secret',
+      ],
+    }
+    const result = sanitizeObject(obj)
+    const items = result.items as Array<Record<string, unknown> | string>
+
+    expect(Array.isArray(items)).toBe(true)
+    expect((items[0] as Record<string, unknown>).password).toBe('***')
+    expect((items[0] as Record<string, unknown>).name).toBe('ok')
+    expect(items[1]).not.toContain('secret')
+  })
 })
 
 describe('truncate', () => {

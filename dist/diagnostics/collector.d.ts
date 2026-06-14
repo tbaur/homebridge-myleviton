@@ -99,9 +99,12 @@ export declare class DiagnosticsCollector {
     constructor(options: CollectorOptions);
     /**
      * Record a single API request outcome and its wall-clock duration. Fires for
-     * every request, including timeouts and errors (ok === false).
+     * every request, including timeouts and errors (ok === false). Latency is only
+     * sampled when a network fetch was actually attempted (`networked`), so
+     * instant pre-flight rejections (breaker open, rate limited) don't skew
+     * percentiles.
      */
-    apiRequest(latencyMs: number, ok: boolean): void;
+    apiRequest(latencyMs: number, ok: boolean, networked?: boolean): void;
     /**
      * Record the result of a polling cycle: how many device fetches succeeded,
      * how many failed, and the total cycle duration.

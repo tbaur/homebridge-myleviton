@@ -1071,9 +1071,71 @@ describe('LevitonDecoraSmartPlatform', () => {
 
       const snap = internals.diagnostics.snapshot('test', internals.buildDiagnosticsReaders())
       expect(snap.activity.commandsSent).toBe(1)
-      expect(snap.activity.externalChanges).toBeGreaterThanOrEqual(1)
+      expect(snap.activity.externalChanges).toBe(1)
 
       internals.cleanup()
+    })
+
+    it('keeps reasons as an array in structured log output', () => {
+      mockClient.getStatus.mockReturnValue(openStatus)
+
+      const platform = new LevitonDecoraSmartPlatform(
+        mockLog,
+        { ...validConfig, diagnosticsInterval: 60, structuredLogs: true },
+        mockAPI,
+      )
+      const internals = platform as unknown as {
+        residenceId: string | null
+        startDiagnostics: () => void
+        cleanup: () => void
+      }
+      internals.residenceId = 'residence-123'
+      internals.startDiagnostics()
+
+      const startEntry = mockLog.mock.calls
+        .map((call: unknown[]) => call[0])
+        .filter((arg: unknown): arg is string => typeof arg === 'string')
+        .map((str: string) => {
+          try {
+            return JSON.parse(str) as Record<string, unknown>
+          } catch {
+            return null
+          }
+        })
+        .find((obj: Record<string, unknown> | null) => obj?.msg === 'diagnostics.start')
+
+      expect(startEntry).toBeTruthy()
+      expect(Array.isArray(startEntry!.reasons)).toBe(true)
+      expect(startEntry!.reasons).toContain('circuitBreakerOpen')
+
+      internals.cleanup()
+    })
+
+    it('does not throw when a diagnostics reader fails during a heartbeat', () => {
+      jest.useFakeTimers()
+      mockClient.getStatus.mockReturnValue(healthyStatus)
+
+      const platform = new LevitonDecoraSmartPlatform(
+        mockLog,
+        { ...validConfig, diagnosticsInterval: 60 },
+        mockAPI,
+      )
+      const internals = platform as unknown as {
+        residenceId: string | null
+        startDiagnostics: () => void
+        cleanup: () => void
+      }
+      internals.residenceId = 'residence-123'
+      internals.startDiagnostics()
+
+      // A reader throwing mid-heartbeat must never escape the timer callback.
+      mockClient.getStatus.mockImplementation(() => {
+        throw new Error('status unavailable')
+      })
+      expect(() => jest.advanceTimersByTime(60000)).not.toThrow()
+
+      internals.cleanup()
+      jest.useRealTimers()
     })
   })
 })

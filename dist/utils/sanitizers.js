@@ -94,38 +94,45 @@ function sanitizeHapName(name, fallback = 'Leviton Device') {
     const trimmed = truncated.replace(HAP_NAME_TRIM_BOUNDARY, '');
     return trimmed || fallback;
 }
+const SENSITIVE_KEYS = new Set([
+    'password',
+    'token',
+    'authorization',
+    'secret',
+    'apikey',
+    'api_key',
+    'accesstoken',
+    'access_token',
+    'refreshtoken',
+    'refresh_token',
+]);
 /**
- * Sanitize an object by redacting sensitive fields
+ * Recursively sanitize an arbitrary value, preserving arrays as arrays (so
+ * structured log consumers can still treat them as lists) and redacting
+ * sensitive object keys.
+ */
+function sanitizeValue(value) {
+    if (Array.isArray(value)) {
+        return value.map(sanitizeValue);
+    }
+    if (typeof value === 'object' && value !== null) {
+        const result = {};
+        for (const [key, val] of Object.entries(value)) {
+            result[key] = SENSITIVE_KEYS.has(key.toLowerCase()) ? '***' : sanitizeValue(val);
+        }
+        return result;
+    }
+    if (typeof value === 'string') {
+        return sanitizeString(value);
+    }
+    return value;
+}
+/**
+ * Sanitize an object by redacting sensitive fields. Nested objects and arrays
+ * are handled recursively; arrays keep their array shape.
  */
 function sanitizeObject(obj) {
-    const sensitiveKeys = new Set([
-        'password',
-        'token',
-        'authorization',
-        'secret',
-        'apiKey',
-        'api_key',
-        'accessToken',
-        'access_token',
-        'refreshToken',
-        'refresh_token',
-    ]);
-    const result = {};
-    for (const [key, value] of Object.entries(obj)) {
-        if (sensitiveKeys.has(key.toLowerCase())) {
-            result[key] = '***';
-        }
-        else if (typeof value === 'object' && value !== null) {
-            result[key] = sanitizeObject(value);
-        }
-        else if (typeof value === 'string') {
-            result[key] = sanitizeString(value);
-        }
-        else {
-            result[key] = value;
-        }
-    }
-    return result;
+    return sanitizeValue(obj);
 }
 /**
  * Truncate a string to a maximum length

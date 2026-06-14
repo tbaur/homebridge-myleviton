@@ -146,15 +146,18 @@ export class DiagnosticsCollector {
 
   /**
    * Record a single API request outcome and its wall-clock duration. Fires for
-   * every request, including timeouts and errors (ok === false).
+   * every request, including timeouts and errors (ok === false). Latency is only
+   * sampled when a network fetch was actually attempted (`networked`), so
+   * instant pre-flight rejections (breaker open, rate limited) don't skew
+   * percentiles.
    */
-  apiRequest(latencyMs: number, ok: boolean): void {
+  apiRequest(latencyMs: number, ok: boolean, networked = true): void {
     this.apiRequests++
     if (!ok) {
       this.apiErrors++
     }
 
-    if (Number.isFinite(latencyMs) && latencyMs >= 0) {
+    if (networked && Number.isFinite(latencyMs) && latencyMs >= 0) {
       this.latencies.push(latencyMs)
       if (this.latencies.length > LATENCY_WINDOW) {
         this.latencies.shift()

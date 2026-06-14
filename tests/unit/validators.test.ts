@@ -211,6 +211,8 @@ describe('validateConfig', () => {
 
   it('should reject invalid diagnosticsInterval', () => {
     expect(() => validateConfig({ ...validConfig, diagnosticsInterval: 5 })).toThrow(ConfigurationError)
+    expect(() => validateConfig({ ...validConfig, diagnosticsInterval: 15 })).toThrow(ConfigurationError)
+    expect(() => validateConfig({ ...validConfig, diagnosticsInterval: 29 })).toThrow(ConfigurationError)
     expect(() => validateConfig({ ...validConfig, diagnosticsInterval: 5000 })).toThrow(ConfigurationError)
     expect(() => validateConfig({ ...validConfig, diagnosticsInterval: 'often' })).toThrow(ConfigurationError)
     expect(() => validateConfig({ ...validConfig, diagnosticsInterval: NaN })).toThrow(ConfigurationError)
