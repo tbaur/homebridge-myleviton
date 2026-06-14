@@ -308,6 +308,7 @@ export class LevitonDecoraSmartPlatform {
         this.log.error('No devices found in your My Leviton account')
         this.discoveryComplete = true
         this.startDiagnostics()
+        this.startPolling()
         return
       }
 
@@ -412,7 +413,14 @@ export class LevitonDecoraSmartPlatform {
         continue
       }
 
-      const account = await this.client.getResidentialAccount(accountId, token, debugLog)
+      let account
+      try {
+        account = await this.client.getResidentialAccount(accountId, token, debugLog)
+      } catch (err) {
+        this.log.warn(`Failed to load residential account ${accountId}: ${sanitizeError(err)}`)
+        continue
+      }
+
       if (!account.id) {
         this.log.debug(`Skipping residential account ${accountId}: missing account id`)
         continue
@@ -1467,6 +1475,7 @@ export class LevitonDecoraSmartPlatform {
     }
 
     if (pollTargets.length === 0) {
+      await this.pollRestReachabilityHeartbeat()
       return
     }
 
@@ -1506,6 +1515,27 @@ export class LevitonDecoraSmartPlatform {
       Date.now() - this.lastRestReachabilityAt <= pollWindowMs
 
     this.updateConnectivity(this.wsPushConnected || restFresh)
+  }
+
+  /**
+   * Proves REST reachability when there are no device poll targets (e.g. all
+   * excluded, zero devices, connectivity-only). Keeps the optional connectivity
+   * sensor accurate when WebSocket is down.
+   */
+  private async pollRestReachabilityHeartbeat(): Promise<void> {
+    try {
+      const token = await this.ensureValidToken()
+      const personId = this.currentLoginResponse?.userId
+      if (!personId) {
+        this.recomputeCloudConnectivity(false)
+        return
+      }
+      await this.client.getResidentialPermissions(personId, token)
+      this.recomputeCloudConnectivity(true)
+    } catch (err) {
+      this.log.debug(`REST connectivity heartbeat failed: ${sanitizeError(err)}`)
+      this.recomputeCloudConnectivity(false)
+    }
   }
 
   /**

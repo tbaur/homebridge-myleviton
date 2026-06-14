@@ -954,6 +954,52 @@ describe('LevitonDecoraSmartPlatform', () => {
 
       expect(contactService.getCharacteristic().updateValue).toHaveBeenLastCalledWith(0)
     })
+
+    it('refreshes REST connectivity via permissions when there are no poll targets', async () => {
+      mockClient.getDevices.mockResolvedValue([])
+      mockClient.getResidentialPermissions.mockClear()
+
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      const internals = platform as unknown as {
+        pollDevices: () => Promise<void>
+        currentLoginResponse: { id: string; userId: string; ttl: number } | null
+        residenceId: string | null
+        accessories: unknown[]
+      }
+      internals.currentLoginResponse = { id: 'token-123', userId: 'user-123', ttl: 3600 }
+      internals.residenceId = 'residence-123'
+      internals.accessories = []
+
+      mockClient.getResidentialPermissions.mockClear()
+      await internals.pollDevices()
+
+      expect(mockClient.getResidentialPermissions).toHaveBeenCalledWith('user-123', 'token-123')
+    })
+  })
+
+  describe('multi-account discovery', () => {
+    it('continues discovery when one residential account fetch fails', async () => {
+      mockClient.getResidentialPermissions.mockResolvedValue([
+        { residentialAccountId: 'account-fail' },
+        { residentialAccountId: 'account-ok' },
+      ])
+      mockClient.getResidentialAccount
+        .mockRejectedValueOnce(new Error('account unavailable'))
+        .mockResolvedValueOnce({ id: 'res-obj-ok', primaryResidenceId: 'residence-ok' })
+      mockClient.getDevices.mockResolvedValue([
+        { id: 'dev-2', name: 'Kitchen Light', model: 'DW6HD', serial: 'DEF456' },
+      ])
+
+      new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 150))
+
+      expect(mockClient.getResidentialAccount).toHaveBeenCalledTimes(2)
+      expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('Platform ready'))
+    })
   })
 
   describe('shutdown', () => {

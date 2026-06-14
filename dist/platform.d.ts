@@ -253,6 +253,12 @@ export declare class LevitonDecoraSmartPlatform {
      */
     private recomputeCloudConnectivity;
     /**
+     * Proves REST reachability when there are no device poll targets (e.g. all
+     * excluded, zero devices, connectivity-only). Keeps the optional connectivity
+     * sensor accurate when WebSocket is down.
+     */
+    private pollRestReachabilityHeartbeat;
+    /**
      * Prunes stale HomeKit command timestamps to prevent unbounded map growth.
      */
     private pruneRecentHomeKitCommands;

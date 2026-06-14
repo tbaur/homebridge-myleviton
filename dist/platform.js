@@ -277,6 +277,7 @@ class LevitonDecoraSmartPlatform {
                 this.log.error('No devices found in your My Leviton account');
                 this.discoveryComplete = true;
                 this.startDiagnostics();
+                this.startPolling();
                 return;
             }
             // Get exclusion lists
@@ -358,7 +359,14 @@ class LevitonDecoraSmartPlatform {
             if (!accountId) {
                 continue;
             }
-            const account = await this.client.getResidentialAccount(accountId, token, debugLog);
+            let account;
+            try {
+                account = await this.client.getResidentialAccount(accountId, token, debugLog);
+            }
+            catch (err) {
+                this.log.warn(`Failed to load residential account ${accountId}: ${(0, sanitizers_1.sanitizeError)(err)}`);
+                continue;
+            }
             if (!account.id) {
                 this.log.debug(`Skipping residential account ${accountId}: missing account id`);
                 continue;
@@ -1212,6 +1220,9 @@ class LevitonDecoraSmartPlatform {
      * Starts polling for device updates
      */
     startPolling() {
+        if (this.pollingInterval) {
+            return;
+        }
         if (this.config.pollInterval === undefined && this.config.pollingInterval !== undefined) {
             this.log.warn("Config option 'pollingInterval' is deprecated; use 'pollInterval' instead.");
         }
@@ -1283,6 +1294,7 @@ class LevitonDecoraSmartPlatform {
             }
         };
         if (pollTargets.length === 0) {
+            await this.pollRestReachabilityHeartbeat();
             return;
         }
         const workerCount = Math.min(POLL_DEVICE_CONCURRENCY, pollTargets.length);
@@ -1313,6 +1325,27 @@ class LevitonDecoraSmartPlatform {
         const restFresh = this.lastRestReachabilityAt !== null &&
             Date.now() - this.lastRestReachabilityAt <= pollWindowMs;
         this.updateConnectivity(this.wsPushConnected || restFresh);
+    }
+    /**
+     * Proves REST reachability when there are no device poll targets (e.g. all
+     * excluded, zero devices, connectivity-only). Keeps the optional connectivity
+     * sensor accurate when WebSocket is down.
+     */
+    async pollRestReachabilityHeartbeat() {
+        try {
+            const token = await this.ensureValidToken();
+            const personId = this.currentLoginResponse?.userId;
+            if (!personId) {
+                this.recomputeCloudConnectivity(false);
+                return;
+            }
+            await this.client.getResidentialPermissions(personId, token);
+            this.recomputeCloudConnectivity(true);
+        }
+        catch (err) {
+            this.log.debug(`REST connectivity heartbeat failed: ${(0, sanitizers_1.sanitizeError)(err)}`);
+            this.recomputeCloudConnectivity(false);
+        }
     }
     /**
      * Prunes stale HomeKit command timestamps to prevent unbounded map growth.
