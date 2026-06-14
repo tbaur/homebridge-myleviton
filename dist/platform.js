@@ -935,12 +935,45 @@ class LevitonDecoraSmartPlatform {
             maxLevel: 100,
         };
         if (levelCharacteristic) {
-            const levelValue = service.getCharacteristic(levelCharacteristic).value;
-            if (typeof levelValue === 'number' && Number.isFinite(levelValue)) {
+            const levelValue = this.readCharacteristicValue(service, levelCharacteristic);
+            if (levelValue !== undefined) {
                 status.brightness = levelValue;
             }
         }
         return status;
+    }
+    serviceHasCharacteristic(service, characteristic) {
+        return typeof service.testCharacteristic === 'function'
+            && service.testCharacteristic(characteristic);
+    }
+    /**
+     * Reads a level characteristic only when it already exists on the service.
+     * Never auto-adds characteristics (Homebridge warns when Brightness is added
+     * to Outlet/Fan/Switch services).
+     */
+    readCharacteristicValue(service, characteristic) {
+        if (!this.serviceHasCharacteristic(service, characteristic)) {
+            return undefined;
+        }
+        const value = service.getCharacteristic(characteristic).value;
+        return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+    }
+    /**
+     * Reads dimmer brightness or fan rotation speed for persistence snapshots.
+     */
+    readAccessoryLevelForPersistence(accessory) {
+        const lightService = accessory.getService(hap.Service.Lightbulb);
+        if (lightService) {
+            const brightness = this.readCharacteristicValue(lightService, hap.Characteristic.Brightness);
+            if (brightness !== undefined) {
+                return brightness;
+            }
+        }
+        const fanService = accessory.getService(hap.Service.Fan);
+        if (fanService) {
+            return this.readCharacteristicValue(fanService, hap.Characteristic.RotationSpeed);
+        }
+        return undefined;
     }
     /**
      * Sets up a lightbulb service
@@ -1377,9 +1410,9 @@ class LevitonDecoraSmartPlatform {
                             model: device.model,
                             power: isOn ? POWER_ON : POWER_OFF,
                         };
-                        const brightnessChar = service.getCharacteristic(hap.Characteristic.Brightness);
-                        if (brightnessChar && typeof brightnessChar.value === 'number') {
-                            update.brightness = brightnessChar.value;
+                        const level = this.readAccessoryLevelForPersistence(accessory);
+                        if (level !== undefined) {
+                            update.brightness = level;
                         }
                         this.devicePersistence.updateDevice(device.id, update);
                     }

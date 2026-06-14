@@ -185,6 +185,17 @@ export declare class LevitonDecoraSmartPlatform {
      * Captures the current HomeKit state before reconfiguring a cached accessory.
      */
     private getCurrentServiceStatus;
+    private serviceHasCharacteristic;
+    /**
+     * Reads a level characteristic only when it already exists on the service.
+     * Never auto-adds characteristics (Homebridge warns when Brightness is added
+     * to Outlet/Fan/Switch services).
+     */
+    private readCharacteristicValue;
+    /**
+     * Reads dimmer brightness or fan rotation speed for persistence snapshots.
+     */
+    private readAccessoryLevelForPersistence;
     /**
      * Sets up a lightbulb service
      * @returns The device status used for initialization (allows callers to reuse it)

@@ -1079,13 +1079,52 @@ export class LevitonDecoraSmartPlatform {
     }
 
     if (levelCharacteristic) {
-      const levelValue = service.getCharacteristic(levelCharacteristic).value
-      if (typeof levelValue === 'number' && Number.isFinite(levelValue)) {
+      const levelValue = this.readCharacteristicValue(service, levelCharacteristic)
+      if (levelValue !== undefined) {
         status.brightness = levelValue
       }
     }
 
     return status
+  }
+
+  private serviceHasCharacteristic(service: Service, characteristic: unknown): boolean {
+    return typeof service.testCharacteristic === 'function'
+      && service.testCharacteristic(characteristic)
+  }
+
+  /**
+   * Reads a level characteristic only when it already exists on the service.
+   * Never auto-adds characteristics (Homebridge warns when Brightness is added
+   * to Outlet/Fan/Switch services).
+   */
+  private readCharacteristicValue(service: Service, characteristic: unknown): number | undefined {
+    if (!this.serviceHasCharacteristic(service, characteristic)) {
+      return undefined
+    }
+
+    const value = service.getCharacteristic(characteristic).value
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+  }
+
+  /**
+   * Reads dimmer brightness or fan rotation speed for persistence snapshots.
+   */
+  private readAccessoryLevelForPersistence(accessory: PlatformAccessory): number | undefined {
+    const lightService = accessory.getService(hap.Service.Lightbulb)
+    if (lightService) {
+      const brightness = this.readCharacteristicValue(lightService, hap.Characteristic.Brightness)
+      if (brightness !== undefined) {
+        return brightness
+      }
+    }
+
+    const fanService = accessory.getService(hap.Service.Fan)
+    if (fanService) {
+      return this.readCharacteristicValue(fanService, hap.Characteristic.RotationSpeed)
+    }
+
+    return undefined
   }
 
   /**
@@ -1571,9 +1610,9 @@ export class LevitonDecoraSmartPlatform {
               power: isOn ? POWER_ON : POWER_OFF,
             }
 
-            const brightnessChar = service.getCharacteristic(hap.Characteristic.Brightness)
-            if (brightnessChar && typeof brightnessChar.value === 'number') {
-              update.brightness = brightnessChar.value
+            const level = this.readAccessoryLevelForPersistence(accessory)
+            if (level !== undefined) {
+              update.brightness = level
             }
 
             this.devicePersistence.updateDevice(device.id, update)
