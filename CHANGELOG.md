@@ -5,6 +5,18 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.0](https://github.com/tbaur/homebridge-myleviton/compare/v3.6.0...v3.7.0) (2026-06-14)
+
+
+### Features
+
+* add opt-in diagnostics subsystem ([#18](https://github.com/tbaur/homebridge-myleviton/issues/18)) ([cdb8740](https://github.com/tbaur/homebridge-myleviton/commit/cdb8740bf7efafd321a305d0d181d7a60fbd16b0))
+
+
+### Bug Fixes
+
+* address diagnostics review findings ([#20](https://github.com/tbaur/homebridge-myleviton/issues/20)) ([5cf13b9](https://github.com/tbaur/homebridge-myleviton/commit/5cf13b9f732ad3cfb4b8e6cb2e3fb0d31475d12e))
+
 ## [3.6.0](https://github.com/tbaur/homebridge-myleviton/compare/v3.5.0...v3.6.0) (2026-06-13)
 
 
