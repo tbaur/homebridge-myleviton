@@ -27,12 +27,12 @@ code review. It reflects the current codebase, not a claim of zero defects.
 
 | Area | Status | Notes |
 |------|--------|-------|
-| **Self-Healing Startup** | ✅ | Bounded init retries (max 30) with exponential backoff |
+| **Self-Healing Startup** | ✅ | Retries init indefinitely with capped exponential backoff (15s → 5min); self-recovers after long outages |
 | **Multi-Residence Discovery** | ✅ | Merges devices across all residential permissions |
-| **Token Lifecycle** | ✅ | Default TTL when API omits `ttl`; WS force-reconnect on refresh |
+| **Token Lifecycle** | ✅ | Default TTL when API omits `ttl`; WS force-reconnect on refresh without a spurious offline flap |
 | **WebSocket Reconnect** | ✅ | Exponential backoff + long-tail retry after max attempts |
 | **Connectivity Sensor** | ✅ | Online when WS **or** recent REST poll succeeds |
-| **Polling** | ✅ | Skips REST cycle when WS push is healthy; saves brightness to persistence |
+| **Polling** | ✅ | Polls every device on a fixed cadence (also a REST connectivity heartbeat); saves dimmer/fan level to persistence |
 | **Diagnostics Gating** | ✅ | Starts only after successful discovery |
 | **Persistence** | ✅ | Load/save failures logged at warn level |
 
@@ -43,7 +43,7 @@ code review. It reflects the current codebase, not a claim of zero defects.
 | Area | Status | Notes |
 |------|--------|-------|
 | **TypeScript** | ✅ | Strict types; minimal HAP interfaces in `src/types/hap.ts` |
-| **Test Coverage** | ✅ | **552 tests**, ~91% line coverage **including `platform.ts`** |
+| **Test Coverage** | ✅ | **561 tests**, ~91% line coverage **including `platform.ts`** |
 | **Model Registry** | ✅ | Single source of truth in `src/platform/device-models.ts` |
 | **Code Organization** | ⚠️ | `platform.ts` remains large (~1,800 lines); further module extraction planned |
 | **Global Singletons** | ⚠️ | Deprecated test helpers (`getApiClient`, etc.); production uses per-instance clients |
@@ -55,7 +55,7 @@ code review. It reflects the current codebase, not a claim of zero defects.
 
 | Area | Status | Notes |
 |------|--------|-------|
-| **Leveled / Structured Logs** | ✅ | Plain-text lines now append sanitized context when structured mode is off |
+| **Leveled / Structured Logs** | ✅ | Plain-text lines stay human-readable; structured JSON context is emitted only when `structuredLogs` is enabled |
 | **Diagnostics** | ✅ | Null WebSocket no longer false-positives `webSocketDown`; health rollup documented |
 | **Config Schema ↔ Validators** | ✅ | `diagnosticsInterval` 1–29 documented as runtime-rejected; deprecated `pollingInterval` in schema |
 | **Status Endpoints** | ✅ | `client.getStatus()`, `ws.getStatus()`, `persistence.getStats()` |
@@ -75,7 +75,7 @@ code review. It reflects the current codebase, not a claim of zero defects.
 ### Overall: Production Ready ✅
 
 ```
-Tests:       554 passing (unit + integration smoke)
+Tests:       561 passing (unit + integration smoke)
 Coverage:    ~91% lines (includes platform.ts — see npm test report)
 Lint:        0 errors
 Audit:       0 vulnerabilities (at last review)
