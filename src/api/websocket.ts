@@ -114,7 +114,7 @@ export class LevitonWebSocket {
   // Timestamp of the most recent inbound frame (any message or pong). Used as a
   // liveness signal for diagnostics; null until the first frame arrives.
   private lastInboundAt: number | null = null
-  /** Last device notification (not ping/pong) — used to decide whether REST poll can be skipped. */
+  /** Timestamp of the last device notification (not ping/pong). Exposed via getStatus for diagnostics. */
   private lastNotificationAt: number | null = null
   private timers: ReturnType<typeof setTimeout>[] = []
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -186,9 +186,11 @@ export class LevitonWebSocket {
       return
     }
 
-    // Notify listeners before removing handlers so connectivity state stays accurate.
-    this.config.onConnectionChange?.(false)
-
+    // Do NOT signal a disconnect here: this is a deliberate, immediate reconnect
+    // (e.g. after a token refresh), not a real outage. Emitting onConnectionChange(false)
+    // would make the connectivity sensor flap and log a spurious "connectivity lost"
+    // on every token refresh. If the reconnect actually fails, the new socket's
+    // close/error handler reports the disconnect through the normal path.
     if (this.ws) {
       try {
         this.ws.removeAllListeners()

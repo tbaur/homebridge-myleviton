@@ -146,7 +146,31 @@ describe('LevitonWebSocket', () => {
   })
 
   describe('forceReconnect', () => {
-    it('notifies onConnectionChange(false) before reconnecting', () => {
+    it('does not signal a disconnect for an intentional reconnect', () => {
+      const onConnectionChange = jest.fn()
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+        { onConnectionChange },
+      )
+
+      ws.connect()
+      getLastMockInstance().triggerOpen()
+      onConnectionChange.mockClear()
+      const instanceCountBefore = MockWebSocket.instances.length
+
+      ws.forceReconnect()
+
+      // No spurious offline flap on a deliberate reconnect (e.g. token refresh).
+      expect(onConnectionChange).not.toHaveBeenCalledWith(false)
+      // A fresh socket is opened to pick up the new credentials.
+      expect(MockWebSocket.instances.length).toBe(instanceCountBefore + 1)
+      ws.close()
+    })
+
+    it('reports a disconnect only if the reconnect actually fails', () => {
       const onConnectionChange = jest.fn()
       const ws = new LevitonWebSocket(
         loginResponse,
@@ -161,6 +185,8 @@ describe('LevitonWebSocket', () => {
       onConnectionChange.mockClear()
 
       ws.forceReconnect()
+      // The new socket closes unexpectedly -> normal close handler reports offline.
+      getLastMockInstance().triggerClose(1006, 'abnormal')
 
       expect(onConnectionChange).toHaveBeenCalledWith(false)
       ws.close()

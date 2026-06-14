@@ -63,7 +63,7 @@ export declare class LevitonWebSocket {
     private callback;
     private reconnectAttempt;
     private lastInboundAt;
-    /** Last device notification (not ping/pong) — used to decide whether REST poll can be skipped. */
+    /** Timestamp of the last device notification (not ping/pong). Exposed via getStatus for diagnostics. */
     private lastNotificationAt;
     private timers;
     private reconnectTimer;
