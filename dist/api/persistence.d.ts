@@ -17,6 +17,8 @@ export interface PersistenceConfig {
     maxAge: number;
     /** Maximum number of devices to persist */
     maxDevices: number;
+    /** Optional warning callback for load/save failures */
+    onWarn?: (message: string) => void;
 }
 /**
  * Default persistence configuration
@@ -34,6 +36,7 @@ export declare class DevicePersistence {
     private readonly storagePath;
     private readonly maxAge;
     private readonly maxDevices;
+    private readonly onWarn?;
     private deviceStates;
     private loaded;
     private dirty;
@@ -98,8 +101,9 @@ export declare class DevicePersistence {
 }
 /**
  * Get or create the global persistence instance
+ * @deprecated Prefer constructing DevicePersistence per platform instance.
  */
-export declare function getDevicePersistence(storagePath?: string): DevicePersistence;
+export declare function getDevicePersistence(storagePath?: string, config?: Partial<PersistenceConfig>): DevicePersistence;
 /**
  * Reset the global persistence (for testing)
  */

@@ -210,12 +210,39 @@ describe('validateConfig', () => {
   })
 
   it('should reject invalid diagnosticsInterval', () => {
-    expect(() => validateConfig({ ...validConfig, diagnosticsInterval: 5 })).toThrow(ConfigurationError)
-    expect(() => validateConfig({ ...validConfig, diagnosticsInterval: 15 })).toThrow(ConfigurationError)
-    expect(() => validateConfig({ ...validConfig, diagnosticsInterval: 29 })).toThrow(ConfigurationError)
+    expect(validateConfig({ ...validConfig, diagnosticsInterval: 5 }).diagnosticsInterval).toBe(30)
+    expect(validateConfig({ ...validConfig, diagnosticsInterval: 15 }).diagnosticsInterval).toBe(30)
+    expect(validateConfig({ ...validConfig, diagnosticsInterval: 29 }).diagnosticsInterval).toBe(30)
     expect(() => validateConfig({ ...validConfig, diagnosticsInterval: 5000 })).toThrow(ConfigurationError)
     expect(() => validateConfig({ ...validConfig, diagnosticsInterval: 'often' })).toThrow(ConfigurationError)
     expect(() => validateConfig({ ...validConfig, diagnosticsInterval: NaN })).toThrow(ConfigurationError)
+  })
+
+  it('should validate structuredLogs and connectivity sensor options', () => {
+    expect(validateConfig({ ...validConfig, structuredLogs: true }).structuredLogs).toBe(true)
+    expect(() => validateConfig({ ...validConfig, structuredLogs: 'yes' })).toThrow(ConfigurationError)
+    expect(validateConfig({ ...validConfig, connectivitySensor: true }).connectivitySensor).toBe(true)
+    expect(() => validateConfig({ ...validConfig, connectivitySensor: 1 })).toThrow(ConfigurationError)
+    expect(
+      validateConfig({ ...validConfig, connectivitySensor: true, connectivitySensorName: 'Cloud OK' })
+        .connectivitySensorName,
+    ).toBe('Cloud OK')
+    expect(() => validateConfig({ ...validConfig, connectivitySensorName: '' })).toThrow(ConfigurationError)
+  })
+
+  it('should accept password from MYLEVITON_PASSWORD when config password is empty', () => {
+    const original = process.env.MYLEVITON_PASSWORD
+    process.env.MYLEVITON_PASSWORD = 'env-secret'
+    try {
+      const result = validateConfig({ ...validConfig, password: '' })
+      expect(result.password).toBe('env-secret')
+    } finally {
+      if (original === undefined) {
+        delete process.env.MYLEVITON_PASSWORD
+      } else {
+        process.env.MYLEVITON_PASSWORD = original
+      }
+    }
   })
 })
 

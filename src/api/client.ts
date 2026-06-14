@@ -194,11 +194,8 @@ export class LevitonApiClient {
     const {
       useCache = false,
       cacheKey = url,
-       
       bypassCircuitBreaker: _bypassCircuitBreaker = false,
       debugLog = () => {},
-       
-      priority: _priority = 'normal',
     } = requestOptions
 
     const method = options.method || 'GET'
@@ -404,7 +401,7 @@ export class LevitonApiClient {
     const query = toQueryString({ include: 'user' })
     const url = `${this.config.baseUrl}/Person/login?${query}`
 
-    debugLog?.(`[login] Authenticating ${validEmail}`)
+    debugLog?.('[login] Authenticating user')
 
     const response = await this.request<LoginResponse>(
       url,
@@ -657,12 +654,14 @@ export class LevitonApiClient {
 }
 
 /**
- * Global API client instance
+ * Global API client instance (test helper — production code creates per-platform clients).
+ * @deprecated Prefer `new LevitonApiClient()` per platform instance.
  */
 let globalClient: LevitonApiClient | null = null
 
 /**
  * Get or create the global API client
+ * @deprecated Prefer constructing LevitonApiClient per platform instance.
  */
 export function getApiClient(config?: Partial<ApiClientConfig>): LevitonApiClient {
   if (!globalClient) {

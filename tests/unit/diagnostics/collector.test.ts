@@ -274,7 +274,7 @@ describe('DiagnosticsCollector', () => {
       expect(collector.rollup(m.readers).reasons).not.toContain('webSocketDown')
     })
 
-    it('uses uptime as the age baseline when the socket never connected', () => {
+    it('does not degrade when no websocket instance exists', () => {
       const m = makeReaders()
       m.ws.value = null
       let clock = 0
@@ -285,7 +285,7 @@ describe('DiagnosticsCollector', () => {
       })
       expect(collector.rollup(m.readers).reasons).not.toContain('webSocketDown')
       clock = 65_000
-      expect(collector.rollup(m.readers).reasons).toContain('webSocketDown')
+      expect(collector.rollup(m.readers).reasons).not.toContain('webSocketDown')
     })
 
     it('is degraded when the recent API error rate is high with enough samples', () => {

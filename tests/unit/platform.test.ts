@@ -14,6 +14,7 @@ jest.mock('../../src/api/persistence')
 
 import { LevitonDecoraSmartPlatform, registerPlatform } from '../../src/platform'
 import type { LevitonConfig, LogLevel } from '../../src/types'
+import type { HomebridgeAPI } from '../../src/types/hap'
 
 // Device model constants (matching platform.ts)
 const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710', 'DN6HD']
@@ -166,7 +167,7 @@ const setupMocks = () => {
   }
   LevitonApiClient.mockImplementation(() => mockClient)
   
-  const { getDevicePersistence } = require('../../src/api/persistence')
+  const { DevicePersistence } = require('../../src/api/persistence')
   const mockPersistence = {
     load: jest.fn().mockResolvedValue(new Map()),
     save: jest.fn().mockResolvedValue(undefined),
@@ -176,7 +177,7 @@ const setupMocks = () => {
     hasFreshCache: jest.fn().mockReturnValue(false),
     getCachedStatus: jest.fn().mockReturnValue(null),
   }
-  getDevicePersistence.mockReturnValue(mockPersistence)
+  DevicePersistence.mockImplementation(() => mockPersistence)
   
   const { createWebSocket } = require('../../src/api/websocket')
   createWebSocket.mockReturnValue({
@@ -192,6 +193,8 @@ const setupMocks = () => {
       reconnectAttempt: 0,
       lastInboundAt: Date.now(),
       lastEventAgeSec: 1,
+      lastNotificationAt: null,
+      lastNotificationAgeSec: null,
       subscribed: 1,
     }),
   })
@@ -886,7 +889,7 @@ describe('LevitonDecoraSmartPlatform', () => {
       expect(unregistered.some(acc => acc.UUID === CONNECTIVITY_UUID)).toBe(true)
     })
 
-    it('reports the sensor offline when the WebSocket connection drops', async () => {
+    it('reports the sensor offline when the WebSocket connection drops and REST is stale', async () => {
       const { createWebSocket } = require('../../src/api/websocket')
       const contactService = mockService('Leviton Cloud')
       const infoService = mockService('info')
@@ -900,12 +903,13 @@ describe('LevitonDecoraSmartPlatform', () => {
 
       oneDevice()
       const config = { ...validConfig, connectivitySensor: true }
-      new LevitonDecoraSmartPlatform(mockLog, config, mockAPI)
+      const platform = new LevitonDecoraSmartPlatform(mockLog, config, mockAPI)
       mockAPI.emit('didFinishLaunching')
       await new Promise(resolve => setTimeout(resolve, 100))
 
-      // Grab the onConnectionChange callback the platform wired into the socket
-      // and simulate the live connection dropping.
+      const internals = platform as unknown as { lastRestReachabilityAt: number | null }
+      internals.lastRestReachabilityAt = Date.now() - 120_000
+
       const wsConfig = createWebSocket.mock.calls[createWebSocket.mock.calls.length - 1][4]
       wsConfig.onConnectionChange(false)
 
@@ -913,6 +917,42 @@ describe('LevitonDecoraSmartPlatform', () => {
       // receives both the contact-state and status-fault updates.
       expect(contactService.getCharacteristic().updateValue).toHaveBeenCalledWith(1)
       expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('connectivity lost'))
+    })
+
+    it('keeps the sensor online when polling succeeds while WebSocket is down', async () => {
+      const { createWebSocket } = require('../../src/api/websocket')
+      const contactService = mockService('Leviton Cloud')
+      const infoService = mockService('info')
+      mockAPI.platformAccessory.mockImplementation((name: string, uuid: string) => ({
+        displayName: name,
+        UUID: uuid,
+        context: {},
+        getService: jest.fn((svc: string) => (svc === 'AccessoryInformation' ? infoService : null)),
+        addService: jest.fn().mockReturnValue(contactService),
+      }))
+
+      oneDevice()
+      mockClient.getDeviceStatus.mockResolvedValue({
+        power: 'ON',
+        brightness: 50,
+        minLevel: 1,
+        maxLevel: 100,
+      })
+
+      const config = { ...validConfig, connectivitySensor: true }
+      const platform = new LevitonDecoraSmartPlatform(mockLog, config, mockAPI)
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      const wsConfig = createWebSocket.mock.calls[createWebSocket.mock.calls.length - 1][4]
+      wsConfig.onConnectionChange(false)
+
+      const internals = platform as unknown as {
+        pollDevices: () => Promise<void>
+      }
+      await internals.pollDevices()
+
+      expect(contactService.getCharacteristic().updateValue).toHaveBeenLastCalledWith(0)
     })
   })
 
@@ -1636,7 +1676,7 @@ describe('registerPlatform', () => {
       registerPlatform: jest.fn(),
     }
     
-    registerPlatform(mockHomebridge)
+    registerPlatform(mockHomebridge as unknown as HomebridgeAPI)
     
     expect(mockHomebridge.registerPlatform).toHaveBeenCalledWith(
       'homebridge-myleviton',

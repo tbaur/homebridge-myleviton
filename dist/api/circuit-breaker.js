@@ -215,11 +215,13 @@ class CircuitBreaker {
 }
 exports.CircuitBreaker = CircuitBreaker;
 /**
- * Global circuit breaker instance
+ * Global circuit breaker instance (test helper).
+ * @deprecated Prefer per-client CircuitBreaker instances.
  */
 let globalCircuitBreaker = null;
 /**
  * Get or create the global circuit breaker
+ * @deprecated Prefer constructing CircuitBreaker per API client.
  */
 function getCircuitBreaker(config) {
     if (!globalCircuitBreaker) {

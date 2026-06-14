@@ -51,6 +51,17 @@ export function sanitizeString(str: string): string {
   return result
 }
 
+/**
+ * Mask an email for logging (show first char and domain).
+ */
+export function maskEmail(email: string): string {
+  const at = email.indexOf('@')
+  if (at <= 0) {
+    return '***'
+  }
+  return `${email[0]}***${email.slice(at)}`
+}
+
 const HAP_NAME_MAX_LENGTH = 64
 
 // Mirrors HAP-NodeJS's allowed character set for the Name characteristic:

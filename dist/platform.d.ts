@@ -7,8 +7,7 @@
  * @fileoverview Homebridge platform plugin for My Leviton Decora Smart devices
  */
 import type { LevitonConfig, DeviceInfo } from './types';
-type HomebridgeAPI = any;
-type PlatformAccessory = any;
+import type { HomebridgeAPI, PlatformAccessory } from './types/hap';
 /**
  * Leviton Decora Smart Platform for Homebridge
  */
@@ -41,6 +40,9 @@ export declare class LevitonDecoraSmartPlatform {
     private lastStatelessCount;
     private lastExcludedCount;
     private wsHasDisconnected;
+    private discoveryComplete;
+    private wsPushConnected;
+    private lastRestReachabilityAt;
     constructor(homebridgeLog: (msg: string) => void, config: LevitonConfig, api: HomebridgeAPI);
     /**
      * Validates plugin configuration using comprehensive schema validation
@@ -73,8 +75,6 @@ export declare class LevitonDecoraSmartPlatform {
      * Checks if device should be excluded
      */
     private isDeviceExcluded;
-    /** True for button controllers and other devices with no controllable state. */
-    private isStatelessController;
     /**
      * Adds a new accessory
      */
@@ -247,6 +247,15 @@ export declare class LevitonDecoraSmartPlatform {
      * updating with fallback values. This prevents incorrect state during outages.
      */
     private pollDevices;
+    /**
+     * Combines WebSocket push and REST poll signals for the connectivity sensor.
+     * Online when WS is connected or a poll succeeded within two poll intervals.
+     */
+    private recomputeCloudConnectivity;
+    /**
+     * Prunes stale HomeKit command timestamps to prevent unbounded map growth.
+     */
+    private pruneRecentHomeKitCommands;
     /**
      * Saves device states to persistence
      */

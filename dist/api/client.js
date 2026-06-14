@@ -110,7 +110,7 @@ class LevitonApiClient {
      * Make an API request with all protections
      */
     async request(url, options = {}, requestOptions = {}) {
-        const { useCache = false, cacheKey = url, bypassCircuitBreaker: _bypassCircuitBreaker = false, debugLog = () => { }, priority: _priority = 'normal', } = requestOptions;
+        const { useCache = false, cacheKey = url, bypassCircuitBreaker: _bypassCircuitBreaker = false, debugLog = () => { }, } = requestOptions;
         const method = options.method || 'GET';
         const dedupeKey = `${method}:${url}`;
         debugLog(`[API] ${method} ${url}`);
@@ -264,7 +264,7 @@ class LevitonApiClient {
         const validPassword = (0, validators_1.validatePassword)(password);
         const query = toQueryString({ include: 'user' });
         const url = `${this.config.baseUrl}/Person/login?${query}`;
-        debugLog?.(`[login] Authenticating ${validEmail}`);
+        debugLog?.('[login] Authenticating user');
         const response = await this.request(url, {
             method: 'POST',
             body: JSON.stringify({ email: validEmail, password: validPassword }),
@@ -417,11 +417,13 @@ class LevitonApiClient {
 }
 exports.LevitonApiClient = LevitonApiClient;
 /**
- * Global API client instance
+ * Global API client instance (test helper — production code creates per-platform clients).
+ * @deprecated Prefer `new LevitonApiClient()` per platform instance.
  */
 let globalClient = null;
 /**
  * Get or create the global API client
+ * @deprecated Prefer constructing LevitonApiClient per platform instance.
  */
 function getApiClient(config) {
     if (!globalClient) {

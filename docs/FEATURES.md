@@ -47,12 +47,13 @@ homebridge-myleviton/
 │   └── types/            # TypeScript type definitions
 ├── dist/                 # Compiled JavaScript (auto-generated)
 └── tests/
-    └── unit/*.test.ts    # Unit tests (95%+ coverage)
+    └── unit/*.test.ts    # Unit tests (~91% coverage including platform.ts)
+    └── integration/      # Smoke tests (no live API)
 ```
 
 ## Quality
 
-- Comprehensive unit test suite with 95%+ code coverage
+- Comprehensive unit test suite (~91% line coverage including `platform.ts`; see `npm test` report)
 - ESLint with zero warnings
 - TypeScript strict mode
 - Full JSDoc documentation

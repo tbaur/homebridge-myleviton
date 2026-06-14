@@ -105,7 +105,7 @@ export class StructuredLogger {
    * Generate a new correlation ID
    */
   generateCorrelationId(): string {
-    this.correlationId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    this.correlationId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
     return this.correlationId
   }
 
@@ -136,7 +136,14 @@ export class StructuredLogger {
       return JSON.stringify(entry)
     }
 
-    // Traditional string format - context is ignored (only used in structured mode)
+    // Traditional string format — append sanitized context when provided.
+    if (typeof message === 'string') {
+      if (context && Object.keys(context).length > 0) {
+        return `${message} ${JSON.stringify(sanitizeObject(context as Record<string, unknown>))}`
+      }
+      return message
+    }
+
     if (typeof message === 'object') {
       const { event, ...rest } = message as { event?: string; [key: string]: unknown }
       const contextStr = Object.keys(rest).length > 0 

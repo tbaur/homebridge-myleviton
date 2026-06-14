@@ -8,6 +8,7 @@
  */
 
 import { ValidationError, ConfigurationError } from '../errors'
+import { isValidHapName } from './sanitizers'
 import type { LevitonConfig, PowerState } from '../types'
 
 /**
@@ -187,7 +188,11 @@ export function validateConfig(config: unknown): LevitonConfig {
   }
   
   if (!cfg.password) {
-    errors.push('password is required')
+    if (process.env.MYLEVITON_PASSWORD) {
+      cfg.password = process.env.MYLEVITON_PASSWORD
+    } else {
+      errors.push('password is required (or set MYLEVITON_PASSWORD environment variable)')
+    }
   } else {
     try {
       validatePassword(cfg.password)
@@ -251,11 +256,29 @@ export function validateConfig(config: unknown): LevitonConfig {
 
   if (cfg.diagnosticsInterval !== undefined) {
     const interval = cfg.diagnosticsInterval as number
-    // 0 disables diagnostics; any other value must be within the heartbeat range.
+    // 0 disables diagnostics; 1–29 are invalid in UI schema but coerced to minimum 30.
     if (typeof interval !== 'number' || !Number.isFinite(interval)) {
       errors.push('diagnosticsInterval must be a number')
-    } else if (interval !== 0 && (interval < 30 || interval > 3600)) {
+    } else if (interval !== 0 && interval < 30) {
+      cfg.diagnosticsInterval = 30
+    } else if (interval > 3600) {
       errors.push('diagnosticsInterval must be 0 (off) or between 30 and 3600')
+    }
+  }
+
+  if (cfg.structuredLogs !== undefined && typeof cfg.structuredLogs !== 'boolean') {
+    errors.push('structuredLogs must be a boolean')
+  }
+
+  if (cfg.connectivitySensor !== undefined && typeof cfg.connectivitySensor !== 'boolean') {
+    errors.push('connectivitySensor must be a boolean')
+  }
+
+  if (cfg.connectivitySensorName !== undefined) {
+    if (typeof cfg.connectivitySensorName !== 'string' || cfg.connectivitySensorName.trim().length === 0) {
+      errors.push('connectivitySensorName must be a non-empty string')
+    } else if (!isValidHapName(cfg.connectivitySensorName)) {
+      errors.push('connectivitySensorName contains invalid HomeKit characters')
     }
   }
 

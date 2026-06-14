@@ -52,12 +52,12 @@ module.exports = {
     'src/**/*.ts',
     '!src/**/*.d.ts',
     '!src/**/index.ts', // Re-export files
-    '!src/platform.ts', // Platform tests need Homebridge mocking - TODO: add tests
   ],
   
   // Test file patterns
   testMatch: [
     '**/tests/unit/**/*.test.ts',
+    '**/tests/integration/**/*.test.ts',
   ],
   
   // Ignore patterns

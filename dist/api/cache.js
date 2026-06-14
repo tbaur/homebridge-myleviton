@@ -43,11 +43,11 @@ class ResponseCache {
         return Date.now() - entry.timestamp > this.ttlMs;
     }
     /**
-     * Evict oldest entries if over capacity
+     * Evict oldest entries if over capacity (FIFO — not LRU unless updateOnAccess is enabled).
      */
     evictIfNeeded() {
         while (this.cache.size >= this.maxSize) {
-            // Remove oldest entry (first in map)
+            // Remove oldest entry (first in Map insertion order)
             const oldestKey = this.cache.keys().next().value;
             if (oldestKey) {
                 this.cache.delete(oldestKey);
@@ -185,11 +185,13 @@ class ResponseCache {
 }
 exports.ResponseCache = ResponseCache;
 /**
- * Global response cache instance
+ * Global response cache instance (test helper).
+ * @deprecated Prefer per-client ResponseCache instances.
  */
 let globalCache = null;
 /**
  * Get or create the global cache
+ * @deprecated Prefer constructing ResponseCache per API client.
  */
 function getResponseCache(config) {
     if (!globalCache) {

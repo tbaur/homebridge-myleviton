@@ -5,7 +5,10 @@
  * Licensed under the Apache License, Version 2.0
  * See LICENSE file for full license text
  *
- * @fileoverview Request queue with priority and deduplication
+ * @fileoverview Request queue with priority and deduplication.
+ *
+ * Currently exercised by unit tests only; the production API client uses
+ * RequestDeduplicator for concurrent GET coalescing instead.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.RequestDeduplicator = exports.RequestQueue = exports.DEFAULT_REQUEST_QUEUE_CONFIG = void 0;

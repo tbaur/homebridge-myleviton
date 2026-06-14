@@ -15,7 +15,7 @@ Control your **My Leviton Decora Smart** WiFi devices through Apple HomeKit usin
 ### Device Control
 - **Automatic Discovery** — Instantly finds all devices from your My Leviton account
 - **Full Dimmer Support** — On/off and brightness control (1-100%)
-- **Fan Speed Control** — 4-speed fan controllers (25/50/75/100%)
+- **Fan Speed Control** — Continuous rotation speed via HomeKit slider (0–100%)
 - **Switches & Outlets** — On/off control for all switch and outlet types
 - **Motion Sensors** — D2MSD motion dimmers expose both dimmer and motion sensor
 
@@ -35,7 +35,7 @@ Control your **My Leviton Decora Smart** WiFi devices through Apple HomeKit usin
 
 ### Quality
 <!-- Canonical test count lives here only; keep other docs number-free to avoid 5-place updates. -->
-- **548 Tests** — Comprehensive test suite with 95%+ code coverage
+- **554 Tests** — Comprehensive test suite with ~91% code coverage (includes `platform.ts`)
 - **Child Bridge Support** — Run as isolated bridge for maximum stability
 - **Flexible Logging** — Debug, info, warn, error levels + JSON structured logs
 - **No Analytics** — Zero tracking or data collection

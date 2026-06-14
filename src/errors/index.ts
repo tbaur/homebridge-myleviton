@@ -7,6 +7,8 @@
  * @fileoverview Structured error hierarchy for better error handling
  */
 
+import { sanitizeStackTrace } from '../utils/sanitizers'
+
 /**
  * Base error class for all Leviton plugin errors
  */
@@ -38,7 +40,7 @@ export abstract class LevitonError extends Error {
       isRetryable: this.isRetryable,
       httpStatus: this.httpStatus,
       timestamp: this.timestamp.toISOString(),
-      stack: this.stack,
+      stack: sanitizeStackTrace(this.stack),
     }
   }
 }
@@ -48,7 +50,8 @@ export abstract class LevitonError extends Error {
  */
 export class AuthenticationError extends LevitonError {
   code = 'AUTH_ERROR'
-  readonly isRetryable = true
+  /** Platform handles token refresh; HTTP client must not retry auth failures. */
+  readonly isRetryable = false
   readonly httpStatus = 401
 
   constructor(message = 'Authentication failed', options?: { cause?: Error }) {

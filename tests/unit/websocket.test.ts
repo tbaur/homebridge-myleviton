@@ -145,6 +145,28 @@ describe('LevitonWebSocket', () => {
     })
   })
 
+  describe('forceReconnect', () => {
+    it('notifies onConnectionChange(false) before reconnecting', () => {
+      const onConnectionChange = jest.fn()
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+        { onConnectionChange },
+      )
+
+      ws.connect()
+      getLastMockInstance().triggerOpen()
+      onConnectionChange.mockClear()
+
+      ws.forceReconnect()
+
+      expect(onConnectionChange).toHaveBeenCalledWith(false)
+      ws.close()
+    })
+  })
+
   describe('updateToken (legacy)', () => {
     it('should update the token id', () => {
       const ws = new LevitonWebSocket(
@@ -737,7 +759,7 @@ describe('LevitonWebSocket', () => {
       ws.close()
     })
 
-    it('should stop reconnecting after max attempts', () => {
+    it('should schedule long-tail reconnect after max attempts', () => {
       const ws = new LevitonWebSocket(
         loginResponse,
         devices,
@@ -764,15 +786,14 @@ describe('LevitonWebSocket', () => {
       jest.advanceTimersByTime(300)
       expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(3)
       const mock3 = getLastMockInstance()
-      mock3.triggerClose(1006, '') // Another failure
+      mock3.triggerClose(1006, '') // Another failure — hits max attempts
 
-      // No more reconnects should happen (max 2 attempts)
-      jest.advanceTimersByTime(500)
-      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(3)
+      // Long-tail retry after cooldown (maxReconnectDelay)
+      jest.advanceTimersByTime(200)
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(4)
 
-      // Should warn about max attempts
       expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('unavailable after'),
+        expect.stringContaining('long-tail retry'),
       )
       ws.close()
     })

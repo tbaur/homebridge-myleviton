@@ -27,7 +27,8 @@ export declare abstract class LevitonError extends Error {
  */
 export declare class AuthenticationError extends LevitonError {
     code: string;
-    readonly isRetryable = true;
+    /** Platform handles token refresh; HTTP client must not retry auth failures. */
+    readonly isRetryable = false;
     readonly httpStatus = 401;
     constructor(message?: string, options?: {
         cause?: Error;

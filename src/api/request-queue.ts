@@ -4,7 +4,10 @@
  * Licensed under the Apache License, Version 2.0
  * See LICENSE file for full license text
  *
- * @fileoverview Request queue with priority and deduplication
+ * @fileoverview Request queue with priority and deduplication.
+ *
+ * Currently exercised by unit tests only; the production API client uses
+ * RequestDeduplicator for concurrent GET coalescing instead.
  */
 
 import type { QueuedRequest } from '../types'

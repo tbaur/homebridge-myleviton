@@ -165,6 +165,7 @@ export declare class LevitonApiClient {
 }
 /**
  * Get or create the global API client
+ * @deprecated Prefer constructing LevitonApiClient per platform instance.
  */
 export declare function getApiClient(config?: Partial<ApiClientConfig>): LevitonApiClient;
 /**
