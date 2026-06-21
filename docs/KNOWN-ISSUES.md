@@ -1,4 +1,4 @@
-# Known Concerns
+# Known Issues
 
 **homebridge-myleviton**
 
@@ -10,7 +10,7 @@ For configuration, diagnostics fields, and general troubleshooting, see [README-
 
 ## Summary
 
-| Concern | Typical log / signal | Action needed? |
+| Issue | Typical log / signal | Action needed? |
 |---------|---------------------|----------------|
 | WebSocket **502 Bad Gateway** | `WebSocket error: Unexpected server response: 502` | Usually **no** — auto-reconnects |
 | WebSocket disconnect / 1006 | `WebSocket closed: 1006 (connection dropped)` | Usually **no** — auto-reconnects |
