@@ -180,15 +180,16 @@ export function createResponsePreview(body: string, maxLength = 200): string {
 }
 
 /**
- * Sanitize stack trace by removing file paths that might expose system info
+ * Sanitize stack trace by removing file paths that might expose system info.
+ * Matches absolute paths inside parentheses only — avoids nested quantifiers
+ * (ReDoS) from patterns like /\s+at\s+.*\((\/[^)]+)\)/.
  */
 export function sanitizeStackTrace(stack: string | undefined): string | undefined {
   if (!stack) {return undefined}
-  
-  // Remove absolute paths, keep relative
-  return stack.replace(/\s+at\s+.*\((\/[^)]+)\)/g, (match, path) => {
+
+  return stack.replace(/\((\/[^)\n]+)\)/g, (_match, path: string) => {
     const filename = path.split('/').pop() || path
-    return match.replace(path, filename)
+    return `(${filename})`
   })
 }
 
