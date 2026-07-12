@@ -47,7 +47,9 @@ export declare function maskToken(token: string, visibleChars?: number): string;
  */
 export declare function createResponsePreview(body: string, maxLength?: number): string;
 /**
- * Sanitize stack trace by removing file paths that might expose system info
+ * Sanitize stack trace by removing absolute file paths that might expose
+ * system info. Uses index scans instead of a regex to avoid ReDoS
+ * (CodeQL js/polynomial-redos).
  */
 export declare function sanitizeStackTrace(stack: string | undefined): string | undefined;
 //# sourceMappingURL=sanitizers.d.ts.map

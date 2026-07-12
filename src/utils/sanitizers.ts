@@ -180,16 +180,29 @@ export function createResponsePreview(body: string, maxLength = 200): string {
 }
 
 /**
- * Sanitize stack trace by removing file paths that might expose system info.
- * Matches absolute paths inside parentheses only — avoids nested quantifiers
- * (ReDoS) from patterns like /\s+at\s+.*\((\/[^)]+)\)/.
+ * Sanitize stack trace by removing absolute file paths that might expose
+ * system info. Uses index scans instead of a regex to avoid ReDoS
+ * (CodeQL js/polynomial-redos).
  */
 export function sanitizeStackTrace(stack: string | undefined): string | undefined {
   if (!stack) {return undefined}
 
-  return stack.replace(/\((\/[^)\n]+)\)/g, (_match, path: string) => {
+  return stack.split('\n').map((line) => {
+    // V8 frames look like: "    at foo (/abs/path/file.js:10:5)"
+    const open = line.lastIndexOf('(/')
+    if (open === -1) {
+      return line
+    }
+    const close = line.indexOf(')', open + 2)
+    if (close === -1) {
+      return line
+    }
+    const path = line.slice(open + 1, close)
+    if (!path.startsWith('/')) {
+      return line
+    }
     const filename = path.split('/').pop() || path
-    return `(${filename})`
-  })
+    return `${line.slice(0, open + 1)}${filename}${line.slice(close)}`
+  }).join('\n')
 }
 

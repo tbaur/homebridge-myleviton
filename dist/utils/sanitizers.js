@@ -171,16 +171,30 @@ function createResponsePreview(body, maxLength = 200) {
     return truncate(sanitized, maxLength);
 }
 /**
- * Sanitize stack trace by removing file paths that might expose system info
+ * Sanitize stack trace by removing absolute file paths that might expose
+ * system info. Uses index scans instead of a regex to avoid ReDoS
+ * (CodeQL js/polynomial-redos).
  */
 function sanitizeStackTrace(stack) {
     if (!stack) {
         return undefined;
     }
-    // Remove absolute paths, keep relative
-    return stack.replace(/\s+at\s+.*\((\/[^)]+)\)/g, (match, path) => {
+    return stack.split('\n').map((line) => {
+        // V8 frames look like: "    at foo (/abs/path/file.js:10:5)"
+        const open = line.lastIndexOf('(/');
+        if (open === -1) {
+            return line;
+        }
+        const close = line.indexOf(')', open + 2);
+        if (close === -1) {
+            return line;
+        }
+        const path = line.slice(open + 1, close);
+        if (!path.startsWith('/')) {
+            return line;
+        }
         const filename = path.split('/').pop() || path;
-        return match.replace(path, filename);
-    });
+        return `${line.slice(0, open + 1)}${filename}${line.slice(close)}`;
+    }).join('\n');
 }
 //# sourceMappingURL=sanitizers.js.map
