@@ -257,13 +257,21 @@ describe('sanitizeStackTrace', () => {
     const stack = `Error: test
     at function (/Users/user/project/src/file.js:10:5)
     at another (/home/user/app/index.js:20:3)`
-    
+
     const result = sanitizeStackTrace(stack)
-    
+
     expect(result).not.toContain('/Users/user')
     expect(result).not.toContain('/home/user')
-    expect(result).toContain('file.js')
-    expect(result).toContain('index.js')
+    expect(result).toContain('(file.js:10:5)')
+    expect(result).toContain('(index.js:20:3)')
+  })
+
+  it('should leave relative paths unchanged', () => {
+    const stack = `Error: test
+    at function (src/file.js:10:5)
+    at Object.<anonymous> (tests/unit/sanitizers.test.ts:1:1)`
+
+    expect(sanitizeStackTrace(stack)).toBe(stack)
   })
 
   it('should handle undefined', () => {
