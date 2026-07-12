@@ -21,6 +21,9 @@ module.exports = {
         noImplicitAny: false,
         esModuleInterop: true,
         allowSyntheticDefaultImports: true,
+        // TS 6 no longer auto-includes @types packages into the compilation;
+        // declare Jest/Node globals explicitly for test typechecking.
+        types: ['jest', 'node'],
       },
     }],
   },
