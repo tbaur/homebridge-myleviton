@@ -5,6 +5,13 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.9](https://github.com/tbaur/homebridge-myleviton/compare/v3.7.8...v3.7.9) (2026-08-18)
+
+
+### Bug Fixes
+
+* **deps:** patch js-yaml omap DoS and refresh dev dependency tree ([#65](https://github.com/tbaur/homebridge-myleviton/issues/65)) ([2aa9fcb](https://github.com/tbaur/homebridge-myleviton/commit/2aa9fcb6ebeb31c3ecc2a5c15fa091941b6f2e9b))
+
 ## [3.7.8](https://github.com/tbaur/homebridge-myleviton/compare/v3.7.7...v3.7.8) (2026-06-14)
 
 
