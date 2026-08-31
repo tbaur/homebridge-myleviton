@@ -383,7 +383,7 @@ Output format:
 sudo npm install -g github:tbaur/homebridge-myleviton
 
 # Or specific branch/commit
-sudo npm install -g github:tbaur/homebridge-myleviton#master
+sudo npm install -g github:tbaur/homebridge-myleviton#main
 ```
 
 ### Install from Local Clone
