@@ -13,9 +13,9 @@ name: OSV-Scanner
 
 on:
   pull_request:
-    branches: [ "master", "main" ]
+    branches: [ "main" ]
   merge_group:
-    branches: [ "master", "main" ]
+    branches: [ "main" ]
   schedule:
     - cron: '20 20 * * 0'
 
