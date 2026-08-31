@@ -15,7 +15,7 @@ name: Release
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [ main ]
 
 # Least privilege by default; each job opts into exactly what it needs.
 permissions: {}

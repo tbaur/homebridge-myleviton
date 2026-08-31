@@ -2,9 +2,9 @@ name: Tests
 
 on:
   pull_request:
-    branches: [ master, main ]
+    branches: [ main ]
   merge_group:
-    branches: [ master, main ]
+    branches: [ main ]
 
 # Least privilege: these jobs only read the repo and run build/lint/test.
 permissions:
