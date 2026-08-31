@@ -9,7 +9,7 @@ from commit messages — none are edited or run by hand.
 
 1. A branch is created and changes are committed.
 2. A PR is opened with a **Conventional Commit title**. The title determines the
-   next version when the PR is squash-merged into `master`:
+   next version when the PR is squash-merged into `main`:
 
    | PR title prefix | Example | Version bump |
    |---|---|---|
@@ -19,9 +19,9 @@ from commit messages — none are edited or run by hand.
    | `chore:`, `docs:`, `refactor:`, `test:`, `ci:` | `docs: fix typo` | no release |
 
 3. The **Tests** workflow runs on the PR (matrix: Node 20, 22, 24, plus a
-   security audit). The PR is squash-merged to `master`.
+   security audit). The PR is squash-merged to `main`.
 4. **release-please** opens or updates a **Release PR** titled
-   `chore(master): release X.Y.Z`. It carries the version bump in `package.json`
+   `chore(main): release X.Y.Z`. It carries the version bump in `package.json`
    and the generated `CHANGELOG.md` entries. Multiple code PRs merged before a
    release are batched into one Release PR.
 5. Merging the Release PR triggers the `release.yml` workflow, which:
@@ -46,11 +46,11 @@ This gate arrived with GitHub's [bot-created pull requests change](https://githu
 
 ## Branch protection
 
-`master` is protected with settings chosen to be compatible with the automated
+`main` is protected with settings chosen to be compatible with the automated
 flow above:
 
 - **Require a pull request before merging** (0 required approvals) — keeps direct
-  pushes off `master` without blocking a solo maintainer.
+  pushes off `main` without blocking a solo maintainer.
 - **Block force-pushes and deletions.**
 - **No required status checks.** The Tests workflow runs on every code PR and is
   visible there, but it is intentionally *not* a hard merge gate. The Release PR's own checks are held for approval, so a required check there would sit unresolved until someone approves it. The `publish` job re-runs build → lint → test before

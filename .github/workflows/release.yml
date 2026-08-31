@@ -6,7 +6,7 @@ name: Release
 #   1. You write code on a branch and open a PR. Use a Conventional Commit style
 #      PR title (e.g. "feat: add fan support", "fix: handle 401 on poll") since
 #      the squash-merge commit is what drives the next version.
-#   2. Merge the PR to master. release-please opens/updates a "Release PR" that
+#   2. Merge the PR to main. release-please opens/updates a "Release PR" that
 #      bumps the version in package.json and writes CHANGELOG.md from your commits.
 #   3. Merge that Release PR. release-please tags vX.Y.Z and creates the GitHub
 #      release, and the publish job below pushes the package to npm.
@@ -15,7 +15,7 @@ name: Release
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, main ]
 
 # Least privilege by default; each job opts into exactly what it needs.
 permissions: {}
