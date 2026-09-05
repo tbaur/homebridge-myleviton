@@ -21,7 +21,7 @@
 - ✅ Structured JSON logging (optional)
 - ✅ Token auto-refresh before expiry and on 401
 - ✅ Homebridge v2.0+ support
-- ✅ Node.js 20+ support
+- ✅ Node.js 22, 24 and 26 support
 
 ## Supported Devices
 

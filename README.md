@@ -3,9 +3,9 @@
 [![Tests](https://github.com/tbaur/homebridge-myleviton/actions/workflows/test.yml/badge.svg)](https://github.com/tbaur/homebridge-myleviton/actions/workflows/test.yml)
 [![npm version](https://img.shields.io/npm/v/homebridge-myleviton?style=flat-square)](https://www.npmjs.com/package/homebridge-myleviton)
 [![npm downloads](https://img.shields.io/npm/dt/homebridge-myleviton?style=flat-square)](https://www.npmjs.com/package/homebridge-myleviton)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D22-green)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-22%20%7C%7C%2024%20%7C%7C%2026-green)](https://nodejs.org)
 [![verified-by-homebridge](https://img.shields.io/badge/homebridge-verified-blueviolet?color=%23491F59&style=flat)](https://github.com/homebridge/homebridge/wiki/Verified-Plugins)
-[![Homebridge](https://img.shields.io/badge/homebridge-%3E%3D2.0.0-purple)](https://homebridge.io)
+[![Homebridge](https://img.shields.io/badge/homebridge-2.x-purple)](https://homebridge.io)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 Control your **My Leviton Decora Smart** WiFi devices through Apple HomeKit using Homebridge.
@@ -124,8 +124,8 @@ The plugin itself talks to Leviton over TLS only (`https`/`wss`), redacts passwo
 
 ## Requirements
 
-- Homebridge 2.0+
-- Node.js 20+
+- Homebridge 2.x
+- Node.js 22, 24, or 26
 - My Leviton account with registered devices
 
 ## More Info
