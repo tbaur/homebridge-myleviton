@@ -13,6 +13,7 @@ import {
   validateToken,
   validatePowerState,
   validateBrightness,
+  clampLevel,
   validateConfig,
   assertDefined,
   validateNonEmptyArray,
@@ -110,6 +111,29 @@ describe('validatePowerState', () => {
     expect(() => validatePowerState('off')).toThrow(ValidationError)
     expect(() => validatePowerState('true')).toThrow(ValidationError)
     expect(() => validatePowerState(1)).toThrow(ValidationError)
+  })
+})
+
+describe('clampLevel', () => {
+  it('should pass through a value already inside the range', () => {
+    expect(clampLevel(50, 1, 100)).toBe(50)
+  })
+
+  it('should raise a value below the minimum', () => {
+    expect(clampLevel(0, 1, 100)).toBe(1)
+  })
+
+  it('should lower a value above the maximum', () => {
+    // The case the old one-sided clamp missed: a device reporting 100 against
+    // its own ceiling of 80 made HAP reject the value on every update.
+    expect(clampLevel(100, 0, 80)).toBe(80)
+  })
+
+  it('should fall back to the minimum for non-finite or non-numeric input', () => {
+    expect(clampLevel(Number.NaN, 1, 100)).toBe(1)
+    expect(clampLevel(Number.POSITIVE_INFINITY, 1, 100)).toBe(1)
+    expect(clampLevel(undefined, 1, 100)).toBe(1)
+    expect(clampLevel('75', 1, 100)).toBe(1)
   })
 })
 

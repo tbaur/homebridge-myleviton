@@ -417,7 +417,7 @@ Benefits:
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 22, 24, or 26
 - npm 9+
 
 ### Setup

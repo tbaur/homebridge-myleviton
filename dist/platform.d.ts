@@ -170,6 +170,20 @@ export declare class LevitonDecoraSmartPlatform {
      */
     private findAccessoryByDevice;
     /**
+     * Unregisters accessories whose device is no longer in the Leviton account.
+     *
+     * Without this the cached list only ever grows: a switch the user removes or
+     * replaces stays in HomeKit as a tile that never updates and whose taps fail.
+     *
+     * Only ever called with a complete, non-empty discovery result. A partial or
+     * empty response must not reach here, because treating it as authoritative
+     * would delete accessories that are merely temporarily missing — taking the
+     * user's rooms, scenes and automations with them.
+     *
+     * @returns Number of accessories removed
+     */
+    private removeOrphanedAccessories;
+    /**
      * Removes an accessory from Homebridge cache and local tracking
      */
     private removeCachedAccessory;
@@ -213,7 +227,7 @@ export declare class LevitonDecoraSmartPlatform {
      * Sets up a basic switch/outlet service
      */
     private setupBasicService;
-    private getServiceByNameOrType;
+    private getServiceOfType;
     private syncServiceName;
     private syncExistingServiceNames;
     /**

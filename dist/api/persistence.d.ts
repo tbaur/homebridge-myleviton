@@ -33,6 +33,7 @@ export declare const PERSISTENCE_FILE_NAME = ".homebridge-myleviton-state.json";
  * Stores device states for faster startup and offline resilience
  */
 export declare class DevicePersistence {
+    /** Undefined when Homebridge gave us no storage directory; see the constructor. */
     private readonly storagePath;
     private readonly maxAge;
     private readonly maxDevices;
@@ -40,7 +41,17 @@ export declare class DevicePersistence {
     private deviceStates;
     private loaded;
     private dirty;
+    /**
+     * @param storagePath Absolute path inside the Homebridge storage directory.
+     *   When omitted, persistence is disabled rather than relocated: Homebridge
+     *   requires plugin files to live under its storage directory, and the old
+     *   fallback to `$HOME` or `/tmp` put a world-writable path in the load path,
+     *   where another local user could pre-create the file we parse at boot.
+     *   The in-memory cache still works for the life of the process.
+     */
     constructor(storagePath?: string, config?: Partial<PersistenceConfig>);
+    /** True when state can actually be read from and written to disk. */
+    get isEnabled(): boolean;
     /**
      * Load persisted device states from disk
      */
@@ -96,7 +107,8 @@ export declare class DevicePersistence {
         deviceCount: number;
         loaded: boolean;
         dirty: boolean;
-        storagePath: string;
+        storagePath: string | undefined;
+        enabled: boolean;
     };
 }
 /**

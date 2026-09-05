@@ -46,14 +46,15 @@
     "@typescript-eslint/parser": "^8.51.0",
     "eslint": "^10.7.0",
     "globals": "^17.7.0",
+    "homebridge": "^2.1.0",
     "jest": "^30.4.2",
     "nock": "^14.0.16",
     "ts-jest": "29.4.12",
     "typescript": "^6.0.3"
   },
   "engines": {
-    "homebridge": "^1.6.0 || ^2.0.0",
-    "node": ">=20.0.0"
+    "homebridge": "^2.0.0",
+    "node": "^22 || ^24 || ^26"
   },
   "scripts": {
     "build": "tsc",
@@ -62,8 +63,8 @@
     "prepublishOnly": "npm run clean && npm run build",
     "test": "NODE_ENV=test jest --coverage",
     "test:watch": "NODE_ENV=test jest --watch",
-    "test:unit": "NODE_ENV=test jest --coverage --testPathPattern=tests/unit",
-    "test:integration": "NODE_ENV=test jest --testPathPattern=tests/integration --collectCoverage=false",
+    "test:unit": "NODE_ENV=test jest --coverage --testPathPatterns=tests/unit",
+    "test:integration": "NODE_ENV=test jest --testPathPatterns=tests/integration --collectCoverage=false",
     "lint": "eslint . --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage",
     "lint:fix": "eslint . --fix --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern coverage"
   },

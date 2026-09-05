@@ -221,23 +221,29 @@ describe('truncate', () => {
 })
 
 describe('maskToken', () => {
-  it('should mask middle of token', () => {
-    const result = maskToken('abcdefghijklmnop')
-    
-    expect(result).toBe('abcd...mnop')
-    expect(result).not.toContain('efghijkl')
+  it('should not disclose any part of the token', () => {
+    const token = 'abcdefghijklmnop'
+    const result = maskToken(token)
+
+    expect(result).not.toContain(token)
+    // No run of four or more characters from the token may survive, which is
+    // what the previous first-and-last-four masking leaked.
+    for (let i = 0; i + 4 <= token.length; i++) {
+      expect(result).not.toContain(token.substring(i, i + 4))
+    }
   })
 
-  it('should handle short tokens', () => {
-    const result = maskToken('abc')
-    
-    expect(result).toBe('***')
+  it('should report the token length for diagnostics', () => {
+    expect(maskToken('abcdefghijklmnop')).toContain('len=16')
   })
 
-  it('should accept custom visible chars', () => {
-    const result = maskToken('abcdefghijklmnop', 2)
-    
-    expect(result).toBe('ab...op')
+  it('should be stable for the same token and distinct for different ones', () => {
+    expect(maskToken('token-one')).toBe(maskToken('token-one'))
+    expect(maskToken('token-one')).not.toBe(maskToken('token-two'))
+  })
+
+  it('should handle empty tokens', () => {
+    expect(maskToken('')).toBe('***')
   })
 })
 

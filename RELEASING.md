@@ -18,7 +18,7 @@ from commit messages — none are edited or run by hand.
    | `feat!:` / `fix!:` or a `BREAKING CHANGE:` footer | `feat!: drop Node 18` | major (3.4.10 → 4.0.0) |
    | `chore:`, `docs:`, `refactor:`, `test:`, `ci:` | `docs: fix typo` | no release |
 
-3. The **Tests** workflow runs on the PR (matrix: Node 20, 22, 24, plus a
+3. The **Tests** workflow runs on the PR (matrix: Node 22, 24, 26, plus a
    security audit). The PR is squash-merged to `main`.
 4. **release-please** opens or updates a **Release PR** titled
    `chore(main): release X.Y.Z`. It carries the version bump in `package.json`

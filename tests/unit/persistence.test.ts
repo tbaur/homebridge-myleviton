@@ -27,6 +27,56 @@ describe('DevicePersistence', () => {
     mockFs.unlinkSync.mockImplementation(() => {})
   })
 
+  describe('without a Homebridge storage directory', () => {
+    // Homebridge requires plugin files to live under its storage directory.
+    // Relocating to $HOME or /tmp, as this used to, put a world-writable path
+    // in the load path where another local user could plant the file we parse.
+    it('should report itself disabled', () => {
+      expect(new DevicePersistence(undefined, { onWarn: jest.fn() }).isEnabled).toBe(false)
+    })
+
+    it('should warn once at construction', () => {
+      const onWarn = jest.fn()
+      new DevicePersistence(undefined, { onWarn })
+      expect(onWarn).toHaveBeenCalledTimes(1)
+      expect(onWarn.mock.calls[0][0]).toContain('will not persist')
+    })
+
+    it('should never touch the filesystem', () => {
+      const persistence = new DevicePersistence(undefined, { onWarn: jest.fn() })
+
+      expect(persistence.load().size).toBe(0)
+      persistence.updateDevice('dev1', { id: 'dev1' })
+      expect(persistence.save()).toBe(false)
+      persistence.clear()
+
+      expect(mockFs.readFileSync).not.toHaveBeenCalled()
+      expect(mockFs.writeFileSync).not.toHaveBeenCalled()
+      expect(mockFs.unlinkSync).not.toHaveBeenCalled()
+    })
+
+    it('should still cache in memory for the session', () => {
+      const persistence = new DevicePersistence(undefined, { onWarn: jest.fn() })
+      persistence.updateDevice('dev1', { id: 'dev1', power: 'ON' })
+
+      expect(persistence.getDevice('dev1')).toMatchObject({ id: 'dev1', power: 'ON' })
+    })
+  })
+
+  describe('file permissions', () => {
+    it('should write state readable only by the owner', () => {
+      const persistence = new DevicePersistence(testPath)
+      persistence.updateDevice('dev1', { id: 'dev1' })
+      persistence.save()
+
+      expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+        `${testPath}.tmp`,
+        expect.any(String),
+        expect.objectContaining({ mode: 0o600 }),
+      )
+    })
+  })
+
   describe('load', () => {
     it('should load devices from file', () => {
       const savedData = {
@@ -363,6 +413,7 @@ describe('DevicePersistence', () => {
         loaded: false, // load() not explicitly called
         dirty: true,
         storagePath: testPath,
+        enabled: true,
       })
     })
   })

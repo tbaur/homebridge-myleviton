@@ -379,7 +379,10 @@ class LevitonWebSocket {
             this.timers.push(timer);
             return;
         }
-        const delay = Math.min(this.config.initialReconnectDelay * Math.pow(2, this.reconnectAttempt), this.config.maxReconnectDelay);
+        // Jittered so that several Homebridge instances on one Leviton account do
+        // not all reconnect on the same tick after an outage.
+        const backoff = Math.min(this.config.initialReconnectDelay * Math.pow(2, this.reconnectAttempt), this.config.maxReconnectDelay);
+        const delay = Math.round(backoff * (0.8 + Math.random() * 0.4));
         this.logger.info(`WebSocket reconnecting in ${Math.round(delay / 1000)}s (${this.reconnectAttempt + 1}/${this.config.maxReconnectAttempts})`);
         const timer = setTimeout(() => {
             this.removeTimer(timer);

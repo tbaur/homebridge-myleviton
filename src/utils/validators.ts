@@ -161,6 +161,21 @@ export function validateBrightness(brightness: unknown): number {
 }
 
 /**
+ * Clamp a device-reported level into the range a characteristic advertises.
+ *
+ * Leviton reports levels against its own floor and ceiling, which do not always
+ * agree with the props HomeKit was given — a device reporting 100 against a
+ * maxLevel of 80 makes HAP reject the value and log it on every update. A
+ * non-finite reading falls back to the low bound rather than reaching HomeKit.
+ */
+export function clampLevel(value: unknown, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return min
+  }
+  return Math.min(max, Math.max(min, value))
+}
+
+/**
  * Validate plugin configuration
  */
 export function validateConfig(config: unknown): LevitonConfig {

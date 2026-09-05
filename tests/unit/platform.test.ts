@@ -14,7 +14,7 @@ jest.mock('../../src/api/persistence')
 
 import { LevitonDecoraSmartPlatform, registerPlatform } from '../../src/platform'
 import type { LevitonConfig, LogLevel } from '../../src/types'
-import type { HomebridgeAPI } from '../../src/types/hap'
+import type { HomebridgeAPI, PlatformAccessory } from '../../src/types/hap'
 
 // Device model constants (matching platform.ts)
 const DIMMER_MODELS = ['DWVAA', 'DW1KD', 'DW6HD', 'D26HD', 'D23LP', 'DW3HL', 'D2ELV', 'D2710', 'DN6HD']
@@ -61,25 +61,44 @@ const mockService = (displayName = ''): MockServiceShape => ({
   setCharacteristic: jest.fn().mockReturnThis(),
 })
 
+/**
+ * A real PlatformAccessory with the two members these tests drive replaced by
+ * jest mocks. Modelling it this way — rather than as a standalone literal —
+ * means the mock stays assignable to what the platform actually accepts, while
+ * assertions and per-test reassignment still see plain jest.Mock.
+ */
+type MockAccessory = Omit<PlatformAccessory, 'getService' | 'addService'> & {
+  getService: jest.Mock
+  addService: jest.Mock
+}
+
 const mockAccessory = (
   device: { id: string; name: string; model: string; serial: string },
   services: MockServiceShape[] = [],
-) => ({
-  displayName: device.name,
-  UUID: `myleviton-${device.id}`,
-  services,
-  context: {
-    device,
-    token: 'test-token',
-  },
-  getService: jest.fn().mockReturnValue(mockService()),
-  addService: jest.fn().mockReturnValue(mockService()),
-})
+): MockAccessory => {
+  const accessory = {
+    displayName: device.name,
+    UUID: `myleviton-${device.id}`,
+    services,
+    context: {
+      device,
+      token: 'test-token',
+    },
+    getService: jest.fn().mockReturnValue(mockService()),
+    addService: jest.fn().mockReturnValue(mockService()),
+  }
+  return accessory as unknown as MockAccessory
+}
 
 // Mock Homebridge API
+//
+// The mock covers only the surface the platform uses, so it is widened to the
+// real `API` at this single boundary rather than at every call site. Keeping
+// the literal type in the intersection means the jest.Mock members stay
+// inspectable in assertions.
 const createMockHomebridgeAPI = () => {
   const eventHandlers: Record<string, () => void> = {}
-  return {
+  const api = {
     on: jest.fn((event: string, handler: () => void) => {
       eventHandlers[event] = handler
     }),
@@ -127,6 +146,7 @@ const createMockHomebridgeAPI = () => {
     unregisterPlatformAccessories: jest.fn(),
     updatePlatformAccessories: jest.fn(),
   }
+  return api as typeof api & HomebridgeAPI
 }
 
 // Mock log function
@@ -311,7 +331,7 @@ describe('LevitonDecoraSmartPlatform', () => {
       platform.configureAccessory(accessory)
 
       expect(mockAPI.updatePlatformAccessories).toHaveBeenCalledWith([accessory])
-      expect(accessory.context.device.name).toBe('Primary Bedroom Sconce 1')
+      expect(accessory.context.device?.name).toBe('Primary Bedroom Sconce 1')
     })
 
     it('should sanitize cached displayName even when context.device.name is missing', () => {
@@ -436,7 +456,7 @@ describe('LevitonDecoraSmartPlatform', () => {
         mockAPI.emit('didFinishLaunching')
         await new Promise(resolve => setTimeout(resolve, 100))
         
-        expect(accessory.getService).toHaveBeenCalledWith('Lightbulb', device.name)
+        expect(accessory.getService).toHaveBeenCalledWith('Lightbulb')
       })
     })
 
@@ -454,7 +474,7 @@ describe('LevitonDecoraSmartPlatform', () => {
         mockAPI.emit('didFinishLaunching')
         await new Promise(resolve => setTimeout(resolve, 100))
         
-        expect(accessory.getService).toHaveBeenCalledWith('Lightbulb', device.name)
+        expect(accessory.getService).toHaveBeenCalledWith('Lightbulb')
         expect(accessory.getService).toHaveBeenCalledWith('MotionSensor')
       })
     })
@@ -472,7 +492,7 @@ describe('LevitonDecoraSmartPlatform', () => {
       mockAPI.emit('didFinishLaunching')
       await new Promise(resolve => setTimeout(resolve, 100))
       
-      expect(accessory.getService).toHaveBeenCalledWith('Fan', device.name)
+      expect(accessory.getService).toHaveBeenCalledWith('Fan')
     })
 
     // Test all outlet models
@@ -489,7 +509,7 @@ describe('LevitonDecoraSmartPlatform', () => {
         mockAPI.emit('didFinishLaunching')
         await new Promise(resolve => setTimeout(resolve, 100))
         
-        expect(accessory.getService).toHaveBeenCalledWith('Outlet', device.name)
+        expect(accessory.getService).toHaveBeenCalledWith('Outlet')
       })
     })
 
@@ -507,7 +527,7 @@ describe('LevitonDecoraSmartPlatform', () => {
         mockAPI.emit('didFinishLaunching')
         await new Promise(resolve => setTimeout(resolve, 100))
         
-        expect(accessory.getService).toHaveBeenCalledWith('Switch', device.name)
+        expect(accessory.getService).toHaveBeenCalledWith('Switch')
       })
     })
 
@@ -542,7 +562,110 @@ describe('LevitonDecoraSmartPlatform', () => {
       mockAPI.emit('didFinishLaunching')
       await new Promise(resolve => setTimeout(resolve, 100))
       
-      expect(accessory.getService).toHaveBeenCalledWith('Switch', device.name)
+      expect(accessory.getService).toHaveBeenCalledWith('Switch')
+    })
+  })
+
+  describe('orphaned accessory cleanup', () => {
+    it('should unregister an accessory whose device left the account', async () => {
+      const { mockLog, mockAPI, mockClient } = setupMocks()
+      const kept = { id: 'dev-1', name: 'Kept Light', model: 'DW6HD', serial: 'ABC123' }
+      const removed = { id: 'dev-2', name: 'Sold Switch', model: 'DW15S', serial: 'DEF456' }
+      mockClient.getDevices.mockResolvedValue([kept])
+
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      const keptAccessory = mockAccessory(kept)
+      const orphanAccessory = mockAccessory(removed)
+      platform.configureAccessory(keptAccessory)
+      platform.configureAccessory(orphanAccessory)
+
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      expect(mockAPI.unregisterPlatformAccessories).toHaveBeenCalledWith(
+        'homebridge-myleviton',
+        'MyLevitonDecoraSmart',
+        [orphanAccessory],
+      )
+    })
+
+    it('should not remove anything when every cached device is still present', async () => {
+      const { mockLog, mockAPI, mockClient } = setupMocks()
+      const device = { id: 'dev-1', name: 'Kept Light', model: 'DW6HD', serial: 'ABC123' }
+      mockClient.getDevices.mockResolvedValue([device])
+
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      platform.configureAccessory(mockAccessory(device))
+
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      expect(mockAPI.unregisterPlatformAccessories).not.toHaveBeenCalled()
+    })
+
+    it('should keep every accessory when discovery returns no devices', async () => {
+      // An empty response is treated as "we could not see the account", not as
+      // "the account is empty" — otherwise a bad API day deletes the user's rooms.
+      const { mockLog, mockAPI, mockClient } = setupMocks()
+      const device = { id: 'dev-1', name: 'Kept Light', model: 'DW6HD', serial: 'ABC123' }
+      mockClient.getDevices.mockResolvedValue([])
+
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      platform.configureAccessory(mockAccessory(device))
+
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      expect(mockAPI.unregisterPlatformAccessories).not.toHaveBeenCalled()
+    })
+
+    it('should never remove the synthesized connectivity sensor', async () => {
+      const { mockLog, mockAPI, mockClient } = setupMocks()
+      const device = { id: 'dev-1', name: 'Kept Light', model: 'DW6HD', serial: 'ABC123' }
+      mockClient.getDevices.mockResolvedValue([device])
+
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      platform.configureAccessory(mockAccessory(device))
+
+      const connectivity = mockAccessory({ id: 'conn', name: 'Cloud Connectivity', model: '', serial: '' })
+      connectivity.context = { connectivity: true } as unknown as typeof connectivity.context
+      platform.configureAccessory(connectivity)
+
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      const unregistered = mockAPI.unregisterPlatformAccessories.mock.calls
+        .flatMap((call: unknown[]) => call[2] as unknown[])
+      expect(unregistered).not.toContain(connectivity)
+    })
+  })
+
+  describe('fan characteristic props', () => {
+    it('should use a step of 1 rather than the device minimum level', async () => {
+      // minLevel is a dimming floor. Using it as minStep would let HomeKit
+      // request only multiples of it and round intermediate speeds away.
+      const { mockLog, mockAPI, mockClient } = setupMocks()
+      const device = { id: 'dev-1', name: 'Test Fan', model: 'DW4SF', serial: 'ABC123' }
+      mockClient.getDevices.mockResolvedValue([device])
+      mockClient.getDeviceStatus.mockResolvedValue({
+        power: 'ON', brightness: 50, minLevel: 10, maxLevel: 80,
+      })
+
+      const speedChar = mockCharacteristic()
+      const fanService = mockService('Test Fan')
+      fanService.getCharacteristic = jest.fn().mockReturnValue(speedChar)
+      const accessory = mockAccessory(device, [fanService])
+      accessory.getService = jest.fn().mockReturnValue(fanService)
+
+      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+      platform.configureAccessory(accessory)
+
+      mockAPI.emit('didFinishLaunching')
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      expect(speedChar.setProps).toHaveBeenCalledWith(
+        expect.objectContaining({ minStep: 1, minValue: 0, maxValue: 80 }),
+      )
     })
   })
 
@@ -878,7 +1001,7 @@ describe('LevitonDecoraSmartPlatform', () => {
         context: { connectivity: true },
         getService: jest.fn().mockReturnValue(null),
         addService: jest.fn().mockReturnValue(mockService()),
-      }
+      } as unknown as MockAccessory
       platform.configureAccessory(cached)
 
       mockAPI.emit('didFinishLaunching')
@@ -1376,7 +1499,7 @@ describe('Service setup for all device types', () => {
         mockAPI.emit('didFinishLaunching')
         await new Promise(resolve => setTimeout(resolve, 100))
         
-        expect(accessory.getService).toHaveBeenCalledWith('Lightbulb', device.name)
+        expect(accessory.getService).toHaveBeenCalledWith('Lightbulb')
         expect(accessory.getService).toHaveBeenCalledWith('MotionSensor')
       })
     })
@@ -1808,11 +1931,12 @@ describe('registerPlatform', () => {
     
     registerPlatform(mockHomebridge as unknown as HomebridgeAPI)
     
+    // Three arguments exactly: Homebridge's registerPlatform has no fourth
+    // parameter, so passing one was silently dropped.
     expect(mockHomebridge.registerPlatform).toHaveBeenCalledWith(
       'homebridge-myleviton',
       'MyLevitonDecoraSmart',
       LevitonDecoraSmartPlatform,
-      true,
     )
   })
 })

@@ -45,7 +45,6 @@ exports.DevicePersistence = exports.PERSISTENCE_FILE_NAME = exports.DEFAULT_PERS
 exports.getDevicePersistence = getDevicePersistence;
 exports.resetGlobalPersistence = resetGlobalPersistence;
 const fs = __importStar(require("fs"));
-const path = __importStar(require("path"));
 const sanitizers_1 = require("../utils/sanitizers");
 /**
  * Default persistence configuration
@@ -63,6 +62,7 @@ exports.PERSISTENCE_FILE_NAME = '.homebridge-myleviton-state.json';
  * Stores device states for faster startup and offline resilience
  */
 class DevicePersistence {
+    /** Undefined when Homebridge gave us no storage directory; see the constructor. */
     storagePath;
     maxAge;
     maxDevices;
@@ -70,18 +70,38 @@ class DevicePersistence {
     deviceStates = new Map();
     loaded = false;
     dirty = false;
+    /**
+     * @param storagePath Absolute path inside the Homebridge storage directory.
+     *   When omitted, persistence is disabled rather than relocated: Homebridge
+     *   requires plugin files to live under its storage directory, and the old
+     *   fallback to `$HOME` or `/tmp` put a world-writable path in the load path,
+     *   where another local user could pre-create the file we parse at boot.
+     *   The in-memory cache still works for the life of the process.
+     */
     constructor(storagePath, config = {}) {
         const merged = { ...exports.DEFAULT_PERSISTENCE_CONFIG, ...config };
-        this.storagePath = storagePath || path.join(process.env.HOME || '/tmp', exports.PERSISTENCE_FILE_NAME);
+        this.storagePath = storagePath;
         this.maxAge = merged.maxAge ?? 24 * 60 * 60 * 1000;
         this.maxDevices = merged.maxDevices ?? 200;
         this.onWarn = merged.onWarn;
+        if (!this.storagePath) {
+            this.onWarn?.('Homebridge did not provide a storage directory, so device state will not persist '
+                + 'across restarts. Caching still works for this session.');
+        }
+    }
+    /** True when state can actually be read from and written to disk. */
+    get isEnabled() {
+        return this.storagePath !== undefined;
     }
     /**
      * Load persisted device states from disk
      */
     load() {
         if (this.loaded) {
+            return this.deviceStates;
+        }
+        if (!this.storagePath) {
+            this.loaded = true;
             return this.deviceStates;
         }
         try {
@@ -119,6 +139,9 @@ class DevicePersistence {
      * Save device states to disk
      */
     save() {
+        if (!this.storagePath) {
+            return false;
+        }
         if (!this.dirty && this.loaded) {
             return true; // Nothing to save
         }
@@ -140,9 +163,11 @@ class DevicePersistence {
                 timestamp: Date.now(),
                 devices,
             }, null, 2);
-            // Write atomically using temp file
+            // Write atomically using temp file. The mode is explicit because rename
+            // carries it onto the live file, so the default umask would decide who
+            // can read the device inventory.
             const tempPath = `${this.storagePath}.tmp`;
-            fs.writeFileSync(tempPath, data, 'utf8');
+            fs.writeFileSync(tempPath, data, { encoding: 'utf8', mode: 0o600 });
             fs.renameSync(tempPath, this.storagePath);
             this.dirty = false;
             return true;
@@ -226,6 +251,9 @@ class DevicePersistence {
     clear() {
         this.deviceStates.clear();
         this.dirty = true;
+        if (!this.storagePath) {
+            return;
+        }
         try {
             if (fs.existsSync(this.storagePath)) {
                 fs.unlinkSync(this.storagePath);
@@ -263,6 +291,7 @@ class DevicePersistence {
             loaded: this.loaded,
             dirty: this.dirty,
             storagePath: this.storagePath,
+            enabled: this.isEnabled,
         };
     }
 }
