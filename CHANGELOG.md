@@ -5,6 +5,17 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0](https://github.com/tbaur/homebridge-myleviton/compare/v3.7.9...v4.0.0) (2026-09-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* requires Homebridge 2.0 or newer and Node 22, 24 or 26. Homebridge 1.x and Node 20 are no longer supported.
+
+### Bug Fixes
+
+* unregister removed devices and use real Homebridge types ([#74](https://github.com/tbaur/homebridge-myleviton/issues/74)) ([51674e9](https://github.com/tbaur/homebridge-myleviton/commit/51674e95c24f8e0bb9c8ab02393e1d9b975126da))
+
 ## [3.7.9](https://github.com/tbaur/homebridge-myleviton/compare/v3.7.8...v3.7.9) (2026-08-18)
 
 
