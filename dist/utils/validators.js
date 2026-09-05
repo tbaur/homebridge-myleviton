@@ -15,6 +15,7 @@ exports.validateSerial = validateSerial;
 exports.validateToken = validateToken;
 exports.validatePowerState = validatePowerState;
 exports.validateBrightness = validateBrightness;
+exports.clampLevel = clampLevel;
 exports.validateConfig = validateConfig;
 exports.assertDefined = assertDefined;
 exports.validateNonEmptyArray = validateNonEmptyArray;
@@ -139,6 +140,20 @@ function validateBrightness(brightness) {
         throw new errors_1.ValidationError('brightness', 'must be between 0 and 100', brightness);
     }
     return Math.round(brightness);
+}
+/**
+ * Clamp a device-reported level into the range a characteristic advertises.
+ *
+ * Leviton reports levels against its own floor and ceiling, which do not always
+ * agree with the props HomeKit was given — a device reporting 100 against a
+ * maxLevel of 80 makes HAP reject the value and log it on every update. A
+ * non-finite reading falls back to the low bound rather than reaching HomeKit.
+ */
+function clampLevel(value, min, max) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return min;
+    }
+    return Math.min(max, Math.max(min, value));
 }
 /**
  * Validate plugin configuration

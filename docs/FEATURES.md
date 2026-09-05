@@ -20,7 +20,7 @@
 - ✅ Optional diagnostics subsystem (health heartbeat, boot/shutdown snapshots, degraded/recovered transitions — logs/JSON only)
 - ✅ Structured JSON logging (optional)
 - ✅ Token auto-refresh before expiry and on 401
-- ✅ Homebridge v1.6.0+ and v2.0+ support
+- ✅ Homebridge v2.0+ support
 - ✅ Node.js 20+ support
 
 ## Supported Devices

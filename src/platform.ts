@@ -10,12 +10,12 @@
 import * as path from 'path'
 import { LevitonApiClient } from './api/client'
 import { LevitonWebSocket, createWebSocket } from './api/websocket'
-import { DevicePersistence } from './api/persistence'
+import { DevicePersistence, PERSISTENCE_FILE_NAME } from './api/persistence'
 import { DiagnosticsCollector } from './diagnostics/collector'
 import type { DiagnosticsReaders, DeviceGauges } from './diagnostics/collector'
 import { createStructuredLogger, StructuredLogger } from './utils/logger'
 import { sanitizeError, sanitizeHapName, isValidHapName } from './utils/sanitizers'
-import { validateConfig as validateConfigSchema } from './utils/validators'
+import { clampLevel, validateConfig as validateConfigSchema } from './utils/validators'
 import { AuthenticationError, ConfigurationError, ApiResponseError } from './errors'
 import type {
   LevitonConfig,
@@ -26,7 +26,14 @@ import type {
   LoginResponse,
   DiagnosticsSnapshot,
 } from './types'
-import type { HAPModule, HomebridgeAPI, PlatformAccessory, HAPService } from './types/hap'
+import type {
+  CharacteristicRef,
+  HAPModule,
+  HAPService,
+  HomebridgeAPI,
+  PlatformAccessory,
+  ServiceRef,
+} from './types/hap'
 import {
   DIMMER_MODELS,
   MOTION_DIMMER_MODELS,
@@ -179,7 +186,7 @@ export class LevitonDecoraSmartPlatform {
     
     // Setup device persistence
     const storagePath = api?.user?.storagePath?.() 
-      ? path.join(api.user.storagePath(), '.homebridge-myleviton-state.json')
+      ? path.join(api.user.storagePath(), PERSISTENCE_FILE_NAME)
       : undefined
     this.devicePersistence = new DevicePersistence(storagePath, {
       onWarn: (msg: string) => this.log.warn(msg),
@@ -356,13 +363,18 @@ export class LevitonDecoraSmartPlatform {
         }
       }
 
+      // Safe here and not earlier: discovery returned a non-empty device list,
+      // so anything still cached and unmatched really is gone from the account.
+      const removedCount = this.removeOrphanedAccessories(devices)
+
       this.lastCloudDeviceCount = devices.length
       this.lastStatelessCount = statelessCount
       this.lastExcludedCount = excludedCount
 
       const controllableCount = devices.length - excludedCount - statelessCount
+      const removedText = removedCount > 0 ? `, ${removedCount} removed` : ''
       this.log.info(
-        `Found ${devices.length} Leviton devices: ${controllableCount} controllable (${cachedCount} cached, ${newDevices} new), ${statelessCount} stateless skipped, ${excludedCount} excluded by config`,
+        `Found ${devices.length} Leviton devices: ${controllableCount} controllable (${cachedCount} cached, ${newDevices} new), ${statelessCount} stateless skipped, ${excludedCount} excluded by config${removedText}`,
       )
       
       // Start polling
@@ -551,16 +563,21 @@ export class LevitonDecoraSmartPlatform {
       let currentBrightness: number | undefined
       let newBrightness: number | undefined
       
+      // Clamp to the range each characteristic actually advertises. A device
+      // can report a level above its own ceiling, and pushing that through
+      // makes HAP reject the value and log it on every WebSocket update.
       if (fanService) {
         // Fans allow 0 rotation speed
-        newBrightness = Math.max(0, brightness)
-        currentBrightness = fanService.getCharacteristic(hap.Characteristic.RotationSpeed).value as number
-        fanService.getCharacteristic(hap.Characteristic.RotationSpeed).updateValue(newBrightness)
+        const speedChar = fanService.getCharacteristic(hap.Characteristic.RotationSpeed)
+        newBrightness = clampLevel(brightness, speedChar.props?.minValue ?? 0, speedChar.props?.maxValue ?? 100)
+        currentBrightness = speedChar.value as number
+        speedChar.updateValue(newBrightness)
       } else if (lightService) {
         // Dimmers have minimum brightness of 1
-        newBrightness = Math.max(1, brightness)
-        currentBrightness = lightService.getCharacteristic(hap.Characteristic.Brightness).value as number
-        lightService.getCharacteristic(hap.Characteristic.Brightness).updateValue(newBrightness)
+        const brightnessChar = lightService.getCharacteristic(hap.Characteristic.Brightness)
+        newBrightness = clampLevel(brightness, brightnessChar.props?.minValue ?? 1, brightnessChar.props?.maxValue ?? 100)
+        currentBrightness = brightnessChar.value as number
+        brightnessChar.updateValue(newBrightness)
       }
       // No else — switches/outlets don't have brightness, just skip to power update
       
@@ -984,6 +1001,45 @@ export class LevitonDecoraSmartPlatform {
   }
 
   /**
+   * Unregisters accessories whose device is no longer in the Leviton account.
+   *
+   * Without this the cached list only ever grows: a switch the user removes or
+   * replaces stays in HomeKit as a tile that never updates and whose taps fail.
+   *
+   * Only ever called with a complete, non-empty discovery result. A partial or
+   * empty response must not reach here, because treating it as authoritative
+   * would delete accessories that are merely temporarily missing — taking the
+   * user's rooms, scenes and automations with them.
+   *
+   * @returns Number of accessories removed
+   */
+  private removeOrphanedAccessories(devices: DeviceInfo[]): number {
+    const liveSerials = new Set(
+      devices
+        .map(device => String(device.serial || '').trim().toUpperCase())
+        .filter(serial => serial.length > 0),
+    )
+
+    const orphans = this.accessories.filter((accessory) => {
+      // The connectivity sensor is synthesized by the plugin, not discovered.
+      if (accessory.context?.connectivity) {
+        return false
+      }
+      const serial = String(accessory.context?.device?.serial || '').trim().toUpperCase()
+      // An accessory with no serial cannot be matched against discovery, so it
+      // is left alone rather than deleted on a guess.
+      return serial.length > 0 && !liveSerials.has(serial)
+    })
+
+    for (const orphan of orphans) {
+      this.log.info(`Removing "${orphan.displayName}" — no longer in your My Leviton account`)
+      this.removeCachedAccessory(orphan)
+    }
+
+    return orphans.length
+  }
+
+  /**
    * Removes an accessory from Homebridge cache and local tracking
    */
   private removeCachedAccessory(accessory: PlatformAccessory): void {
@@ -1061,7 +1117,7 @@ export class LevitonDecoraSmartPlatform {
   /**
    * Captures the current HomeKit state before reconfiguring a cached accessory.
    */
-  private getCurrentServiceStatus(service: Service, levelCharacteristic?: unknown): DeviceStatus | undefined {
+  private getCurrentServiceStatus(service: Service, levelCharacteristic?: CharacteristicRef): DeviceStatus | undefined {
     const onValue = service.getCharacteristic(hap.Characteristic.On).value
     if (typeof onValue !== 'boolean') {
       return undefined
@@ -1083,7 +1139,7 @@ export class LevitonDecoraSmartPlatform {
     return status
   }
 
-  private serviceHasCharacteristic(service: Service, characteristic: unknown): boolean {
+  private serviceHasCharacteristic(service: Service, characteristic: CharacteristicRef): boolean {
     return typeof service.testCharacteristic === 'function'
       && service.testCharacteristic(characteristic)
   }
@@ -1093,7 +1149,7 @@ export class LevitonDecoraSmartPlatform {
    * Never auto-adds characteristics (Homebridge warns when Brightness is added
    * to Outlet/Fan/Switch services).
    */
-  private readCharacteristicValue(service: Service, characteristic: unknown): number | undefined {
+  private readCharacteristicValue(service: Service, characteristic: CharacteristicRef): number | undefined {
     if (!this.serviceHasCharacteristic(service, characteristic)) {
       return undefined
     }
@@ -1128,7 +1184,7 @@ export class LevitonDecoraSmartPlatform {
    */
   private async setupLightbulbService(accessory: PlatformAccessory, device: DeviceInfo): Promise<DeviceStatus> {
     const serviceName = this.getHapDeviceName(device)
-    const existingService = this.getServiceByNameOrType(accessory, hap.Service.Lightbulb, serviceName)
+    const existingService = this.getServiceOfType(accessory, hap.Service.Lightbulb)
     const fallbackStatus = existingService
       ? this.getCurrentServiceStatus(existingService, hap.Characteristic.Brightness)
       : undefined
@@ -1140,8 +1196,7 @@ export class LevitonDecoraSmartPlatform {
     const minBrightness = status.minLevel || 1
     const maxBrightness = status.maxLevel || 100
     // Ensure brightness is within valid range (0 is invalid for HomeKit Brightness which has minValue=1)
-    const rawBrightness = typeof status.brightness === 'number' ? status.brightness : 0
-    const safeBrightness = rawBrightness < minBrightness ? minBrightness : rawBrightness
+    const safeBrightness = clampLevel(status.brightness, minBrightness, maxBrightness)
 
     // Setup On characteristic
     // No 'get' handler — Homebridge returns the cached value set by updateValue(),
@@ -1188,7 +1243,7 @@ export class LevitonDecoraSmartPlatform {
    */
   private async setupFanService(accessory: PlatformAccessory, device: DeviceInfo): Promise<void> {
     const serviceName = this.getHapDeviceName(device)
-    const existingService = this.getServiceByNameOrType(accessory, hap.Service.Fan, serviceName)
+    const existingService = this.getServiceOfType(accessory, hap.Service.Fan)
     const fallbackStatus = existingService
       ? this.getCurrentServiceStatus(existingService, hap.Characteristic.RotationSpeed)
       : undefined
@@ -1203,14 +1258,20 @@ export class LevitonDecoraSmartPlatform {
     onChar.on('set', this.createPowerSetter(device))
     onChar.updateValue(status.power === POWER_ON)
 
-    // Setup RotationSpeed characteristic - set props before value
+    // Setup RotationSpeed characteristic
     // No 'get' handler — value kept current by WebSocket + polling via updateValue()
+    //
+    // minLevel is the device's dimming floor, not a step size: using it as
+    // minStep would let HomeKit request only multiples of it and round every
+    // speed in between away. As with Brightness above, the value is written
+    // before the narrower props so a cached reading cannot fail validation.
+    const maxSpeed = status.maxLevel || 100
     const speedChar = service.getCharacteristic(hap.Characteristic.RotationSpeed)
-    speedChar.setProps({ minValue: 0, maxValue: status.maxLevel || 100, minStep: status.minLevel || 1 })
+    speedChar.updateValue(clampLevel(status.brightness, 0, maxSpeed))
+    speedChar.setProps({ minValue: 0, maxValue: maxSpeed, minStep: 1 })
     speedChar.removeAllListeners('get')
     speedChar.removeAllListeners('set')
     speedChar.on('set', this.createBrightnessSetter(device))
-    speedChar.updateValue(status.brightness || 0)
   }
 
   /**
@@ -1219,10 +1280,10 @@ export class LevitonDecoraSmartPlatform {
   private async setupBasicService(
     accessory: PlatformAccessory, 
     device: DeviceInfo, 
-    ServiceType: unknown,
+    ServiceType: ServiceRef,
   ): Promise<void> {
     const serviceName = this.getHapDeviceName(device)
-    const existingService = this.getServiceByNameOrType(accessory, ServiceType, serviceName)
+    const existingService = this.getServiceOfType(accessory, ServiceType)
     const fallbackStatus = existingService
       ? this.getCurrentServiceStatus(existingService)
       : undefined
@@ -1239,8 +1300,11 @@ export class LevitonDecoraSmartPlatform {
     onChar.updateValue(status.power === POWER_ON)
   }
 
-  private getServiceByNameOrType(accessory: PlatformAccessory, ServiceType: unknown, serviceName: string): Service | undefined {
-    return accessory.getService(ServiceType, serviceName) || accessory.getService(ServiceType)
+  // Homebridge's getService takes a single argument, so the name cannot narrow
+  // this lookup. Accessories here carry one service per type, which is what
+  // makes lookup by type sufficient.
+  private getServiceOfType(accessory: PlatformAccessory, ServiceType: ServiceRef): Service | undefined {
+    return accessory.getService(ServiceType)
   }
 
   private syncServiceName(service: Service, serviceName: string): void {
@@ -1871,7 +1935,7 @@ function formatDiagnosticLine(report: DiagnosticsSnapshot): string {
  */
 export function registerPlatform(homebridge: HomebridgeAPI): void {
   hap = homebridge.hap
-  homebridge.registerPlatform(PLUGIN_NAME, PLATFORM_NAME, LevitonDecoraSmartPlatform, true)
+  homebridge.registerPlatform(PLUGIN_NAME, PLATFORM_NAME, LevitonDecoraSmartPlatform)
 }
 
 export default registerPlatform

@@ -39,9 +39,14 @@ export declare function sanitizeObject<T extends Record<string, unknown>>(obj: T
  */
 export declare function truncate(str: string, maxLength: number, suffix?: string): string;
 /**
- * Mask a token for logging (show first and last few characters)
+ * Fingerprint a token for logging.
+ *
+ * Emits a salted hash and a length rather than any part of the token itself.
+ * Showing the first and last characters, as this used to, spends real entropy
+ * for no diagnostic gain: telling two tokens apart across log lines is the
+ * only thing the value is needed for, and a hash does that.
  */
-export declare function maskToken(token: string, visibleChars?: number): string;
+export declare function maskToken(token: string): string;
 /**
  * Create a safe preview of a response body for logging
  */

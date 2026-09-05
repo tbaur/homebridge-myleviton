@@ -18,6 +18,7 @@ exports.truncate = truncate;
 exports.maskToken = maskToken;
 exports.createResponsePreview = createResponsePreview;
 exports.sanitizeStackTrace = sanitizeStackTrace;
+const node_crypto_1 = require("node:crypto");
 /**
  * Patterns for sensitive data that should be redacted
  */
@@ -155,13 +156,28 @@ function truncate(str, maxLength, suffix = '...') {
     return str.substring(0, maxLength - suffix.length) + suffix;
 }
 /**
- * Mask a token for logging (show first and last few characters)
+ * Per-process salt so a fingerprint cannot be matched against a token that
+ * leaked from somewhere else, or correlated across restarts.
  */
-function maskToken(token, visibleChars = 4) {
-    if (token.length <= visibleChars * 2) {
+const TOKEN_FINGERPRINT_SALT = (0, node_crypto_1.randomBytes)(16);
+/**
+ * Fingerprint a token for logging.
+ *
+ * Emits a salted hash and a length rather than any part of the token itself.
+ * Showing the first and last characters, as this used to, spends real entropy
+ * for no diagnostic gain: telling two tokens apart across log lines is the
+ * only thing the value is needed for, and a hash does that.
+ */
+function maskToken(token) {
+    if (token.length === 0) {
         return '***';
     }
-    return `${token.substring(0, visibleChars)}...${token.substring(token.length - visibleChars)}`;
+    const fingerprint = (0, node_crypto_1.createHash)('sha256')
+        .update(TOKEN_FINGERPRINT_SALT)
+        .update(token)
+        .digest('hex')
+        .substring(0, 8);
+    return `***${fingerprint}(len=${token.length})`;
 }
 /**
  * Create a safe preview of a response body for logging
