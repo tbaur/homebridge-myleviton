@@ -5,6 +5,13 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.1](https://github.com/tbaur/homebridge-myleviton/compare/v4.0.0...v4.0.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* refuse Leviton HTTP redirects and cap response bodies ([#78](https://github.com/tbaur/homebridge-myleviton/issues/78)) ([0781286](https://github.com/tbaur/homebridge-myleviton/commit/0781286a843cd09dc47292fa18f2a6bdabfcb8cb))
+
 ## [4.0.0](https://github.com/tbaur/homebridge-myleviton/compare/v3.7.9...v4.0.0) (2026-09-05)
 
 
