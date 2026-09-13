@@ -6,7 +6,7 @@
  *
  * @fileoverview API module exports
  */
-export { LevitonApiClient, getApiClient, resetGlobalClient } from './client';
+export { LevitonApiClient, getApiClient, resetGlobalClient, MAX_RESPONSE_BYTES, readBoundedText } from './client';
 export type { ApiClientConfig } from './client';
 export { RateLimiter, getRateLimiter, resetGlobalRateLimiter } from './rate-limiter';
 export type { RateLimiterConfig } from './rate-limiter';

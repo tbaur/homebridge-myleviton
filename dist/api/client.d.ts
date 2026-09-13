@@ -67,6 +67,22 @@ export interface ApiClientConfig {
  */
 export declare const DEFAULT_API_CONFIG: ApiClientConfig;
 /**
+ * Largest Leviton JSON body the client will buffer.
+ *
+ * Enforced while reading, not after `response.text()`. Login, account, and
+ * device-list payloads are small; a chunked response has no content-length,
+ * so awaiting the whole body first would already have committed the memory
+ * in the Homebridge process.
+ */
+export declare const MAX_RESPONSE_BYTES: number;
+/**
+ * Read a response body, refusing to buffer more than {@link MAX_RESPONSE_BYTES}.
+ *
+ * Test doubles that only implement `text()` fall back to that path and are
+ * checked after the fact. Live `fetch` responses are metered from the stream.
+ */
+export declare function readBoundedText(response: Response): Promise<string>;
+/**
  * Leviton API client
  */
 export declare class LevitonApiClient {

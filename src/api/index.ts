@@ -8,7 +8,7 @@
  */
 
 // Client
-export { LevitonApiClient, getApiClient, resetGlobalClient } from './client'
+export { LevitonApiClient, getApiClient, resetGlobalClient, MAX_RESPONSE_BYTES, readBoundedText } from './client'
 export type { ApiClientConfig } from './client'
 
 // Rate Limiter
