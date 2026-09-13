@@ -163,7 +163,10 @@ function validateConfig(config) {
     if (!config || typeof config !== 'object') {
         throw new errors_1.ConfigurationError('Configuration must be an object');
     }
-    const cfg = config;
+    // Copy so an env-supplied password (and any clamp) stay on the returned
+    // object. Mutating the Homebridge config object would write that password
+    // into config.json the next time the settings page saved.
+    const cfg = { ...config };
     // Required fields
     if (!cfg.name || typeof cfg.name !== 'string' || cfg.name.trim().length === 0) {
         errors.push('name is required');
@@ -179,13 +182,11 @@ function validateConfig(config) {
             errors.push(`email: ${e.message}`);
         }
     }
+    if (!cfg.password && process.env.MYLEVITON_PASSWORD) {
+        cfg.password = process.env.MYLEVITON_PASSWORD;
+    }
     if (!cfg.password) {
-        if (process.env.MYLEVITON_PASSWORD) {
-            cfg.password = process.env.MYLEVITON_PASSWORD;
-        }
-        else {
-            errors.push('password is required (or set MYLEVITON_PASSWORD environment variable)');
-        }
+        errors.push('password is required (or set MYLEVITON_PASSWORD environment variable)');
     }
     else {
         try {

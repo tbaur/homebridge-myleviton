@@ -185,7 +185,10 @@ export function validateConfig(config: unknown): LevitonConfig {
     throw new ConfigurationError('Configuration must be an object')
   }
   
-  const cfg = config as Record<string, unknown>
+  // Copy so an env-supplied password (and any clamp) stay on the returned
+  // object. Mutating the Homebridge config object would write that password
+  // into config.json the next time the settings page saved.
+  const cfg = { ...(config as Record<string, unknown>) }
   
   // Required fields
   if (!cfg.name || typeof cfg.name !== 'string' || cfg.name.trim().length === 0) {
@@ -202,12 +205,12 @@ export function validateConfig(config: unknown): LevitonConfig {
     }
   }
   
+  if (!cfg.password && process.env.MYLEVITON_PASSWORD) {
+    cfg.password = process.env.MYLEVITON_PASSWORD
+  }
+
   if (!cfg.password) {
-    if (process.env.MYLEVITON_PASSWORD) {
-      cfg.password = process.env.MYLEVITON_PASSWORD
-    } else {
-      errors.push('password is required (or set MYLEVITON_PASSWORD environment variable)')
-    }
+    errors.push('password is required (or set MYLEVITON_PASSWORD environment variable)')
   } else {
     try {
       validatePassword(cfg.password)

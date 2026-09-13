@@ -257,9 +257,11 @@ describe('validateConfig', () => {
   it('should accept password from MYLEVITON_PASSWORD when config password is empty', () => {
     const original = process.env.MYLEVITON_PASSWORD
     process.env.MYLEVITON_PASSWORD = 'env-secret'
+    const input = { ...validConfig, password: '' }
     try {
-      const result = validateConfig({ ...validConfig, password: '' })
+      const result = validateConfig(input)
       expect(result.password).toBe('env-secret')
+      expect(input.password).toBe('')
     } finally {
       if (original === undefined) {
         delete process.env.MYLEVITON_PASSWORD
@@ -267,6 +269,13 @@ describe('validateConfig', () => {
         process.env.MYLEVITON_PASSWORD = original
       }
     }
+  })
+
+  it('should not write a clamped diagnosticsInterval back onto the input config', () => {
+    const input = { ...validConfig, diagnosticsInterval: 5 }
+    const result = validateConfig(input)
+    expect(result.diagnosticsInterval).toBe(30)
+    expect(input.diagnosticsInterval).toBe(5)
   })
 })
 

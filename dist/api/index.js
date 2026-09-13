@@ -8,12 +8,14 @@
  * @fileoverview API module exports
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createWebSocket = exports.LevitonWebSocket = exports.PERSISTENCE_FILE_NAME = exports.resetGlobalPersistence = exports.getDevicePersistence = exports.DevicePersistence = exports.RequestDeduplicator = exports.RequestQueue = exports.resetGlobalCache = exports.getResponseCache = exports.ResponseCache = exports.CircuitState = exports.resetGlobalCircuitBreaker = exports.getCircuitBreaker = exports.CircuitBreaker = exports.resetGlobalRateLimiter = exports.getRateLimiter = exports.RateLimiter = exports.resetGlobalClient = exports.getApiClient = exports.LevitonApiClient = void 0;
+exports.createWebSocket = exports.LevitonWebSocket = exports.PERSISTENCE_FILE_NAME = exports.resetGlobalPersistence = exports.getDevicePersistence = exports.DevicePersistence = exports.RequestDeduplicator = exports.RequestQueue = exports.resetGlobalCache = exports.getResponseCache = exports.ResponseCache = exports.CircuitState = exports.resetGlobalCircuitBreaker = exports.getCircuitBreaker = exports.CircuitBreaker = exports.resetGlobalRateLimiter = exports.getRateLimiter = exports.RateLimiter = exports.readBoundedText = exports.MAX_RESPONSE_BYTES = exports.resetGlobalClient = exports.getApiClient = exports.LevitonApiClient = void 0;
 // Client
 var client_1 = require("./client");
 Object.defineProperty(exports, "LevitonApiClient", { enumerable: true, get: function () { return client_1.LevitonApiClient; } });
 Object.defineProperty(exports, "getApiClient", { enumerable: true, get: function () { return client_1.getApiClient; } });
 Object.defineProperty(exports, "resetGlobalClient", { enumerable: true, get: function () { return client_1.resetGlobalClient; } });
+Object.defineProperty(exports, "MAX_RESPONSE_BYTES", { enumerable: true, get: function () { return client_1.MAX_RESPONSE_BYTES; } });
+Object.defineProperty(exports, "readBoundedText", { enumerable: true, get: function () { return client_1.readBoundedText; } });
 // Rate Limiter
 var rate_limiter_1 = require("./rate-limiter");
 Object.defineProperty(exports, "RateLimiter", { enumerable: true, get: function () { return rate_limiter_1.RateLimiter; } });

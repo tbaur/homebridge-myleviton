@@ -108,6 +108,68 @@ const DEFAULT_HEADERS = {
 }
 
 /**
+ * Largest Leviton JSON body the client will buffer.
+ *
+ * Enforced while reading, not after `response.text()`. Login, account, and
+ * device-list payloads are small; a chunked response has no content-length,
+ * so awaiting the whole body first would already have committed the memory
+ * in the Homebridge process.
+ */
+export const MAX_RESPONSE_BYTES = 1024 * 1024
+
+function responseTooLarge(): ApiParseError {
+  return new ApiParseError(
+    `Leviton returned more than the ${MAX_RESPONSE_BYTES} byte limit`,
+  )
+}
+
+/**
+ * Read a response body, refusing to buffer more than {@link MAX_RESPONSE_BYTES}.
+ *
+ * Test doubles that only implement `text()` fall back to that path and are
+ * checked after the fact. Live `fetch` responses are metered from the stream.
+ */
+export async function readBoundedText(response: Response): Promise<string> {
+  const declared = Number(response.headers?.get?.('content-length'))
+  if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
+    throw new ApiParseError(
+      `Leviton announced ${declared} bytes, beyond the ${MAX_RESPONSE_BYTES} byte limit`,
+    )
+  }
+
+  const body = response.body
+  if (!body || typeof body.getReader !== 'function') {
+    const text = await response.text()
+    if (Buffer.byteLength(text, 'utf8') > MAX_RESPONSE_BYTES) {
+      throw responseTooLarge()
+    }
+    return text
+  }
+
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done || value === undefined) {
+        break
+      }
+      total += value.byteLength
+      if (total > MAX_RESPONSE_BYTES) {
+        throw responseTooLarge()
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock?.()
+  }
+
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString('utf8')
+}
+
+/**
  * Convert object to URL query string
  */
 function toQueryString(params: Record<string, string>): string {
@@ -353,9 +415,13 @@ export class LevitonApiClient {
           ...DEFAULT_HEADERS,
           ...options.headers,
         },
+        // After the spread so a caller cannot turn following back on. Leviton
+        // never redirects these calls; the default would chase hops and, on a
+        // 307/308, replay a login POST (email and password) to the Location.
+        redirect: 'error',
       })
 
-      const responseText = await response.text()
+      const responseText = await readBoundedText(response)
       debugLog(`[API] Response: ${response.status} ${createResponsePreview(responseText, 100)}`)
 
       if (!response.ok) {

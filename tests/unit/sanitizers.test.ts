@@ -52,6 +52,8 @@ describe('sanitizeString', () => {
 
   it('should redact email patterns', () => {
     expect(sanitizeString('email=user@example.com')).toBe('email=***')
+    expect(sanitizeString('"email": "user@example.com"')).toBe('"email":"***"')
+    expect(sanitizeString('{"email":"user@example.com"}')).toBe('{"email":"***"}')
   })
 
   it('should redact authorization headers', () => {
