@@ -79,7 +79,7 @@ Advanced documentation for power users, developers, and troubleshooting.
 | `platform` | string | — | **Required.** Must be `"MyLevitonDecoraSmart"` |
 | `name` | string | `"My Leviton"` | **Required.** Plugin instance name shown in Homebridge logs |
 | `email` | string | — | **Required.** My Leviton account email |
-| `password` | string | — | **Required.** My Leviton account password |
+| `password` | string | — | **Required** unless `MYLEVITON_PASSWORD` is set. A value entered here is stored in `config.json`. The environment variable is used in memory only and is not written back into that file. |
 | `loglevel` | string | `"info"` | Logging verbosity: `debug`, `info`, `warn`, `error` |
 | `pollInterval` | number | `30` | Seconds between state updates (min 10, max 3600) |
 | `connectionTimeout` | number | `10000` | API/WebSocket timeout in ms (min 5000, max 60000) |

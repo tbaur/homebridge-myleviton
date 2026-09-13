@@ -12,7 +12,7 @@ import type { HomebridgeAPI, PlatformAccessory } from './types/hap';
  * Leviton Decora Smart Platform for Homebridge
  */
 export declare class LevitonDecoraSmartPlatform {
-    private readonly config;
+    private config;
     private readonly api;
     private readonly accessories;
     private readonly log;

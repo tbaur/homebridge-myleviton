@@ -4,7 +4,7 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 3.x.x   | ✅ Active support  |
+| 4.x.x   | ✅ Active support  |
 
 ## Reporting a Vulnerability
 
@@ -23,7 +23,7 @@ If you discover a security vulnerability, please report it responsibly:
 This plugin implements:
 
 - **HTTPS only** - All API communication uses TLS encryption
-- **No credential storage** - Passwords are only used for authentication, tokens are used thereafter
+- **No credential storage** - Passwords are only used for authentication, tokens are used thereafter. `MYLEVITON_PASSWORD` is read from the environment into memory and is not copied onto the Homebridge config object, so a settings save cannot write it into `config.json`
 - **Token refresh** - Automatic token rotation on expiry
 - **Rate limiting** - Prevents abuse of Leviton API
 - **Input validation** - All configuration inputs are validated

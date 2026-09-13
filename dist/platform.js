@@ -199,7 +199,7 @@ class LevitonDecoraSmartPlatform {
             return false;
         }
         try {
-            (0, validators_1.validateConfig)(this.config);
+            this.config = (0, validators_1.validateConfig)(this.config);
             return true;
         }
         catch (err) {

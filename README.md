@@ -35,7 +35,7 @@ Control your **My Leviton Decora Smart** WiFi devices through Apple HomeKit usin
 
 ### Quality
 <!-- Canonical test count lives here only; keep other docs number-free to avoid 5-place updates. -->
-- **561 Tests** — Comprehensive test suite with ~91% code coverage (includes `platform.ts`)
+- **592 Tests** — Comprehensive test suite with ~91% code coverage (includes `platform.ts`)
 - **Child Bridge Support** — Run as isolated bridge for maximum stability
 - **Flexible Logging** — Debug, info, warn, error levels + JSON structured logs
 - **No Analytics** — Zero tracking or data collection
@@ -92,7 +92,7 @@ Your devices will appear in the Home app automatically.
 |--------|:--------:|-------------|
 | `name` | ✓ | Plugin instance name shown in Homebridge logs |
 | `email` | ✓ | My Leviton account email |
-| `password` | ✓ | My Leviton account password |
+| `password` | ✓* | My Leviton account password. Leave empty if `MYLEVITON_PASSWORD` is set |
 | `loglevel` | | `debug`, `info` (default), `warn`, `error` |
 | `pollInterval` | | Seconds between state updates (default: 30) |
 | `connectionTimeout` | | API/WebSocket timeout in ms (default: 10000) |
@@ -103,6 +103,8 @@ Your devices will appear in the Home app automatically.
 | `connectivitySensorName` | | Name for the connectivity sensor (default: "Leviton Cloud") |
 | `diagnosticsInterval` | | Seconds between diagnostics health heartbeats in the logs; `0` disables (default), else `30`–`3600` |
 
+\* Leave the password field empty when `MYLEVITON_PASSWORD` is set. The environment variable is used in memory and is not written into `config.json`.
+
 ## Not Working?
 
 1. **Check credentials** — Must match the My Leviton app exactly
@@ -112,15 +114,16 @@ Your devices will appear in the Home app automatically.
 
 ## Security
 
-Leviton's API has no OAuth or scoped tokens, so this plugin needs your **actual My Leviton account password**. Homebridge stores plugin config in plain text, which means your password lives unencrypted in `config.json` on the Homebridge host — this is a Homebridge limitation, not something the plugin can encrypt away (the process needs the cleartext to log in).
+Leviton's API has no OAuth or scoped tokens, so this plugin needs your **actual My Leviton account password**. Homebridge stores plugin config in plain text, which means a password entered in the settings page lives unencrypted in `config.json` on the Homebridge host — this is a Homebridge limitation, not something the plugin can encrypt away (the process needs the cleartext to log in).
 
 What this means for you:
 
-- **Secure the Homebridge host.** Anyone who can read files on it can read your password. Use disk encryption and restrict OS accounts where practical.
+- **Secure the Homebridge host.** Anyone who can read files on it can read a password stored in `config.json`. Use disk encryption and restrict OS accounts where practical.
+- **Prefer `MYLEVITON_PASSWORD`.** Set that environment variable and leave the password field empty. The plugin uses it in memory and does not copy it onto the Homebridge config object, so a later settings save cannot write it into `config.json`.
 - **Consider a dedicated Leviton account** for HomeKit so the bridge isn't holding your primary credentials.
 - **Scrub before sharing.** When posting logs or sharing backups, redact both `config.json` and `~/.homebridge/accessories/cachedAccessories`.
 
-The plugin itself talks to Leviton over TLS only (`https`/`wss`), redacts passwords and tokens from its logs, and does not persist the auth token to disk.
+The plugin itself talks to Leviton over TLS only (`https`/`wss`), redacts passwords, tokens, and emails from its logs, and does not persist the auth token to disk.
 
 ## Requirements
 
