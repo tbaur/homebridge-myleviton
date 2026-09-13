@@ -28,7 +28,7 @@
         "title": "Password",
         "type": "string",
         "placeholder": "••••••••••••",
-        "description": "Your My Leviton account password. Note: Homebridge stores this in plain text in config.json — keep your Homebridge host secured. Consider a dedicated Leviton account, or set the MYLEVITON_PASSWORD environment variable and leave this field empty.",
+        "description": "Your My Leviton account password. Homebridge stores a value entered here in plain text in config.json — keep your Homebridge host secured. Consider a dedicated Leviton account, or set the MYLEVITON_PASSWORD environment variable and leave this field empty. The environment variable is used in memory only and is not written back into config.json.",
         "x-schema-form": {
           "type": "password"
         }

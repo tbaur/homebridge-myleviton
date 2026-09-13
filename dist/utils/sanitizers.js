@@ -30,6 +30,7 @@ const SENSITIVE_PATTERNS = [
     { pattern: /bearer\s+\S+/gi, replacement: 'Bearer ***' },
     { pattern: /"password"\s*:\s*"[^"]+"/gi, replacement: '"password":"***"' },
     { pattern: /"token"\s*:\s*"[^"]+"/gi, replacement: '"token":"***"' },
+    { pattern: /"email"\s*:\s*"[^"]+"/gi, replacement: '"email":"***"' },
     { pattern: /"id"\s*:\s*"[A-Za-z0-9._-]{20,}"/gi, replacement: '"id":"***"' },
 ];
 /**

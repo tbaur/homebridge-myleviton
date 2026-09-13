@@ -266,6 +266,23 @@ describe('LevitonDecoraSmartPlatform', () => {
       expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('password is required'))
     })
 
+    it('should keep MYLEVITON_PASSWORD off the Homebridge config object', () => {
+      const original = process.env.MYLEVITON_PASSWORD
+      process.env.MYLEVITON_PASSWORD = 'env-secret'
+      const config = { ...validConfig, password: '' }
+      try {
+        new LevitonDecoraSmartPlatform(mockLog, config, mockAPI)
+        expect(config.password).toBe('')
+        expect(mockAPI.on).toHaveBeenCalledWith('didFinishLaunching', expect.any(Function))
+      } finally {
+        if (original === undefined) {
+          delete process.env.MYLEVITON_PASSWORD
+        } else {
+          process.env.MYLEVITON_PASSWORD = original
+        }
+      }
+    })
+
     it('should log error for invalid email format', () => {
       const config = { ...validConfig, email: 'invalid-email' }
       new LevitonDecoraSmartPlatform(mockLog, config, mockAPI)

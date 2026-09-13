@@ -98,7 +98,7 @@ let hap: HAP
  * Leviton Decora Smart Platform for Homebridge
  */
 export class LevitonDecoraSmartPlatform {
-  private readonly config: LevitonConfig
+  private config: LevitonConfig
   private readonly api: HomebridgeAPI
   private readonly accessories: PlatformAccessory[] = []
   private readonly log: StructuredLogger
@@ -223,7 +223,7 @@ export class LevitonDecoraSmartPlatform {
     }
 
     try {
-      validateConfigSchema(this.config)
+      this.config = validateConfigSchema(this.config)
       return true
     } catch (err) {
       if (err instanceof ConfigurationError) {
