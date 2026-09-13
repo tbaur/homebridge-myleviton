@@ -9,6 +9,8 @@ import {
   LevitonApiClient,
   getApiClient,
   resetGlobalClient,
+  MAX_RESPONSE_BYTES,
+  readBoundedText,
 } from '../../src/api/client'
 import { resetGlobalRateLimiter } from '../../src/api/rate-limiter'
 import { resetGlobalCircuitBreaker } from '../../src/api/circuit-breaker'
@@ -78,6 +80,7 @@ describe('LevitonApiClient', () => {
         expect.objectContaining({
           method: 'POST',
           body: expect.stringContaining('test@example.com'),
+          redirect: 'error',
         }),
       )
     })
@@ -551,6 +554,89 @@ describe('LevitonApiClient', () => {
       client.reset()
       // No error means success
     })
+  })
+})
+
+describe('Leviton HTTP redirects and body limits', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    resetGlobalClient()
+  })
+
+  it('does not follow redirects on device reads', async () => {
+    const client = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 1 })
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Map([['content-type', 'application/json']]) as unknown as Headers,
+      text: () => Promise.resolve('[]'),
+    })
+
+    await client.getDevices('res1', 'token123')
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ redirect: 'error' }),
+    )
+    client.reset()
+  })
+
+  it('maps a fetch redirect failure to NetworkError', async () => {
+    const client = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 1 })
+    mockFetch.mockRejectedValueOnce(new TypeError('fetch failed'))
+
+    await expect(client.login('test@example.com', 'password123')).rejects.toThrow(NetworkError)
+    client.reset()
+  })
+
+  it('refuses a declared content-length over the cap without reading the body', async () => {
+    const text = jest.fn(async () => 'x'.repeat(100))
+    await expect(readBoundedText({
+      headers: { get: (name: string) => (name === 'content-length' ? String(MAX_RESPONSE_BYTES + 1) : null) },
+      text,
+    } as unknown as Response)).rejects.toThrow(ApiParseError)
+    expect(text).not.toHaveBeenCalled()
+  })
+
+  it('refuses a streamed body once it exceeds the cap', async () => {
+    const releaseLock = jest.fn()
+    let reads = 0
+    const response = {
+      headers: { get: () => null },
+      body: {
+        getReader: () => ({
+          read: async () => {
+            reads += 1
+            if (reads === 1) {
+              return { done: false, value: new Uint8Array(MAX_RESPONSE_BYTES + 1) }
+            }
+            return { done: true, value: undefined }
+          },
+          releaseLock,
+        }),
+      },
+      text: jest.fn(),
+    } as unknown as Response
+
+    await expect(readBoundedText(response)).rejects.toThrow(/byte limit/)
+    expect(releaseLock).toHaveBeenCalled()
+    expect(response.text).not.toHaveBeenCalled()
+  })
+
+  it('accepts a body at the cap', async () => {
+    const text = 'a'.repeat(32)
+    await expect(readBoundedText({
+      headers: { get: () => null },
+      text: async () => text,
+    } as unknown as Response)).resolves.toBe(text)
+  })
+
+  it('refuses a text() fallback body over the cap', async () => {
+    await expect(readBoundedText({
+      headers: { get: () => null },
+      text: async () => 'x'.repeat(MAX_RESPONSE_BYTES + 1),
+    } as unknown as Response)).rejects.toThrow(/byte limit/)
   })
 })
 
