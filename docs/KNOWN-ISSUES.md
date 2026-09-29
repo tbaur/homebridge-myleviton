@@ -96,7 +96,7 @@ These are also common on Leviton's endpoint and handled the same way (reconnect 
 | Connection timeout | `WebSocket connection timeout` | No response within `connectionTimeout` (default 10s); reconnect scheduled |
 | Token refresh reconnect | `WebSocket closed by user` then reconnect | Deliberate reconnect after token refresh; not an outage |
 
-Ensure outbound **HTTPS/WSS** to `my.leviton.com` is allowed if disconnects are constant (not occasional).
+Ensure your network allows outbound **HTTPS/WSS** to `my.leviton.com` if disconnects are constant (not occasional).
 
 ---
 
