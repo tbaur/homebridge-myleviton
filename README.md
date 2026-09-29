@@ -29,7 +29,7 @@ Control your **My Leviton Decora Smart** WiFi devices through Apple HomeKit usin
 - **Auto-Reconnect** — Automatically recovers from connection issues
 - **Account Isolation** — Each configured account has its own circuit breaker, rate limiter, and cache
 - **State Persistence** — Faster startup with cached device data
-- **Token Auto-Refresh** — Seamless authentication management
+- **Token Auto-Refresh** — Refreshes tokens so you stay signed in
 - **Connectivity Sensor** *(optional)* — Exposes a HomeKit contact sensor that reports whether the plugin can reach the Leviton cloud, so you can alert or automate on outages
 - **Diagnostics** *(optional)* — Opt-in health/activity heartbeat, boot/shutdown snapshots, and degraded/recovered transitions logged to Homebridge (logs/JSON only, never in HomeKit)
 
