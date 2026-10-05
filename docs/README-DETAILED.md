@@ -231,11 +231,9 @@ a JSON object. All channels are gated behind `diagnosticsInterval > 0`.
 
 | `msg` | Level | When | Counter semantics |
 |-------|-------|------|-------------------|
-| `health` | info | Every `diagnosticsInterval` seconds | Per-interval **deltas** |
+| `health` | info, or warn when health flips from healthy to degraded | Every `diagnosticsInterval` seconds | Per-interval **deltas** |
 | `diagnostics.start` | info | At boot (after discovery) | Session **cumulative** + redacted config echo |
 | `diagnostics.stop` | info | At shutdown | Session **cumulative** + redacted config echo |
-| `health.degraded` | warn | When the health rollup flips to degraded | — |
-| `health.recovered` | info | When the health rollup flips back to healthy | — |
 
 Counters (`reconnects`, `trips`, `throttled`, `refreshes`, polling `ok`/`failed`,
 api `requests`/`errors`, and the whole `activity` group) are **per-interval
@@ -277,9 +275,7 @@ counts all devices returned by the API; `total` is the controllable HomeKit
 accessory count (excludes connectivity sensor and stateless controllers); `stateless`
 and `excluded` are breakdown counters from the last discovery pass.
 
-> `reasons` is an array of cause codes (empty when healthy) in both the structured
-> JSON and the `DiagnosticsSnapshot` type. The human-readable line shows the same
-> causes in brackets, e.g. `Health degraded: degraded [circuitBreakerOpen]`.
+> `reasons` is an array of cause codes (empty when healthy) in both the structured JSON and the `DiagnosticsSnapshot` type. The human-readable line shows the same causes in brackets, for example `Health: degraded [circuitBreakerOpen]`. That line is logged once per interval. The interval where health flips from healthy to degraded is a warning; later degraded heartbeats stay at info until it recovers.
 
 #### Example heartbeat (structured)
 

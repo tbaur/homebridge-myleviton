@@ -32,17 +32,19 @@ export interface StructuredLoggerConfig {
  * Default structured logger configuration
  */
 export declare const DEFAULT_STRUCTURED_LOGGER_CONFIG: StructuredLoggerConfig;
+type LogFn = (message: string) => void;
+type LogTarget = Logger | LogFn;
 /**
  * Logger wrapper that supports level filtering and structured output
  */
 export declare class LeveledLogger {
-    private readonly baseLog;
+    private readonly sinks;
     private readonly minLevel;
-    debug: (message: string) => void;
-    info: (message: string) => void;
-    warn: (message: string) => void;
-    error: (message: string) => void;
-    constructor(log: Logger | ((message: string) => void), level?: LogLevel);
+    debug: LogFn;
+    info: LogFn;
+    warn: LogFn;
+    error: LogFn;
+    constructor(log: LogTarget, level?: LogLevel);
     private createLevelMethod;
 }
 /**
@@ -102,4 +104,5 @@ export declare function createLogger(log: Logger | ((message: string) => void), 
  * Create a structured logger
  */
 export declare function createStructuredLogger(log: Logger | ((message: string) => void), config?: Partial<StructuredLoggerConfig>): StructuredLogger;
+export {};
 //# sourceMappingURL=logger.d.ts.map

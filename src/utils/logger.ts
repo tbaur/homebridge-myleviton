@@ -44,34 +44,67 @@ export const DEFAULT_STRUCTURED_LOGGER_CONFIG: StructuredLoggerConfig = {
   level: DEFAULT_LOG_LEVEL,
 }
 
+type LogFn = (message: string) => void
+type LogTarget = Logger | LogFn
+
+/**
+ * Homebridge passes a callable logger that also has info/warn/error/debug.
+ * A bare function has no level methods, so every level shares that function.
+ */
+function hasLevelMethods(log: LogTarget): log is Logger {
+  const candidate = log as Partial<Logger>
+  return typeof candidate.info === 'function'
+    && typeof candidate.warn === 'function'
+    && typeof candidate.error === 'function'
+    && typeof candidate.debug === 'function'
+}
+
+function levelSinks(log: LogTarget): Record<LogLevel, LogFn> {
+  if (hasLevelMethods(log)) {
+    return {
+      debug: message => log.debug(message),
+      info: message => log.info(message),
+      warn: message => log.warn(message),
+      error: message => log.error(message),
+    }
+  }
+
+  const write = log as LogFn
+  return {
+    debug: write,
+    info: write,
+    warn: write,
+    error: write,
+  }
+}
+
 /**
  * Logger wrapper that supports level filtering and structured output
  */
 export class LeveledLogger {
-  private readonly baseLog: (message: string) => void
+  private readonly sinks: Record<LogLevel, LogFn>
   private readonly minLevel: number
 
-  debug: (message: string) => void
-  info: (message: string) => void
-  warn: (message: string) => void
-  error: (message: string) => void
+  debug: LogFn
+  info: LogFn
+  warn: LogFn
+  error: LogFn
 
-  constructor(log: Logger | ((message: string) => void), level: LogLevel = DEFAULT_LOG_LEVEL) {
-    this.baseLog = typeof log === 'function' ? log : (msg: string) => log.info(msg)
+  constructor(log: LogTarget, level: LogLevel = DEFAULT_LOG_LEVEL) {
+    this.sinks = levelSinks(log)
     this.minLevel = LOG_LEVELS.indexOf(level)
 
-    // Create level methods
     this.debug = this.createLevelMethod('debug')
     this.info = this.createLevelMethod('info')
     this.warn = this.createLevelMethod('warn')
     this.error = this.createLevelMethod('error')
   }
 
-  private createLevelMethod(level: LogLevel): (message: string) => void {
+  private createLevelMethod(level: LogLevel): LogFn {
     const levelIndex = LOG_LEVELS.indexOf(level)
     return (message: string) => {
       if (levelIndex >= this.minLevel) {
-        this.baseLog(message)
+        this.sinks[level](message)
       }
     }
   }

@@ -1337,12 +1337,21 @@ describe('LevitonDecoraSmartPlatform', () => {
       expect(internals.diagnosticsTimer).toBeNull()
     })
 
-    it('logs a degraded transition when the circuit breaker opens', () => {
+    it('logs one warning when health flips to degraded and does not repeat it', () => {
       jest.useFakeTimers()
       mockClient.getStatus.mockReturnValue(healthyStatus)
 
+      const info = jest.fn()
+      const warn = jest.fn()
+      const hbLog = Object.assign(jest.fn(), {
+        info,
+        warn,
+        error: jest.fn(),
+        debug: jest.fn(),
+      })
+
       const platform = new LevitonDecoraSmartPlatform(
-        mockLog,
+        hbLog,
         { ...validConfig, diagnosticsInterval: 60 },
         mockAPI,
       )
@@ -1354,16 +1363,39 @@ describe('LevitonDecoraSmartPlatform', () => {
       internals.residenceId = 'residence-123'
       internals.startDiagnostics()
 
+      const healthLines = (log: jest.Mock) =>
+        log.mock.calls.filter(
+          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).startsWith('Health:'),
+        )
+
       // The breaker trips between heartbeats.
+      info.mockClear()
+      warn.mockClear()
       mockClient.getStatus.mockReturnValue(openStatus)
-      mockLog.mockClear()
       jest.advanceTimersByTime(60000)
 
-      expect(
-        mockLog.mock.calls.some(
-          (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('Health degraded'),
-        ),
-      ).toBe(true)
+      const warnings = healthLines(warn)
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0][0]).toContain('degraded [circuitBreakerOpen]')
+      expect(warnings[0][0]).not.toContain('Health degraded')
+      expect(healthLines(info)).toHaveLength(0)
+
+      // Still degraded: one info line, no second warning.
+      info.mockClear()
+      warn.mockClear()
+      jest.advanceTimersByTime(60000)
+      expect(warn).not.toHaveBeenCalled()
+      expect(healthLines(info)).toHaveLength(1)
+
+      // Recovery is the normal info heartbeat, still one line.
+      mockClient.getStatus.mockReturnValue(healthyStatus)
+      info.mockClear()
+      warn.mockClear()
+      jest.advanceTimersByTime(60000)
+      expect(warn).not.toHaveBeenCalled()
+      const recovered = healthLines(info)
+      expect(recovered).toHaveLength(1)
+      expect(recovered[0][0]).toContain('Health: healthy')
 
       internals.cleanup()
       jest.useRealTimers()
