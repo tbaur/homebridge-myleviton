@@ -319,8 +319,9 @@ export declare class LevitonDecoraSmartPlatform {
      */
     private startDiagnostics;
     /**
-     * Emits a single heartbeat (per-interval deltas) and logs health transitions.
-     * Wrapped so a reader failure can never escape the timer and crash Homebridge.
+     * Emits one heartbeat. The line is a warning on the interval where health
+     * flips to degraded, and info otherwise. A reader failure stays inside the
+     * timer so it cannot crash Homebridge.
      */
     private diagnosticsHeartbeat;
     /**

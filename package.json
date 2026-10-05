@@ -39,7 +39,9 @@
     "ws": "^8.19.0"
   },
   "overrides": {
-    "js-yaml": "^3.15.2"
+    "js-yaml": "^3.15.2",
+    "brace-expansion@2": "^2.1.7",
+    "brace-expansion@5": "^5.0.12"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

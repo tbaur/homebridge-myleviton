@@ -1784,23 +1784,16 @@ export class LevitonDecoraSmartPlatform {
   }
 
   /**
-   * Emits a single heartbeat (per-interval deltas) and logs health transitions.
-   * Wrapped so a reader failure can never escape the timer and crash Homebridge.
+   * Emits one heartbeat. The line is a warning on the interval where health
+   * flips to degraded, and info otherwise. A reader failure stays inside the
+   * timer so it cannot crash Homebridge.
    */
   private diagnosticsHeartbeat(): void {
     try {
       const report = this.diagnostics.buildHeartbeat(this.buildDiagnosticsReaders())
-      this.emitDiagnostic('info', report)
-
       const health = report.lifecycle.health
-      if (this.lastDiagnosticsHealth !== null && health !== this.lastDiagnosticsHealth) {
-        const isDegraded = health === 'degraded'
-        const transition: DiagnosticsSnapshot = {
-          ...report,
-          msg: isDegraded ? 'health.degraded' : 'health.recovered',
-        }
-        this.emitDiagnostic(isDegraded ? 'warn' : 'info', transition)
-      }
+      const becameDegraded = this.lastDiagnosticsHealth === 'healthy' && health === 'degraded'
+      this.emitDiagnostic(becameDegraded ? 'warn' : 'info', report)
       this.lastDiagnosticsHealth = health
     } catch (err) {
       this.log.debug(`Diagnostics heartbeat failed: ${sanitizeError(err)}`)
@@ -1907,10 +1900,6 @@ function diagnosticLabel(msg: string): string {
       return 'Diagnostics start'
     case 'diagnostics.stop':
       return 'Diagnostics stop'
-    case 'health.degraded':
-      return 'Health degraded'
-    case 'health.recovered':
-      return 'Health recovered'
     default:
       return msg
   }

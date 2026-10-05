@@ -92,6 +92,48 @@ describe('LeveledLogger', () => {
       
       expect(mockLog).toHaveBeenCalledWith('test')
     })
+
+    it('should send warn and error to their own methods', () => {
+      const info = jest.fn()
+      const warn = jest.fn()
+      const error = jest.fn()
+      const objLogger = {
+        info,
+        warn,
+        error,
+        debug: jest.fn(),
+      }
+
+      const logger = new LeveledLogger(objLogger)
+      logger.warn('warn message')
+      logger.error('error message')
+
+      expect(warn).toHaveBeenCalledWith('warn message')
+      expect(error).toHaveBeenCalledWith('error message')
+      expect(info).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('with a callable logger that also has level methods', () => {
+    it('should call warn instead of the info function', () => {
+      const info = jest.fn()
+      const warn = jest.fn()
+      const error = jest.fn()
+      const debug = jest.fn()
+      const callable = Object.assign(jest.fn(), { info, warn, error, debug })
+
+      const logger = new LeveledLogger(callable, 'debug')
+      logger.debug('debug message')
+      logger.info('info message')
+      logger.warn('warn message')
+      logger.error('error message')
+
+      expect(debug).toHaveBeenCalledWith('debug message')
+      expect(info).toHaveBeenCalledWith('info message')
+      expect(warn).toHaveBeenCalledWith('warn message')
+      expect(error).toHaveBeenCalledWith('error message')
+      expect(callable).not.toHaveBeenCalled()
+    })
   })
 })
 

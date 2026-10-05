@@ -30,19 +30,46 @@ exports.DEFAULT_STRUCTURED_LOGGER_CONFIG = {
     level: exports.DEFAULT_LOG_LEVEL,
 };
 /**
+ * Homebridge passes a callable logger that also has info/warn/error/debug.
+ * A bare function has no level methods, so every level shares that function.
+ */
+function hasLevelMethods(log) {
+    const candidate = log;
+    return typeof candidate.info === 'function'
+        && typeof candidate.warn === 'function'
+        && typeof candidate.error === 'function'
+        && typeof candidate.debug === 'function';
+}
+function levelSinks(log) {
+    if (hasLevelMethods(log)) {
+        return {
+            debug: message => log.debug(message),
+            info: message => log.info(message),
+            warn: message => log.warn(message),
+            error: message => log.error(message),
+        };
+    }
+    const write = log;
+    return {
+        debug: write,
+        info: write,
+        warn: write,
+        error: write,
+    };
+}
+/**
  * Logger wrapper that supports level filtering and structured output
  */
 class LeveledLogger {
-    baseLog;
+    sinks;
     minLevel;
     debug;
     info;
     warn;
     error;
     constructor(log, level = exports.DEFAULT_LOG_LEVEL) {
-        this.baseLog = typeof log === 'function' ? log : (msg) => log.info(msg);
+        this.sinks = levelSinks(log);
         this.minLevel = exports.LOG_LEVELS.indexOf(level);
-        // Create level methods
         this.debug = this.createLevelMethod('debug');
         this.info = this.createLevelMethod('info');
         this.warn = this.createLevelMethod('warn');
@@ -52,7 +79,7 @@ class LeveledLogger {
         const levelIndex = exports.LOG_LEVELS.indexOf(level);
         return (message) => {
             if (levelIndex >= this.minLevel) {
-                this.baseLog(message);
+                this.sinks[level](message);
             }
         };
     }
