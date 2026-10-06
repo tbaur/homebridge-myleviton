@@ -654,17 +654,11 @@ class LevitonDecoraSmartPlatform {
      * Updates an accessory's display name on both the PlatformAccessory wrapper
      * and the underlying HAP Accessory. Homebridge serializes the wrapper field
      * but the HAP Accessory.displayName is what HAP-NodeJS validates at construction
-     * during cache deserialization, so both must stay in sync.
+     * during cache deserialization, so both must stay in sync. `updateDisplayName`
+     * writes both.
      */
     updateAccessoryDisplayName(accessory, name) {
-        if (typeof accessory.updateDisplayName === 'function') {
-            accessory.updateDisplayName(name);
-            return;
-        }
-        accessory.displayName = name;
-        if (accessory._associatedHAPAccessory) {
-            accessory._associatedHAPAccessory.displayName = name;
-        }
+        accessory.updateDisplayName(name);
     }
     /**
      * Sanitizes the `displayName` field on every service attached to an accessory.
