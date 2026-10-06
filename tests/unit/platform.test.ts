@@ -86,6 +86,9 @@ const mockAccessory = (
     },
     getService: jest.fn().mockReturnValue(mockService()),
     addService: jest.fn().mockReturnValue(mockService()),
+    updateDisplayName(name: string) {
+      accessory.displayName = name
+    },
   }
   return accessory as unknown as MockAccessory
 }
@@ -134,13 +137,19 @@ const createMockHomebridgeAPI = () => {
         StatusFault: { NO_FAULT: 0, GENERAL_FAULT: 1 },
       },
     },
-    platformAccessory: jest.fn().mockImplementation((name: string, uuid: string) => ({
-      displayName: name,
-      UUID: uuid,
-      context: {},
-      getService: jest.fn().mockReturnValue(null),
-      addService: jest.fn().mockReturnValue(mockService()),
-    })),
+    platformAccessory: jest.fn().mockImplementation((name: string, uuid: string) => {
+      const accessory = {
+        displayName: name,
+        UUID: uuid,
+        context: {},
+        getService: jest.fn().mockReturnValue(null),
+        addService: jest.fn().mockReturnValue(mockService()),
+        updateDisplayName(next: string) {
+          accessory.displayName = next
+        },
+      }
+      return accessory
+    }),
     registerPlatform: jest.fn(),
     registerPlatformAccessories: jest.fn(),
     unregisterPlatformAccessories: jest.fn(),
@@ -359,6 +368,9 @@ describe('LevitonDecoraSmartPlatform', () => {
         context: {},
         getService: jest.fn().mockReturnValue(mockService()),
         addService: jest.fn().mockReturnValue(mockService()),
+        updateDisplayName(name: string) {
+          accessory.displayName = name
+        },
       }
 
       platform.configureAccessory(accessory as unknown as ReturnType<typeof mockAccessory>)
@@ -378,21 +390,7 @@ describe('LevitonDecoraSmartPlatform', () => {
       expect(mockAPI.updatePlatformAccessories).not.toHaveBeenCalled()
     })
 
-    it('should propagate sanitized name to underlying HAP Accessory when present', () => {
-      const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
-      const device = { id: 'dev-1', name: 'Primary Bedroom Sconce #1', model: 'DW6HD', serial: 'ABC123' }
-      const hapAccessory = { displayName: 'Primary Bedroom Sconce #1' }
-      const accessory = {
-        ...mockAccessory(device),
-        _associatedHAPAccessory: hapAccessory,
-      }
-
-      platform.configureAccessory(accessory as unknown as ReturnType<typeof mockAccessory>)
-
-      expect(hapAccessory.displayName).toBe('Primary Bedroom Sconce 1')
-    })
-
-    it('should prefer accessory.updateDisplayName when provided by Homebridge', () => {
+    it('should rename through accessory.updateDisplayName', () => {
       const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
       const device = { id: 'dev-1', name: 'Primary Bedroom Sconce #1', model: 'DW6HD', serial: 'ABC123' }
       const updateDisplayName = jest.fn(function (this: { displayName: string }, value: string) {
@@ -1018,6 +1016,9 @@ describe('LevitonDecoraSmartPlatform', () => {
         context: { connectivity: true },
         getService: jest.fn().mockReturnValue(null),
         addService: jest.fn().mockReturnValue(mockService()),
+        updateDisplayName(name: string) {
+          cached.displayName = name
+        },
       } as unknown as MockAccessory
       platform.configureAccessory(cached)
 
