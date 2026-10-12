@@ -456,7 +456,6 @@ sudo npm install -g homebridge-myleviton@3.0.0
 - `@types/ws` - WebSocket type definitions
 - `jest` - Testing framework
 - `eslint` - Linting
-- `nock` - HTTP mocking
 - `globals` - ESLint globals
 
 ## Resources
