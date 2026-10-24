@@ -2356,6 +2356,7 @@ describeWithSqlite('PagerDuty signals', () => {
     await launch(validConfig)
 
     expect(existsSync(join(storagePath, 'homebridge-pagerduty'))).toBe(false)
+    expect(mocks.mockLog).not.toHaveBeenCalledWith(expect.stringContaining('homebridge-pagerduty support is enabled'))
   })
 
   it('writes every signal at startup and closes the store on shutdown without clearing it', async () => {
@@ -2363,6 +2364,12 @@ describeWithSqlite('PagerDuty signals', () => {
     await launch(signalsConfig)
 
     expect(readActive()).toEqual({ 'auth-failed': 0, 'cloud-offline': 0 })
+    const messages = mocks.mockLog.mock.calls.map(([message]) => String(message))
+    const supportAt = messages.indexOf('homebridge-pagerduty support is enabled (cloud-offline, auth-failed)')
+    const startingAt = messages.findIndex(message => message.includes('Starting My Leviton'))
+    const connectingAt = messages.findIndex(message => message.includes('Connecting to My Leviton'))
+    expect(supportAt).toBeGreaterThan(startingAt)
+    expect(connectingAt).toBeGreaterThan(supportAt)
 
     mocks.mockAPI.emit('shutdown')
     expect(closeSpy).toHaveBeenCalled()
@@ -2416,6 +2423,10 @@ describeWithSqlite('PagerDuty signals', () => {
       await jest.advanceTimersByTimeAsync(CLOUD_OFFLINE_GRACE_MS)
 
       expect(readActive()).toEqual({ 'cloud-offline': 1 })
+      const supportLines = mocks.mockLog.mock.calls.filter(
+        ([message]) => String(message).includes('homebridge-pagerduty support is enabled'),
+      )
+      expect(supportLines).toHaveLength(1)
     } finally {
       mocks.mockAPI.emit('shutdown')
       jest.useRealTimers()

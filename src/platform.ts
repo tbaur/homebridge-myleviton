@@ -43,7 +43,11 @@ import {
   isStatelessControllerModel,
   deviceTypeForModel,
 } from './platform/device-models'
-import { createLevitonSignals } from './platform/leviton-signals'
+import {
+  createLevitonSignals,
+  SIGNAL_AUTH_FAILED,
+  SIGNAL_CLOUD_OFFLINE,
+} from './platform/leviton-signals'
 import type { LevitonSignals } from './platform/leviton-signals'
 
 /**
@@ -136,6 +140,7 @@ export class LevitonDecoraSmartPlatform {
 
   // Optional homebridge-pagerduty signals (off unless pagerdutySignals is true)
   private signals: LevitonSignals | null = null
+  private hasLoggedPagerDutySupport = false
 
   // Track recent HomeKit commands to avoid logging them as "external"
   private recentHomeKitCommands: Map<string, number> = new Map()
@@ -290,6 +295,20 @@ export class LevitonDecoraSmartPlatform {
   }
 
   /**
+   * Logs once that signals are on, before the first request, so the line
+   * still appears when sign-in fails. Discovery retries must not repeat it.
+   */
+  private logPagerDutySupport(): void {
+    if (this.signals === null || this.hasLoggedPagerDutySupport) {
+      return
+    }
+    this.hasLoggedPagerDutySupport = true
+    this.log.info(
+      `homebridge-pagerduty support is enabled (${SIGNAL_CLOUD_OFFLINE}, ${SIGNAL_AUTH_FAILED})`,
+    )
+  }
+
+  /**
    * Schedules a delayed re-initialization attempt unless the platform is
    * shutting down. Only one retry is ever queued at a time.
    */
@@ -309,6 +328,7 @@ export class LevitonDecoraSmartPlatform {
    */
   private async discoverAndSetup(): Promise<void> {
     this.log.info('Starting My Leviton Decora Smart platform...')
+    this.logPagerDutySupport()
 
     {
       // Clean up any duplicate cache entries before processing

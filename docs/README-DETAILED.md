@@ -228,6 +228,7 @@ How the signals behave:
 - `cloud-offline` uses the same online/offline check as the connectivity sensor, but it turns on only after that check has reported offline for 5 minutes in a row. homebridge-pagerduty has no delay of its own, so this keeps short Leviton outages from paging anyone. It clears as soon as the cloud is reachable again. The 5 minutes start at launch, so a Homebridge start during an outage also pages.
 - `auth-failed` turns on when Leviton answers a sign-in with 401 or 403, or with an unusable login response. At startup it also turns on for a 401 or 403 from any discovery request. In both startup cases the plugin stops and does not retry, so the signal stays on until the account is fixed and Homebridge restarts. A network failure or the plugin's own refresh cooldown does not count. It clears after the next successful sign-in.
 - Both signals are written once their state is known, and again whenever it changes. Shutdown never clears them; the next startup writes the current state.
+- At startup the plugin logs one line, `homebridge-pagerduty support is enabled (cloud-offline, auth-failed)`, after it starts and before it connects. The line is logged once, including when sign-in then fails, and it is not logged when the setting is off.
 - The store needs `node:sqlite` (Node 22.13 or later). On an older Node the plugin logs one warning and keeps running without signals.
 
 ### Diagnostics (optional)

@@ -32,6 +32,7 @@ export declare class LevitonDecoraSmartPlatform {
     private connectivityService;
     private isCloudOnline;
     private signals;
+    private hasLoggedPagerDutySupport;
     private recentHomeKitCommands;
     private readonly diagnostics;
     private diagnosticsTimer;
@@ -54,6 +55,11 @@ export declare class LevitonDecoraSmartPlatform {
      * outage at startup doesn't leave the plugin permanently inert.
      */
     private initialize;
+    /**
+     * Logs once that signals are on, before the first request, so the line
+     * still appears when sign-in fails. Discovery retries must not repeat it.
+     */
+    private logPagerDutySupport;
     /**
      * Schedules a delayed re-initialization attempt unless the platform is
      * shutting down. Only one retry is ever queued at a time.
