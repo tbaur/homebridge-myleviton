@@ -123,7 +123,7 @@
         "title": "Send Signals to PagerDuty",
         "type": "boolean",
         "default": false,
-        "description": "Page through homebridge-pagerduty when the Leviton cloud is unreachable for 5 minutes (cloud-offline) or Leviton rejects the sign-in (auth-failed). Also add homebridge-myleviton to Signal Sources in homebridge-pagerduty. Needs Node 22.13 or later."
+        "description": "Page through homebridge-pagerduty when the Leviton cloud is unreachable for 5 minutes (cloud-offline) or Leviton rejects the sign-in (auth-failed). Also add homebridge-myleviton to Signal Sources in homebridge-pagerduty."
       }
     }
   },
