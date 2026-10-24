@@ -137,6 +137,10 @@ The plugin itself talks to Leviton over TLS only (`https`/`wss`), redacts passwo
 - [Report Issues](https://github.com/tbaur/homebridge-myleviton/issues)
 - [Changelog](CHANGELOG.md)
 
+## Trademarks
+
+homebridge-myleviton is an independent project. It is not affiliated with or endorsed by Leviton. Leviton, Decora, Decora Smart, and My Leviton are trademarks of Leviton Manufacturing Co., Inc.
+
 ## License
 
 Copyright 2026 tbaur
