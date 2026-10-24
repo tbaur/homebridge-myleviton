@@ -1,0 +1,115 @@
+/**
+ * Copyright (c) 2026 tbaur
+ *
+ * Licensed under the Apache License, Version 2.0
+ * See LICENSE file for full license text
+ *
+ * @fileoverview Tests for the homebridge-pagerduty signal store writer, run
+ * against a real SQLite file
+ */
+
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type * as Sqlite from 'node:sqlite'
+import { PagerDutySignals } from '../../src/pagerduty-signals'
+
+const sqlite = typeof process.getBuiltinModule === 'function'
+  ? process.getBuiltinModule('node:sqlite') as typeof Sqlite | undefined
+  : undefined
+const describeWithSqlite = sqlite ? describe : describe.skip
+
+const PLUGIN = 'homebridge-myleviton'
+
+interface SignalRow {
+  plugin: string
+  signal: string
+  active: number
+  severity: string
+  summary: string
+  updated_at: number
+}
+
+describeWithSqlite('PagerDutySignals', () => {
+  let storagePath: string
+  let warn: jest.Mock
+  let signals: PagerDutySignals
+
+  const storeDir = () => join(storagePath, 'homebridge-pagerduty')
+  const storeFile = () => join(storeDir(), 'signals.sqlite')
+
+  const readRows = (): SignalRow[] => {
+    const db = new sqlite!.DatabaseSync(storeFile())
+    try {
+      return db.prepare('SELECT * FROM signals ORDER BY signal').all() as unknown as SignalRow[]
+    } finally {
+      db.close()
+    }
+  }
+
+  beforeEach(() => {
+    storagePath = mkdtempSync(join(tmpdir(), 'myleviton-signals-'))
+    warn = jest.fn()
+    signals = new PagerDutySignals({ plugin: PLUGIN, storagePath, log: { warn } })
+  })
+
+  afterEach(() => {
+    signals.close()
+    rmSync(storagePath, { recursive: true, force: true })
+  })
+
+  it('creates the store directory with mode 0700 and the file with mode 0600', () => {
+    signals.write('cloud-offline', { active: false, severity: 'critical', summary: 'Cloud is offline' })
+
+    expect(statSync(storeDir()).mode & 0o777).toBe(0o700)
+    expect(statSync(storeFile()).mode & 0o777).toBe(0o600)
+  })
+
+  it('writes a row that a separate connection reads back', () => {
+    signals.write('auth-failed', { active: true, severity: 'critical', summary: 'Sign-in rejected' })
+
+    expect(readRows()).toEqual([
+      expect.objectContaining({
+        plugin: PLUGIN,
+        signal: 'auth-failed',
+        active: 1,
+        severity: 'critical',
+        summary: 'Sign-in rejected',
+      }),
+    ])
+  })
+
+  it('does not rewrite a signal whose state has not changed', () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000)
+    signals.write('cloud-offline', { active: true, severity: 'critical', summary: 'Cloud is offline' })
+    nowSpy.mockReturnValue(2_000)
+    signals.write('cloud-offline', { active: true, severity: 'critical', summary: 'Cloud is offline' })
+
+    expect(readRows()[0].updated_at).toBe(1_000)
+  })
+
+  it('does not write to a store from a newer interface, and warns once', () => {
+    mkdirSync(storeDir(), { recursive: true, mode: 0o700 })
+    const db = new sqlite!.DatabaseSync(storeFile())
+    db.exec('PRAGMA user_version = 2')
+    db.close()
+
+    signals.write('cloud-offline', { active: true, severity: 'critical', summary: 'Cloud is offline' })
+    signals.write('auth-failed', { active: true, severity: 'critical', summary: 'Sign-in rejected' })
+
+    expect(readRows()).toEqual([])
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('newer version'))
+  })
+
+  it('creates nothing and warns once when node:sqlite is unavailable', () => {
+    jest.spyOn(process, 'getBuiltinModule').mockReturnValue(undefined)
+
+    signals.write('cloud-offline', { active: true, severity: 'critical', summary: 'Cloud is offline' })
+    signals.write('auth-failed', { active: true, severity: 'critical', summary: 'Sign-in rejected' })
+
+    expect(existsSync(storeDir())).toBe(false)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Node 22.13'))
+  })
+})

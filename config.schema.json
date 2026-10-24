@@ -118,6 +118,12 @@
         "maximum": 3600,
         "placeholder": 0,
         "description": "Seconds between diagnostics health heartbeats logged to Homebridge (logs/JSON only — not exposed in HomeKit). Set to 0 to disable, or 30–3600 to enable (values 1–29 are rejected at runtime). Pairs well with Structured Logging."
+      },
+      "pagerdutySignals": {
+        "title": "Send Signals to PagerDuty",
+        "type": "boolean",
+        "default": false,
+        "description": "Page through homebridge-pagerduty when the Leviton cloud is unreachable for 5 minutes (cloud-offline) or Leviton rejects the sign-in (auth-failed). Also add homebridge-myleviton to Signal Sources in homebridge-pagerduty. Needs Node 22.13 or later."
       }
     }
   },
@@ -188,7 +194,8 @@
       "items": [
         "structuredLogs",
         "connectionTimeout",
-        "diagnosticsInterval"
+        "diagnosticsInterval",
+        "pagerdutySignals"
       ]
     }
   ]

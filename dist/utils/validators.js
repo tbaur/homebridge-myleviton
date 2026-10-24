@@ -264,6 +264,9 @@ function validateConfig(config) {
     if (cfg.connectivitySensor !== undefined && typeof cfg.connectivitySensor !== 'boolean') {
         errors.push('connectivitySensor must be a boolean');
     }
+    if (cfg.pagerdutySignals !== undefined && typeof cfg.pagerdutySignals !== 'boolean') {
+        errors.push('pagerdutySignals must be a boolean');
+    }
     if (cfg.connectivitySensorName !== undefined) {
         if (typeof cfg.connectivitySensorName !== 'string' || cfg.connectivitySensorName.trim().length === 0) {
             errors.push('connectivitySensorName must be a non-empty string');

@@ -43,7 +43,7 @@ code review. It reflects the current codebase, not a claim of zero defects.
 | Area | Status | Notes |
 |------|--------|-------|
 | **TypeScript** | ✅ | Strict types; minimal HAP interfaces in `src/types/hap.ts` |
-| **Test Coverage** | ✅ | Canonical count in the README; ~91% line coverage **including `platform.ts`** |
+| **Test Coverage** | ✅ | Canonical count in the README; coverage **includes `platform.ts`** |
 | **Model Registry** | ✅ | Single source of truth in `src/platform/device-models.ts` |
 | **Code Organization** | ⚠️ | `platform.ts` remains large (~1,800 lines); further module extraction planned |
 | **Global Singletons** | ⚠️ | Deprecated test helpers (`getApiClient`, etc.); production uses per-instance clients |
@@ -76,7 +76,7 @@ code review. It reflects the current codebase, not a claim of zero defects.
 
 ```
 Tests:       see README (unit + integration smoke)
-Coverage:    ~91% lines (includes platform.ts — see npm test report)
+Coverage:    see npm test report (includes platform.ts)
 Lint:        0 errors
 Audit:       0 vulnerabilities (at last review)
 ```

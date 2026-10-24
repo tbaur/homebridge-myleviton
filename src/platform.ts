@@ -43,6 +43,8 @@ import {
   isStatelessControllerModel,
   deviceTypeForModel,
 } from './platform/device-models'
+import { createLevitonSignals } from './platform/leviton-signals'
+import type { LevitonSignals } from './platform/leviton-signals'
 
 /**
  * Installed plugin version, used for diagnostics lifecycle reporting.
@@ -132,6 +134,9 @@ export class LevitonDecoraSmartPlatform {
   private connectivityService: Service | null = null
   private isCloudOnline = true
 
+  // Optional homebridge-pagerduty signals (off unless pagerdutySignals is true)
+  private signals: LevitonSignals | null = null
+
   // Track recent HomeKit commands to avoid logging them as "external"
   private recentHomeKitCommands: Map<string, number> = new Map()
 
@@ -197,8 +202,17 @@ export class LevitonDecoraSmartPlatform {
       return
     }
 
+    if (this.config.pagerdutySignals === true) {
+      this.signals = createLevitonSignals({
+        plugin: PLUGIN_NAME,
+        storagePath: api.user.storagePath(),
+        log: { warn: (msg: string) => this.log.warn(msg) },
+      })
+    }
+
     // Initialize on Homebridge launch
     api.on('didFinishLaunching', async () => {
+      this.signals?.start()
       await this.initialize()
       if (this.discoveryComplete) {
         this.startDiagnostics()
@@ -210,6 +224,7 @@ export class LevitonDecoraSmartPlatform {
       this.isShuttingDown = true
       this.saveDeviceStates()
       this.cleanup()
+      this.signals?.close()
     })
   }
 
@@ -250,6 +265,11 @@ export class LevitonDecoraSmartPlatform {
       // Permanent misconfiguration (bad credentials, invalid config) won't fix
       // itself — don't hammer the API. Everything else is treated as transient.
       if (error instanceof AuthenticationError || error instanceof ConfigurationError) {
+        // Also covers a 401/403 after a successful sign-in: the plugin stops
+        // here either way, and without this nothing would page.
+        if (error instanceof AuthenticationError) {
+          this.signals?.recordSignInResult(true)
+        }
         this.log.error(`Initialization failed and will not be retried automatically: ${sanitizeError(error)}`)
         return
       }
@@ -396,7 +416,7 @@ export class LevitonDecoraSmartPlatform {
     
     // Login
     this.log.info('Connecting to My Leviton...')
-    const loginResponse = await this.client.login(this.config.email, this.config.password, debugLog)
+    const loginResponse = await this.signIn(debugLog)
     const token = loginResponse.id
     const personId = loginResponse.userId
     
@@ -1440,6 +1460,23 @@ export class LevitonDecoraSmartPlatform {
   }
 
   /**
+   * Signs in to My Leviton and reports the outcome to the PagerDuty signals.
+   * Network failures are not reported: they say nothing about the credentials.
+   */
+  private async signIn(debugLog?: (msg: string) => void): Promise<LoginResponse> {
+    try {
+      const loginResponse = await this.client.login(this.config.email, this.config.password, debugLog)
+      this.signals?.recordSignInResult(false)
+      return loginResponse
+    } catch (err) {
+      if (err instanceof AuthenticationError) {
+        this.signals?.recordSignInResult(true)
+      }
+      throw err
+    }
+  }
+
+  /**
    * Refreshes the authentication token
    */
   private async refreshToken(): Promise<LoginResponse> {
@@ -1457,7 +1494,7 @@ export class LevitonDecoraSmartPlatform {
     }
 
     this.tokenRefreshPromise = (async () => {
-      const loginResponse = await this.client.login(this.config.email, this.config.password)
+      const loginResponse = await this.signIn()
       this.setLoginResponse(loginResponse)
 
       // Update WebSocket with new login response and force reconnect so stale auth is not reused.
@@ -1606,7 +1643,9 @@ export class LevitonDecoraSmartPlatform {
       this.lastRestReachabilityAt !== null &&
       Date.now() - this.lastRestReachabilityAt <= pollWindowMs
 
-    this.updateConnectivity(this.wsPushConnected || restFresh)
+    const isOnline = this.wsPushConnected || restFresh
+    this.updateConnectivity(isOnline)
+    this.signals?.setCloudReachable(isOnline)
   }
 
   /**

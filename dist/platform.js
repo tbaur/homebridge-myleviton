@@ -53,6 +53,7 @@ const sanitizers_1 = require("./utils/sanitizers");
 const validators_1 = require("./utils/validators");
 const errors_1 = require("./errors");
 const device_models_1 = require("./platform/device-models");
+const leviton_signals_1 = require("./platform/leviton-signals");
 /**
  * Installed plugin version, used for diagnostics lifecycle reporting.
  *
@@ -123,6 +124,8 @@ class LevitonDecoraSmartPlatform {
     // Optional cloud-connectivity status sensor
     connectivityService = null;
     isCloudOnline = true;
+    // Optional homebridge-pagerduty signals (off unless pagerdutySignals is true)
+    signals = null;
     // Track recent HomeKit commands to avoid logging them as "external"
     recentHomeKitCommands = new Map();
     // Opt-in diagnostics subsystem (off unless diagnosticsInterval > 0)
@@ -176,8 +179,16 @@ class LevitonDecoraSmartPlatform {
         if (!this.validateConfig()) {
             return;
         }
+        if (this.config.pagerdutySignals === true) {
+            this.signals = (0, leviton_signals_1.createLevitonSignals)({
+                plugin: PLUGIN_NAME,
+                storagePath: api.user.storagePath(),
+                log: { warn: (msg) => this.log.warn(msg) },
+            });
+        }
         // Initialize on Homebridge launch
         api.on('didFinishLaunching', async () => {
+            this.signals?.start();
             await this.initialize();
             if (this.discoveryComplete) {
                 this.startDiagnostics();
@@ -188,6 +199,7 @@ class LevitonDecoraSmartPlatform {
             this.isShuttingDown = true;
             this.saveDeviceStates();
             this.cleanup();
+            this.signals?.close();
         });
     }
     /**
@@ -228,6 +240,11 @@ class LevitonDecoraSmartPlatform {
             // Permanent misconfiguration (bad credentials, invalid config) won't fix
             // itself — don't hammer the API. Everything else is treated as transient.
             if (error instanceof errors_1.AuthenticationError || error instanceof errors_1.ConfigurationError) {
+                // Also covers a 401/403 after a successful sign-in: the plugin stops
+                // here either way, and without this nothing would page.
+                if (error instanceof errors_1.AuthenticationError) {
+                    this.signals?.recordSignInResult(true);
+                }
                 this.log.error(`Initialization failed and will not be retried automatically: ${(0, sanitizers_1.sanitizeError)(error)}`);
                 return;
             }
@@ -343,7 +360,7 @@ class LevitonDecoraSmartPlatform {
         const debugLog = (msg) => this.log.debug(msg);
         // Login
         this.log.info('Connecting to My Leviton...');
-        const loginResponse = await this.client.login(this.config.email, this.config.password, debugLog);
+        const loginResponse = await this.signIn(debugLog);
         const token = loginResponse.id;
         const personId = loginResponse.userId;
         this.log.info('Authentication successful');
@@ -1254,6 +1271,23 @@ class LevitonDecoraSmartPlatform {
         return loginResponse.id;
     }
     /**
+     * Signs in to My Leviton and reports the outcome to the PagerDuty signals.
+     * Network failures are not reported: they say nothing about the credentials.
+     */
+    async signIn(debugLog) {
+        try {
+            const loginResponse = await this.client.login(this.config.email, this.config.password, debugLog);
+            this.signals?.recordSignInResult(false);
+            return loginResponse;
+        }
+        catch (err) {
+            if (err instanceof errors_1.AuthenticationError) {
+                this.signals?.recordSignInResult(true);
+            }
+            throw err;
+        }
+    }
+    /**
      * Refreshes the authentication token
      */
     async refreshToken() {
@@ -1267,7 +1301,7 @@ class LevitonDecoraSmartPlatform {
             throw new errors_1.AuthenticationError('Token refresh temporarily throttled after recent failure');
         }
         this.tokenRefreshPromise = (async () => {
-            const loginResponse = await this.client.login(this.config.email, this.config.password);
+            const loginResponse = await this.signIn();
             this.setLoginResponse(loginResponse);
             // Update WebSocket with new login response and force reconnect so stale auth is not reused.
             if (this.webSocket) {
@@ -1399,7 +1433,9 @@ class LevitonDecoraSmartPlatform {
         const pollWindowMs = this.pollingCadenceSeconds() * 1000 * 2;
         const restFresh = this.lastRestReachabilityAt !== null &&
             Date.now() - this.lastRestReachabilityAt <= pollWindowMs;
-        this.updateConnectivity(this.wsPushConnected || restFresh);
+        const isOnline = this.wsPushConnected || restFresh;
+        this.updateConnectivity(isOnline);
+        this.signals?.setCloudReachable(isOnline);
     }
     /**
      * Proves REST reachability when there are no device poll targets (e.g. all

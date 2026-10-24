@@ -371,6 +371,7 @@ describe('DiagnosticsCollector', () => {
         pollInterval: 30,
         structuredLogs: true,
         connectivitySensor: true,
+        pagerdutySignals: false,
         excludedModels: 1,
         excludedSerials: 2,
       })

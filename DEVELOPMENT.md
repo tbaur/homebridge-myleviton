@@ -70,7 +70,7 @@ homebridge-myleviton/
 ├── dist/                 # Compiled JavaScript (auto-generated)
 ├── tests/
 │   ├── setup.js          # Jest setup
-│   ├── unit/             # Unit tests (~91% coverage including platform.ts)
+│   ├── unit/             # Unit tests (coverage includes platform.ts)
 │   │   └── *.test.ts
 │   └── integration/      # Smoke tests (no live API)
 │       └── smoke.test.ts

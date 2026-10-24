@@ -66,7 +66,8 @@ Advanced documentation for power users, developers, and troubleshooting.
       "structuredLogs": false,
       "connectivitySensor": false,
       "connectivitySensorName": "Leviton Cloud",
-      "diagnosticsInterval": 0
+      "diagnosticsInterval": 0,
+      "pagerdutySignals": false
     }
   ]
 }
@@ -89,6 +90,7 @@ Advanced documentation for power users, developers, and troubleshooting.
 | `connectivitySensor` | boolean | `false` | Expose a HomeKit contact sensor reporting Leviton cloud reachability |
 | `connectivitySensorName` | string | `"Leviton Cloud"` | Display name for the connectivity sensor |
 | `diagnosticsInterval` | number | `0` | Diagnostics heartbeat interval in seconds. `0` disables diagnostics; otherwise `30`–`3600`. Logs/JSON only — never exposed in HomeKit. See [Diagnostics](#diagnostics-optional). |
+| `pagerdutySignals` | boolean | `false` | Write `cloud-offline` and `auth-failed` to homebridge-pagerduty's signal store. See [PagerDuty Signals](#pagerduty-signals-optional). |
 
 ### Example: Exclude Specific Devices
 
@@ -202,6 +204,31 @@ This means a brief WebSocket flap does not mark the cloud offline while REST pol
 still works. Transitions are logged (`connectivity lost` / `connectivity restored`) so you can alert or build Home
 automations on loss of connectivity. Disabling the option removes the sensor on
 the next restart.
+
+### PagerDuty Signals (optional)
+
+This plugin can page through [homebridge-pagerduty](https://github.com/tbaur/homebridge-pagerduty) when something needs attention. It needs Node 22.13 or later.
+
+1. Turn on **Send Signals to PagerDuty** (`pagerdutySignals`) in this plugin's settings, under **Advanced Options**.
+2. In homebridge-pagerduty's settings, open **Other Plugins** and add `homebridge-myleviton` to **Signal Sources**.
+3. Restart Homebridge.
+
+Each condition below then opens a PagerDuty alert while it is present, and resolves it when it clears.
+
+| Signal | Severity | Active when |
+| --- | --- | --- |
+| `cloud-offline` | critical | The plugin has not reached the Leviton cloud, by WebSocket or by polling, for 5 minutes |
+| `auth-failed` | critical | Leviton rejected the sign-in or account access, at startup or on a token refresh |
+
+To give a condition its own HomeKit switch, add an alert in homebridge-pagerduty with one level and set its **Follow Signal** field, for example `homebridge-myleviton/cloud-offline`.
+
+How the signals behave:
+
+- While `auth-failed` is active, `cloud-offline` stays off, so one cause sends one page. Neither signal needs the HomeKit connectivity sensor.
+- `cloud-offline` uses the same online/offline check as the connectivity sensor, but it turns on only after that check has reported offline for 5 minutes in a row. homebridge-pagerduty has no delay of its own, so this keeps short Leviton outages from paging anyone. It clears as soon as the cloud is reachable again. The 5 minutes start at launch, so a Homebridge start during an outage also pages.
+- `auth-failed` turns on when Leviton answers a sign-in with 401 or 403, or with an unusable login response. At startup it also turns on for a 401 or 403 from any discovery request. In both startup cases the plugin stops and does not retry, so the signal stays on until the account is fixed and Homebridge restarts. A network failure or the plugin's own refresh cooldown does not count. It clears after the next successful sign-in.
+- Both signals are written once their state is known, and again whenever it changes. Shutdown never clears them; the next startup writes the current state.
+- The store needs `node:sqlite` (Node 22.13 or later). On an older Node the plugin logs one warning and keeps running without signals.
 
 ### Diagnostics (optional)
 

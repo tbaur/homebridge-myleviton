@@ -31,6 +31,7 @@ export declare class LevitonDecoraSmartPlatform {
     private isShuttingDown;
     private connectivityService;
     private isCloudOnline;
+    private signals;
     private recentHomeKitCommands;
     private readonly diagnostics;
     private diagnosticsTimer;
@@ -255,6 +256,11 @@ export declare class LevitonDecoraSmartPlatform {
      * Ensures a valid token is available
      */
     private ensureValidToken;
+    /**
+     * Signs in to My Leviton and reports the outcome to the PagerDuty signals.
+     * Network failures are not reported: they say nothing about the credentials.
+     */
+    private signIn;
     /**
      * Refreshes the authentication token
      */
