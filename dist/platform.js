@@ -126,6 +126,7 @@ class LevitonDecoraSmartPlatform {
     isCloudOnline = true;
     // Optional homebridge-pagerduty signals (off unless pagerdutySignals is true)
     signals = null;
+    hasLoggedPagerDutySupport = false;
     // Track recent HomeKit commands to avoid logging them as "external"
     recentHomeKitCommands = new Map();
     // Opt-in diagnostics subsystem (off unless diagnosticsInterval > 0)
@@ -258,6 +259,17 @@ class LevitonDecoraSmartPlatform {
         }
     }
     /**
+     * Logs once that signals are on, before the first request, so the line
+     * still appears when sign-in fails. Discovery retries must not repeat it.
+     */
+    logPagerDutySupport() {
+        if (this.signals === null || this.hasLoggedPagerDutySupport) {
+            return;
+        }
+        this.hasLoggedPagerDutySupport = true;
+        this.log.info(`homebridge-pagerduty support is enabled (${leviton_signals_1.SIGNAL_CLOUD_OFFLINE}, ${leviton_signals_1.SIGNAL_AUTH_FAILED})`);
+    }
+    /**
      * Schedules a delayed re-initialization attempt unless the platform is
      * shutting down. Only one retry is ever queued at a time.
      */
@@ -276,6 +288,7 @@ class LevitonDecoraSmartPlatform {
      */
     async discoverAndSetup() {
         this.log.info('Starting My Leviton Decora Smart platform...');
+        this.logPagerDutySupport();
         {
             // Clean up any duplicate cache entries before processing
             // This is defensive - duplicates can occur due to race conditions in older versions
