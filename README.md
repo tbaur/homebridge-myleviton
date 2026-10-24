@@ -32,10 +32,11 @@ Control your **My Leviton Decora Smart** WiFi devices through Apple HomeKit usin
 - **Token Auto-Refresh** — Refreshes tokens so you stay signed in
 - **Connectivity Sensor** *(optional)* — Exposes a HomeKit contact sensor that reports whether the plugin can reach the Leviton cloud, so you can alert or automate on outages
 - **Diagnostics** *(optional)* — Opt-in health/activity heartbeat, boot/shutdown snapshots, and degraded/recovered transitions logged to Homebridge (logs/JSON only, never in HomeKit)
+- **PagerDuty Signals** *(optional)* — Pages through [homebridge-pagerduty](https://github.com/tbaur/homebridge-pagerduty) when the Leviton cloud stays unreachable or Leviton rejects the sign-in. See [setup](docs/README-DETAILED.md#pagerduty-signals-optional)
 
 ### Quality
 <!-- Canonical test count lives here only; keep other docs number-free to avoid 5-place updates. -->
-- **592 Tests** — Comprehensive test suite with ~91% code coverage (includes `platform.ts`)
+- **619 Tests** — Comprehensive test suite with coverage reported by `npm test` (includes `platform.ts`)
 - **Child Bridge Support** — Run as isolated bridge for maximum stability
 - **Flexible Logging** — Debug, info, warn, error levels + JSON structured logs
 - **No Analytics** — Zero tracking or data collection
@@ -102,6 +103,7 @@ Your devices will appear in the Home app automatically.
 | `connectivitySensor` | | Expose a HomeKit contact sensor for Leviton cloud reachability (default: off) |
 | `connectivitySensorName` | | Name for the connectivity sensor (default: "Leviton Cloud") |
 | `diagnosticsInterval` | | Seconds between diagnostics health heartbeats in the logs; `0` disables (default), else `30`–`3600` |
+| `pagerdutySignals` | | Send alert conditions to homebridge-pagerduty (default: off). See [PagerDuty Signals](docs/README-DETAILED.md#pagerduty-signals-optional) |
 
 \* Leave the password field empty when `MYLEVITON_PASSWORD` is set. The environment variable is used in memory and is not written into `config.json`.
 

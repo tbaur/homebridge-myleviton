@@ -17,6 +17,7 @@
 - ✅ Per-account isolation of circuit breaker, rate limiter, and cache
 - ✅ Device state persistence for faster startup
 - ✅ Optional cloud-connectivity status sensor (HomeKit contact sensor)
+- ✅ Optional homebridge-pagerduty signals (`cloud-offline` and `auth-failed`)
 - ✅ Optional diagnostics subsystem (health heartbeat, boot/shutdown snapshots, one warning when health becomes degraded — logs/JSON only)
 - ✅ Structured JSON logging (optional)
 - ✅ Token auto-refresh before expiry and on 401
@@ -47,13 +48,13 @@ homebridge-myleviton/
 │   └── types/            # TypeScript type definitions
 ├── dist/                 # Compiled JavaScript (auto-generated)
 └── tests/
-    └── unit/*.test.ts    # Unit tests (~91% coverage including platform.ts)
+    └── unit/*.test.ts    # Unit tests (coverage includes platform.ts)
     └── integration/      # Smoke tests (no live API)
 ```
 
 ## Quality
 
-- Comprehensive unit test suite (~91% line coverage including `platform.ts`; see `npm test` report)
+- Comprehensive unit test suite (coverage includes `platform.ts`; see the `npm test` report)
 - ESLint with zero warnings
 - TypeScript strict mode
 - Full JSDoc documentation

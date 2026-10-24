@@ -213,6 +213,7 @@ const setupMocks = () => {
     close: jest.fn(),
     updateToken: jest.fn(),
     updateLoginResponse: jest.fn(),
+    forceReconnect: jest.fn(),
     connect: jest.fn(),
     isConnected: jest.fn().mockReturnValue(false),
     getStatus: jest.fn().mockReturnValue({
@@ -2293,5 +2294,131 @@ describe('Latency logging', () => {
       await expect(internals.refreshToken()).resolves.toMatchObject({ id: 'new-token' })
       expect(mockClient.login).toHaveBeenCalledTimes(2)
     })
+  })
+})
+
+const sqlite = typeof process.getBuiltinModule === 'function'
+  ? process.getBuiltinModule('node:sqlite') as typeof import('node:sqlite') | undefined
+  : undefined
+const describeWithSqlite = sqlite ? describe : describe.skip
+
+describeWithSqlite('PagerDuty signals', () => {
+  const { mkdtempSync, rmSync, existsSync } = require('node:fs') as typeof import('node:fs')
+  const { tmpdir } = require('node:os') as typeof import('node:os')
+  const { join } = require('node:path') as typeof import('node:path')
+  const { AuthenticationError } = require('../../src/errors') as typeof import('../../src/errors')
+  const { PagerDutySignals } = require('../../src/pagerduty-signals') as typeof import('../../src/pagerduty-signals')
+  const { CLOUD_OFFLINE_GRACE_MS } = require('../../src/platform/leviton-signals') as typeof import('../../src/platform/leviton-signals')
+
+  const signalsConfig: LevitonConfig = { ...validConfig, pagerdutySignals: true }
+  let storagePath: string
+  let mocks: ReturnType<typeof setupMocks>
+
+  /** Active flag per signal name, read through a separate connection. */
+  const readActive = (): Record<string, number> => {
+    const db = new sqlite!.DatabaseSync(join(storagePath, 'homebridge-pagerduty', 'signals.sqlite'))
+    try {
+      const rows = db.prepare('SELECT plugin, signal, active, severity FROM signals').all() as unknown as Array<{
+        plugin: string
+        signal: string
+        active: number
+        severity: string
+      }>
+      expect(rows.every(row => row.plugin === 'homebridge-myleviton' && row.severity === 'critical')).toBe(true)
+      return Object.fromEntries(rows.map(row => [row.signal, row.active]))
+    } finally {
+      db.close()
+    }
+  }
+
+  const launch = async (config: LevitonConfig) => {
+    const platform = new LevitonDecoraSmartPlatform(mocks.mockLog, config, mocks.mockAPI)
+    mocks.mockAPI.emit('didFinishLaunching')
+    await new Promise(resolve => setTimeout(resolve, 100))
+    return platform as unknown as {
+      refreshToken: () => Promise<unknown>
+      lastRefreshFailureAt: number | null
+    }
+  }
+
+  beforeEach(() => {
+    storagePath = mkdtempSync(join(tmpdir(), 'myleviton-platform-signals-'))
+    mocks = setupMocks()
+    mocks.mockAPI.user.storagePath.mockReturnValue(storagePath)
+  })
+
+  afterEach(() => {
+    mocks.mockAPI.emit('shutdown')
+    rmSync(storagePath, { recursive: true, force: true })
+  })
+
+  it('creates no store while the setting is off', async () => {
+    await launch(validConfig)
+
+    expect(existsSync(join(storagePath, 'homebridge-pagerduty'))).toBe(false)
+  })
+
+  it('writes every signal at startup and closes the store on shutdown without clearing it', async () => {
+    const closeSpy = jest.spyOn(PagerDutySignals.prototype, 'close')
+    await launch(signalsConfig)
+
+    expect(readActive()).toEqual({ 'auth-failed': 0, 'cloud-offline': 0 })
+
+    mocks.mockAPI.emit('shutdown')
+    expect(closeSpy).toHaveBeenCalled()
+    expect(readActive()).toEqual({ 'auth-failed': 0, 'cloud-offline': 0 })
+  })
+
+  it('turns on auth-failed, not cloud-offline, when Leviton rejects the sign-in at startup', async () => {
+    mocks.mockClient.login.mockRejectedValue(new AuthenticationError('Unauthorized: Unauthorized'))
+    await launch(signalsConfig)
+
+    expect(readActive()).toEqual({ 'auth-failed': 1, 'cloud-offline': 0 })
+  })
+
+  it('turns on auth-failed when discovery is refused after a successful sign-in, because the plugin stops', async () => {
+    mocks.mockClient.getResidentialPermissions.mockRejectedValue(new AuthenticationError('Forbidden: Forbidden'))
+    await launch(signalsConfig)
+
+    expect(mocks.mockLog).toHaveBeenCalledWith(expect.stringContaining('will not be retried'))
+    expect(readActive()).toEqual({ 'auth-failed': 1, 'cloud-offline': 0 })
+  })
+
+  it('follows a token refresh that is rejected and then accepted', async () => {
+    const platform = await launch(signalsConfig)
+
+    mocks.mockClient.login.mockRejectedValueOnce(new AuthenticationError('Unauthorized: Unauthorized'))
+    await expect(platform.refreshToken()).rejects.toThrow('Unauthorized')
+    expect(readActive()['auth-failed']).toBe(1)
+
+    platform.lastRefreshFailureAt = null
+    await platform.refreshToken()
+    expect(readActive()['auth-failed']).toBe(0)
+  })
+
+  it('does not count a throttled refresh or a network failure as a rejected sign-in', async () => {
+    const platform = await launch(signalsConfig)
+
+    mocks.mockClient.login.mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
+    await expect(platform.refreshToken()).rejects.toThrow('ECONNREFUSED')
+    await expect(platform.refreshToken()).rejects.toThrow('temporarily throttled')
+
+    expect(readActive()['auth-failed']).toBe(0)
+  })
+
+  it('turns on cloud-offline when the cloud is unreachable for the grace period after launch', async () => {
+    jest.useFakeTimers()
+    try {
+      mocks.mockClient.login.mockRejectedValue(new Error('connect ECONNREFUSED'))
+      new LevitonDecoraSmartPlatform(mocks.mockLog, signalsConfig, mocks.mockAPI)
+      mocks.mockAPI.emit('didFinishLaunching')
+
+      await jest.advanceTimersByTimeAsync(CLOUD_OFFLINE_GRACE_MS)
+
+      expect(readActive()).toEqual({ 'cloud-offline': 1 })
+    } finally {
+      mocks.mockAPI.emit('shutdown')
+      jest.useRealTimers()
+    }
   })
 })

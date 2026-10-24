@@ -78,6 +78,18 @@ describe('config.schema.json', () => {
     expect(layoutJson).toContain('password')
   })
 
+  it('offers Send Signals to PagerDuty, off by default, in the Advanced Options fieldset', () => {
+    const prop = schema.schema.properties.pagerdutySignals as SchemaProperty & { default?: unknown }
+    expect(prop.type).toBe('boolean')
+    expect(prop.default).toBe(false)
+
+    const advanced = schema.layout.find(
+      (section): section is { title: string; items: unknown[] } =>
+        typeof section === 'object' && section !== null && (section as { title?: string }).title === 'Advanced Options',
+    )
+    expect(advanced?.items).toContain('pagerdutySignals')
+  })
+
   it('never declares `required` as a boolean (invalid draft-07; breaks ajv validation)', () => {
     const requiredValues: unknown[] = []
     collectRequiredValues(schema.schema, requiredValues)

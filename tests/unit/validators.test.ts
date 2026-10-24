@@ -254,6 +254,12 @@ describe('validateConfig', () => {
     expect(() => validateConfig({ ...validConfig, connectivitySensorName: '' })).toThrow(ConfigurationError)
   })
 
+  it('should validate the pagerdutySignals option', () => {
+    expect(validateConfig({ ...validConfig, pagerdutySignals: true }).pagerdutySignals).toBe(true)
+    expect(validateConfig(validConfig).pagerdutySignals).toBeUndefined()
+    expect(() => validateConfig({ ...validConfig, pagerdutySignals: 'true' })).toThrow('pagerdutySignals must be a boolean')
+  })
+
   it('should accept password from MYLEVITON_PASSWORD when config password is empty', () => {
     const original = process.env.MYLEVITON_PASSWORD
     process.env.MYLEVITON_PASSWORD = 'env-secret'

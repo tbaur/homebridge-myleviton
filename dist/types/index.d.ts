@@ -37,6 +37,11 @@ export interface LevitonConfig extends PlatformConfig {
     connectivitySensor?: boolean;
     connectivitySensorName?: string;
     /**
+     * Write cloud-offline and auth-failed to homebridge-pagerduty's signal store.
+     * Off when missing.
+     */
+    pagerdutySignals?: boolean;
+    /**
      * Diagnostics heartbeat interval in seconds. `0` (default) disables the
      * diagnostics subsystem entirely. Any other value must be between 30 and 3600.
      * Diagnostics are logs/JSON only and never surfaced in HomeKit.

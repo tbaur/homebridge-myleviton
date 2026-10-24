@@ -337,6 +337,7 @@ function redactConfig(config) {
         loglevel: config.loglevel,
         structuredLogs: config.structuredLogs ?? false,
         connectivitySensor: config.connectivitySensor ?? false,
+        pagerdutySignals: config.pagerdutySignals ?? false,
         excludedModels: Array.isArray(config.excludedModels) ? config.excludedModels.length : 0,
         excludedSerials: Array.isArray(config.excludedSerials) ? config.excludedSerials.length : 0,
     };
