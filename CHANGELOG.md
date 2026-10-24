@@ -5,6 +5,13 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.0](https://github.com/tbaur/homebridge-myleviton/compare/v4.0.3...v4.1.0) (2026-10-24)
+
+
+### Features
+
+* **signals:** send cloud-offline and auth-failed to homebridge-pagerduty ([#103](https://github.com/tbaur/homebridge-myleviton/issues/103)) ([5a0da73](https://github.com/tbaur/homebridge-myleviton/commit/5a0da7342a8a52a652d2107e4ab464f0bcd2a536))
+
 ## [4.0.3](https://github.com/tbaur/homebridge-myleviton/compare/v4.0.2...v4.0.3) (2026-10-05)
 
 
