@@ -5,6 +5,13 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.1](https://github.com/tbaur/homebridge-myleviton/compare/v4.1.0...v4.1.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **config:** drop the Node version note from the PagerDuty setting ([#105](https://github.com/tbaur/homebridge-myleviton/issues/105)) ([9c4ad7c](https://github.com/tbaur/homebridge-myleviton/commit/9c4ad7c3af142f9cc73d2af7daac58c31f4ff152))
+
 ## [4.1.0](https://github.com/tbaur/homebridge-myleviton/compare/v4.0.3...v4.1.0) (2026-10-24)
 
 
