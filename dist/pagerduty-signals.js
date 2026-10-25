@@ -4,11 +4,14 @@ exports.PagerDutySignals = void 0;
 const node_fs_1 = require("node:fs");
 const node_path_1 = require("node:path");
 const STORE_DIR = 'homebridge-pagerduty';
+// The signal store interface this module writes. Change it only by copying a
+// newer version of this module from homebridge-pagerduty's docs/SIGNALS-AGENT.md.
+const INTERFACE_ID = 'signals-2026-10-24';
 const STORE_FILE = 'signals.sqlite';
-const INTERFACE_VERSION = 1;
 const MAX_SUMMARY_LENGTH = 1024;
-// The homebridge-pagerduty signal store interface, version 1. Every writer
-// must run this exact text: the first process to run it defines the table.
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]+/g;
+// The table definition of interface signals-2026-10-24. Every writer must run
+// this exact text: the first process to run it defines the table.
 const SCHEMA = `PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS signals (
   plugin     TEXT    NOT NULL CHECK (length(plugin) BETWEEN 1 AND 128 AND plugin NOT GLOB '*[^a-z0-9@/._-]*'),
@@ -37,7 +40,7 @@ class PagerDutySignals {
     }
     /** Record a signal's current state. Skipped when nothing changed since the last write. */
     write(signal, state) {
-        const summary = state.summary.slice(0, MAX_SUMMARY_LENGTH);
+        const summary = state.summary.replace(CONTROL_CHARACTERS, ' ').slice(0, MAX_SUMMARY_LENGTH);
         const fingerprint = `${state.active ? 1 : 0}|${state.severity}|${summary}`;
         if (this.isDisabled || this.lastWritten.get(signal) === fingerprint) {
             return;
@@ -66,7 +69,7 @@ class PagerDutySignals {
         if (sqlite === undefined) {
             this.disable('PagerDuty signals need Node 22.13 or later; not writing signals');
         }
-        const dir = (0, node_path_1.join)(this.options.storagePath, STORE_DIR);
+        const dir = (0, node_path_1.join)(this.options.storagePath, STORE_DIR, INTERFACE_ID);
         const file = (0, node_path_1.join)(dir, STORE_FILE);
         (0, node_fs_1.mkdirSync)(dir, { recursive: true, mode: 0o700 });
         (0, node_fs_1.closeSync)((0, node_fs_1.openSync)(file, 'a', 0o600));
@@ -74,13 +77,6 @@ class PagerDutySignals {
         try {
             db.exec('PRAGMA busy_timeout = 1000');
             db.exec(SCHEMA);
-            const version = Number(db.prepare('PRAGMA user_version').get().user_version);
-            if (version === 0) {
-                db.exec(`PRAGMA user_version = ${INTERFACE_VERSION}`);
-            }
-            else if (version > INTERFACE_VERSION) {
-                this.disable(`the PagerDuty signal store is a newer version (${version}); update this plugin to write signals`);
-            }
         }
         catch (error) {
             db.close();

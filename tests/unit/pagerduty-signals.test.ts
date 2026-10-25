@@ -8,7 +8,7 @@
  * against a real SQLite file
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type * as Sqlite from 'node:sqlite'
@@ -36,7 +36,8 @@ describeWithSqlite('PagerDutySignals', () => {
   let signals: PagerDutySignals
 
   const storeDir = () => join(storagePath, 'homebridge-pagerduty')
-  const storeFile = () => join(storeDir(), 'signals.sqlite')
+  const interfaceDir = () => join(storeDir(), 'signals-2026-10-24')
+  const storeFile = () => join(interfaceDir(), 'signals.sqlite')
 
   const readRows = (): SignalRow[] => {
     const db = new sqlite!.DatabaseSync(storeFile())
@@ -58,10 +59,11 @@ describeWithSqlite('PagerDutySignals', () => {
     rmSync(storagePath, { recursive: true, force: true })
   })
 
-  it('creates the store directory with mode 0700 and the file with mode 0600', () => {
+  it('creates both store directories with mode 0700 and the file with mode 0600', () => {
     signals.write('cloud-offline', { active: false, severity: 'critical', summary: 'Cloud is offline' })
 
     expect(statSync(storeDir()).mode & 0o777).toBe(0o700)
+    expect(statSync(interfaceDir()).mode & 0o777).toBe(0o700)
     expect(statSync(storeFile()).mode & 0o777).toBe(0o600)
   })
 
@@ -88,18 +90,10 @@ describeWithSqlite('PagerDutySignals', () => {
     expect(readRows()[0].updated_at).toBe(1_000)
   })
 
-  it('does not write to a store from a newer interface, and warns once', () => {
-    mkdirSync(storeDir(), { recursive: true, mode: 0o700 })
-    const db = new sqlite!.DatabaseSync(storeFile())
-    db.exec('PRAGMA user_version = 2')
-    db.close()
+  it('stores a newline in a summary as a space', () => {
+    signals.write('cloud-offline', { active: true, severity: 'critical', summary: 'Cloud\nis offline' })
 
-    signals.write('cloud-offline', { active: true, severity: 'critical', summary: 'Cloud is offline' })
-    signals.write('auth-failed', { active: true, severity: 'critical', summary: 'Sign-in rejected' })
-
-    expect(readRows()).toEqual([])
-    expect(warn).toHaveBeenCalledTimes(1)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('newer version'))
+    expect(readRows()[0].summary).toBe('Cloud is offline')
   })
 
   it('creates nothing and warns once when node:sqlite is unavailable', () => {
