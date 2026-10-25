@@ -2316,7 +2316,7 @@ describeWithSqlite('PagerDuty signals', () => {
 
   /** Active flag per signal name, read through a separate connection. */
   const readActive = (): Record<string, number> => {
-    const db = new sqlite!.DatabaseSync(join(storagePath, 'homebridge-pagerduty', 'signals.sqlite'))
+    const db = new sqlite!.DatabaseSync(join(storagePath, 'homebridge-pagerduty', 'signals-2026-10-24', 'signals.sqlite'))
     try {
       const rows = db.prepare('SELECT plugin, signal, active, severity FROM signals').all() as unknown as Array<{
         plugin: string

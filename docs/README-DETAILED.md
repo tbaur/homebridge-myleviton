@@ -210,8 +210,8 @@ the next restart.
 This plugin can page through [homebridge-pagerduty](https://github.com/tbaur/homebridge-pagerduty) when something needs attention. It needs Node 22.13 or later.
 
 1. Turn on **Send Signals to PagerDuty** (`pagerdutySignals`) in this plugin's settings, under **Advanced Options**.
-2. In homebridge-pagerduty's settings, open **Other Plugins** and add `homebridge-myleviton` to **Signal Sources**.
-3. Restart Homebridge.
+2. Restart Homebridge.
+3. In homebridge-pagerduty's settings, allow homebridge-myleviton to page, save, and restart Homebridge again. [Signals from other plugins](https://github.com/tbaur/homebridge-pagerduty/blob/main/docs/SIGNALS.md#let-a-plugin-page) explains each step and what else you can set for each signal.
 
 Each condition below then opens a PagerDuty alert while it is present, and resolves it when it clears.
 
@@ -219,8 +219,6 @@ Each condition below then opens a PagerDuty alert while it is present, and resol
 | --- | --- | --- |
 | `cloud-offline` | critical | The plugin has not reached the Leviton cloud, by WebSocket or by polling, for 5 minutes |
 | `auth-failed` | critical | Leviton rejected the sign-in or account access, at startup or on a token refresh |
-
-To give a condition its own HomeKit switch, add an alert in homebridge-pagerduty with one level and set its **Follow Signal** field, for example `homebridge-myleviton/cloud-offline`.
 
 How the signals behave:
 

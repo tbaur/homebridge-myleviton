@@ -19,12 +19,15 @@ export interface PagerDutySignalsOptions {
 }
 
 const STORE_DIR = 'homebridge-pagerduty'
+// The signal store interface this module writes. Change it only by copying a
+// newer version of this module from homebridge-pagerduty's docs/SIGNALS-AGENT.md.
+const INTERFACE_ID = 'signals-2026-10-24'
 const STORE_FILE = 'signals.sqlite'
-const INTERFACE_VERSION = 1
 const MAX_SUMMARY_LENGTH = 1024
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]+/g
 
-// The homebridge-pagerduty signal store interface, version 1. Every writer
-// must run this exact text: the first process to run it defines the table.
+// The table definition of interface signals-2026-10-24. Every writer must run
+// this exact text: the first process to run it defines the table.
 const SCHEMA = `PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS signals (
   plugin     TEXT    NOT NULL CHECK (length(plugin) BETWEEN 1 AND 128 AND plugin NOT GLOB '*[^a-z0-9@/._-]*'),
@@ -57,7 +60,7 @@ export class PagerDutySignals {
 
   /** Record a signal's current state. Skipped when nothing changed since the last write. */
   write(signal: string, state: SignalState): void {
-    const summary = state.summary.slice(0, MAX_SUMMARY_LENGTH)
+    const summary = state.summary.replace(CONTROL_CHARACTERS, ' ').slice(0, MAX_SUMMARY_LENGTH)
     const fingerprint = `${state.active ? 1 : 0}|${state.severity}|${summary}`
     if (this.isDisabled || this.lastWritten.get(signal) === fingerprint) {
       return
@@ -87,7 +90,7 @@ export class PagerDutySignals {
     if (sqlite === undefined) {
       this.disable('PagerDuty signals need Node 22.13 or later; not writing signals')
     }
-    const dir = join(this.options.storagePath, STORE_DIR)
+    const dir = join(this.options.storagePath, STORE_DIR, INTERFACE_ID)
     const file = join(dir, STORE_FILE)
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     closeSync(openSync(file, 'a', 0o600))
@@ -95,12 +98,6 @@ export class PagerDutySignals {
     try {
       db.exec('PRAGMA busy_timeout = 1000')
       db.exec(SCHEMA)
-      const version = Number((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version)
-      if (version === 0) {
-        db.exec(`PRAGMA user_version = ${INTERFACE_VERSION}`)
-      } else if (version > INTERFACE_VERSION) {
-        this.disable(`the PagerDuty signal store is a newer version (${version}); update this plugin to write signals`)
-      }
     } catch (error) {
       db.close()
       throw error
