@@ -928,6 +928,19 @@ describe('LevitonWebSocket', () => {
       ws.close()
     })
 
+    it('treats server-initiated pings as liveness', () => {
+      const ws = new LevitonWebSocket(loginResponse, devices, mockCallback, mockLogger, { pingInterval: 1000 })
+      const mock = connectReady(ws)
+
+      for (let i = 0; i < 5; i++) {
+        jest.advanceTimersByTime(1000)
+        mock.emit('ping')
+      }
+
+      expect(mock.terminate).not.toHaveBeenCalled()
+      ws.close()
+    })
+
     it('terminates and reconnects after two silent ping cycles', () => {
       const ws = new LevitonWebSocket(
         loginResponse,

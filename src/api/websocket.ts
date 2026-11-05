@@ -330,6 +330,9 @@ export class LevitonWebSocket {
     this.ws.on('pong', () => {
       this.lastInboundAt = Date.now()
     })
+    this.ws.on('ping', () => {
+      this.lastInboundAt = Date.now()
+    })
   }
 
   /**
@@ -529,7 +532,10 @@ export class LevitonWebSocket {
       if (this.ws?.readyState !== WebSocket.OPEN) {
         return
       }
-      const silentMs = Date.now() - (this.lastInboundAt ?? 0)
+      if (this.lastInboundAt === null) {
+        this.lastInboundAt = Date.now()
+      }
+      const silentMs = Date.now() - this.lastInboundAt
       if (silentMs > deadAfterMs) {
         this.logger.warn(`WebSocket silent for ${Math.round(silentMs / 1000)}s; reconnecting`)
         // terminate() emits close 1006, which runs the normal reconnect path.
