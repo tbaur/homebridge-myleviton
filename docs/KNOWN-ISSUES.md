@@ -62,7 +62,7 @@ The `ws` library surfaces the failed handshake as an `error` event; the plugin l
 ### What the plugin does
 
 1. Logs the error once for that failed attempt
-2. Reconnects with exponential backoff: 1s → 2s → 4s … capped at **60s**
+2. Reconnects with exponential backoff: 1s → 2s → 4s … capped at **60s**. The backoff resets only after the server sends `ready`, so a server that accepts the connection and then drops it keeps backing off.
 3. After **10** quick attempts, continues retrying every **60s** indefinitely (long-tail retry)
 4. Keeps **REST polling** (default every **30s**) so HomeKit state stays current while push reconnects
 5. Re-reads every device as soon as the WebSocket reconnects, so changes made during the drop show up within seconds instead of at the next poll
@@ -94,7 +94,8 @@ These are also common on Leviton's endpoint and handled the same way (reconnect 
 | Event | Example log | Notes |
 |-------|-------------|-------|
 | Normal remote close | `WebSocket closed: 1000 (normal closure)` | Reconnect scheduled |
-| Connection dropped | `WebSocket closed: 1006 (connection dropped)` | Often idle timeout or proxy; reconnect scheduled |
+| Connection dropped | `WebSocket closed: 1006 (connection dropped)` | The server or a proxy ended the connection without a close frame; reconnect scheduled |
+| Silent connection | `WebSocket silent for 61s; reconnecting` | Nothing arrived for two 30s ping cycles; the plugin closes the socket and reconnects |
 | Connection timeout | `WebSocket connection timeout` | No response within `connectionTimeout` (default 10s); reconnect scheduled |
 | Token refresh reconnect | `WebSocket closed by user` then reconnect | Deliberate reconnect after token refresh; not an outage |
 

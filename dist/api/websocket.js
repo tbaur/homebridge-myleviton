@@ -45,6 +45,8 @@ var MessageType;
  * WebSocket status values
  */
 const STATUS_READY = 'ready';
+/** Ping cycles with no inbound traffic before the socket is treated as dead. */
+const MISSED_PINGS_BEFORE_DEAD = 2;
 /**
  * WebSocket close code descriptions
  */
@@ -220,7 +222,6 @@ class LevitonWebSocket {
             this.reconnectTimer = null;
             isOpen = true;
             this.isConnecting = false;
-            this.reconnectAttempt = 0;
             this.logger.debug(`WebSocket connected (token: ${(0, sanitizers_1.maskToken)(this.loginResponse.id)})`);
         });
         this.ws.on('close', (code, reason) => {
@@ -265,6 +266,9 @@ class LevitonWebSocket {
         this.ws.on('pong', () => {
             this.lastInboundAt = Date.now();
         });
+        this.ws.on('ping', () => {
+            this.lastInboundAt = Date.now();
+        });
     }
     /**
      * Handle incoming message
@@ -291,6 +295,9 @@ class LevitonWebSocket {
         // Handle ready status
         if (data.type === MessageType.STATUS && data.status === STATUS_READY) {
             this.logger.info('WebSocket authenticated and ready');
+            // Reset backoff only here: a server that accepts the upgrade and then
+            // drops before ready must keep backing off.
+            this.reconnectAttempt = 0;
             this.subscribeToDevices();
             this.startPing();
             this.config.onConnectionChange?.(true);
@@ -426,10 +433,22 @@ class LevitonWebSocket {
         if (this.pingTimer) {
             clearInterval(this.pingTimer);
         }
+        const deadAfterMs = this.config.pingInterval * MISSED_PINGS_BEFORE_DEAD;
         this.pingTimer = setInterval(() => {
-            if (this.ws?.readyState === ws_1.default.OPEN) {
-                this.ws.ping();
+            if (this.ws?.readyState !== ws_1.default.OPEN) {
+                return;
             }
+            if (this.lastInboundAt === null) {
+                this.lastInboundAt = Date.now();
+            }
+            const silentMs = Date.now() - this.lastInboundAt;
+            if (silentMs > deadAfterMs) {
+                this.logger.warn(`WebSocket silent for ${Math.round(silentMs / 1000)}s; reconnecting`);
+                // terminate() emits close 1006, which runs the normal reconnect path.
+                this.ws.terminate();
+                return;
+            }
+            this.ws.ping();
         }, this.config.pingInterval);
     }
     /**

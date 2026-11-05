@@ -17,6 +17,8 @@ class MockWebSocket extends EventEmitter {
   readyState = 0
   send = jest.fn()
   close = jest.fn()
+  ping = jest.fn()
+  terminate = jest.fn(() => this.triggerClose(1006, ''))
 
   constructor(_url: string, _options?: unknown) {
     super()
@@ -867,10 +869,96 @@ describe('LevitonWebSocket', () => {
       expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(2)
       const second = getLastMockInstance()
       second.triggerOpen()
+      second.triggerMessage({ type: 'status', status: 'ready' })
       second.triggerClose(1006, '')
       jest.advanceTimersByTime(150)
 
       expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(3)
+      ws.close()
+    })
+
+    it('keeps backing off when the socket opens but drops before ready', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+        { maxReconnectAttempts: 5, initialReconnectDelay: 100, maxReconnectDelay: 10000 },
+      )
+
+      ws.connect()
+      const first = getLastMockInstance()
+      first.triggerOpen()
+      first.triggerClose(1006, '')
+      jest.advanceTimersByTime(150)
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(2)
+
+      const second = getLastMockInstance()
+      second.triggerOpen()
+      second.triggerClose(1006, '')
+      // Second attempt backs off to ~200ms instead of resetting to ~100ms.
+      jest.advanceTimersByTime(150)
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(2)
+      jest.advanceTimersByTime(100)
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(3)
+      ws.close()
+    })
+  })
+
+  describe('liveness watchdog', () => {
+    const connectReady = (ws: LevitonWebSocket) => {
+      ws.connect()
+      const mock = getLastMockInstance()
+      mock.triggerOpen()
+      mock.triggerMessage({ type: 'status', status: 'ready' })
+      return mock
+    }
+
+    it('pings while the server keeps answering', () => {
+      const ws = new LevitonWebSocket(loginResponse, devices, mockCallback, mockLogger, { pingInterval: 1000 })
+      const mock = connectReady(ws)
+
+      for (let i = 0; i < 5; i++) {
+        jest.advanceTimersByTime(1000)
+        mock.emit('pong')
+      }
+
+      expect(mock.ping).toHaveBeenCalledTimes(5)
+      expect(mock.terminate).not.toHaveBeenCalled()
+      ws.close()
+    })
+
+    it('treats server-initiated pings as liveness', () => {
+      const ws = new LevitonWebSocket(loginResponse, devices, mockCallback, mockLogger, { pingInterval: 1000 })
+      const mock = connectReady(ws)
+
+      for (let i = 0; i < 5; i++) {
+        jest.advanceTimersByTime(1000)
+        mock.emit('ping')
+      }
+
+      expect(mock.terminate).not.toHaveBeenCalled()
+      ws.close()
+    })
+
+    it('terminates and reconnects after two silent ping cycles', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+        { pingInterval: 1000, initialReconnectDelay: 100 },
+      )
+      const mock = connectReady(ws)
+
+      jest.advanceTimersByTime(2000)
+      expect(mock.terminate).not.toHaveBeenCalled()
+      jest.advanceTimersByTime(1000)
+      expect(mock.terminate).toHaveBeenCalledTimes(1)
+      expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringContaining('silent'))
+
+      jest.advanceTimersByTime(150)
+      expect(MockWebSocket.mockConstructor).toHaveBeenCalledTimes(2)
       ws.close()
     })
 
