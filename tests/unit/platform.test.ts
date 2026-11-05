@@ -1671,7 +1671,9 @@ describe('Characteristic handlers for all device types', () => {
           const callback = jest.fn()
           await setHandler(true, callback)
           
-          expect(mockClient.setPower).toHaveBeenCalledWith(device.id, 'test-token', true)
+          expect(mockClient.setPower).toHaveBeenCalledWith(
+            device.id, 'test-token', true, { signal: expect.any(AbortSignal) },
+          )
           expect(callback).toHaveBeenCalled()
         }
       })
@@ -1733,7 +1735,9 @@ describe('Characteristic handlers for all device types', () => {
           const callback = jest.fn()
           await brightnessSetHandler(75, callback)
           
-          expect(mockClient.setBrightness).toHaveBeenCalledWith(device.id, 'test-token', 75)
+          expect(mockClient.setBrightness).toHaveBeenCalledWith(
+            device.id, 'test-token', 75, { signal: expect.any(AbortSignal) },
+          )
           expect(callback).toHaveBeenCalled()
         }
       })
@@ -2431,5 +2435,136 @@ describeWithSqlite('PagerDuty signals', () => {
       mocks.mockAPI.emit('shutdown')
       jest.useRealTimers()
     }
+  })
+})
+
+describe('Write budget, failed-write re-read, and reconnect resync', () => {
+  const WRITE_BUDGET_MS = 8000
+  const WRITE_FAILURE_RECHECK_MS = 3000
+  const device = { id: 'dev-1', name: 'Test Light', model: 'DW15S', serial: 'SERIAL-0001' }
+
+  type PowerSetter = (value: boolean, callback: (err?: Error) => void) => Promise<void>
+  interface Internals {
+    currentLoginResponse: { id: string; userId: string; ttl: number } | null
+    residenceId: string | null
+    isShuttingDown: boolean
+    createPowerSetter: (d: typeof device) => PowerSetter
+    handleWsConnectionChange: (connected: boolean) => void
+    pollDevices: () => Promise<void>
+    cleanup: () => void
+  }
+
+  let mocks: ReturnType<typeof setupMocks>
+  let internals: Internals
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    jest.useFakeTimers()
+    mocks = setupMocks()
+    const platform = new LevitonDecoraSmartPlatform(mocks.mockLog, validConfig, mocks.mockAPI)
+    platform.configureAccessory(mockAccessory(device))
+    internals = platform as unknown as Internals
+    internals.currentLoginResponse = { id: 'test-token', userId: 'user-123', ttl: -1 }
+    internals.residenceId = 'residence-123'
+  })
+
+  afterEach(() => {
+    internals.cleanup()
+    jest.useRealTimers()
+  })
+
+  const loggedLines = (): string[] => mocks.mockLog.mock.calls.map(([message]) => String(message))
+
+  it('fails a stalled write at the budget and aborts the request', async () => {
+    let writeSignal: AbortSignal | undefined
+    mocks.mockClient.setPower.mockImplementation(
+      (_id: string, _token: string, _value: boolean, options: { signal: AbortSignal }) => {
+        writeSignal = options.signal
+        return new Promise(() => {})
+      },
+    )
+    const callback = jest.fn()
+
+    const pending = internals.createPowerSetter(device)(true, callback)
+    await jest.advanceTimersByTimeAsync(WRITE_BUDGET_MS - 1)
+    expect(callback).not.toHaveBeenCalled()
+
+    await jest.advanceTimersByTimeAsync(1)
+    await pending
+
+    expect(callback).toHaveBeenCalledWith(expect.any(Error))
+    expect(callback.mock.calls[0][0].message).toContain(`${WRITE_BUDGET_MS}ms`)
+    expect(writeSignal?.aborted).toBe(true)
+    expect(loggedLines().some(line => line.includes('Test Light: ON failed after'))).toBe(true)
+  })
+
+  it('reports success when the write finishes inside the budget', async () => {
+    mocks.mockClient.setPower.mockImplementation(
+      () => new Promise(resolve => setTimeout(() => resolve({}), WRITE_BUDGET_MS - 1000)),
+    )
+    const callback = jest.fn()
+
+    const pending = internals.createPowerSetter(device)(false, callback)
+    await jest.advanceTimersByTimeAsync(WRITE_BUDGET_MS - 1000)
+    await pending
+
+    expect(callback).toHaveBeenCalledWith()
+    await jest.advanceTimersByTimeAsync(WRITE_FAILURE_RECHECK_MS)
+    expect(mocks.mockClient.getDeviceStatus).not.toHaveBeenCalled()
+  })
+
+  it('re-reads the device once after a failed write', async () => {
+    mocks.mockClient.setPower.mockRejectedValue(new Error('upstream 503'))
+    const setter = internals.createPowerSetter(device)
+
+    await setter(true, jest.fn())
+    await setter(true, jest.fn())
+    expect(mocks.mockClient.getDeviceStatus).not.toHaveBeenCalled()
+
+    await jest.advanceTimersByTimeAsync(WRITE_FAILURE_RECHECK_MS)
+
+    expect(mocks.mockClient.getDeviceStatus).toHaveBeenCalledTimes(1)
+    expect(mocks.mockClient.getDeviceStatus).toHaveBeenCalledWith(device.id, 'test-token')
+  })
+
+  it('cancels a pending re-read on shutdown', async () => {
+    mocks.mockClient.setPower.mockRejectedValue(new Error('upstream 503'))
+    await internals.createPowerSetter(device)(true, jest.fn())
+
+    internals.cleanup()
+    await jest.advanceTimersByTimeAsync(WRITE_FAILURE_RECHECK_MS)
+
+    expect(mocks.mockClient.getDeviceStatus).not.toHaveBeenCalled()
+  })
+
+  it('polls immediately when the WebSocket reconnects after a drop', async () => {
+    internals.handleWsConnectionChange(true)
+    await jest.advanceTimersByTimeAsync(0)
+    expect(mocks.mockClient.getDeviceStatus).not.toHaveBeenCalled()
+
+    internals.handleWsConnectionChange(false)
+    internals.handleWsConnectionChange(true)
+    await jest.advanceTimersByTimeAsync(0)
+
+    expect(mocks.mockClient.getDeviceStatus).toHaveBeenCalledWith(device.id, 'test-token')
+  })
+
+  it('queues one resync when a reconnect lands during a running poll', async () => {
+    let finishPoll: (() => void) | undefined
+    const pollDevices = jest.fn()
+      .mockImplementationOnce(() => new Promise<void>(resolve => { finishPoll = resolve }))
+      .mockResolvedValue(undefined)
+    internals.pollDevices = pollDevices
+
+    internals.handleWsConnectionChange(false)
+    internals.handleWsConnectionChange(true)
+    internals.handleWsConnectionChange(false)
+    internals.handleWsConnectionChange(true)
+    expect(pollDevices).toHaveBeenCalledTimes(1)
+
+    finishPoll?.()
+    await jest.advanceTimersByTimeAsync(0)
+
+    expect(pollDevices).toHaveBeenCalledTimes(2)
   })
 })

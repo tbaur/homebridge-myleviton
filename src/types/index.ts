@@ -352,6 +352,19 @@ export interface ApiRequestOptions {
   cacheKey?: string
   bypassCircuitBreaker?: boolean
   debugLog?: (msg: string) => void
+  /**
+   * Aborts the request (and any pending retry) when fired. An `Error` passed
+   * as the abort reason is rethrown to the caller.
+   */
+  signal?: AbortSignal
+}
+
+/**
+ * Options for device write calls (`setPower`, `setBrightness`, `setDeviceState`)
+ */
+export interface DeviceWriteOptions {
+  debugLog?: (msg: string) => void
+  signal?: AbortSignal
 }
 
 /**
