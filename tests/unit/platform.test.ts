@@ -2537,6 +2537,45 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
     expect(mocks.mockClient.getDeviceStatus).not.toHaveBeenCalled()
   })
 
+  describe('external-change logging around HomeKit writes', () => {
+    const externalLines = (): string[] => loggedLines().filter(line => line.includes('(external)'))
+    const hangSetPower = (): void => {
+      mocks.mockClient.setPower.mockImplementation(() => new Promise(() => {}))
+    }
+
+    it('logs a change with no HomeKit write as external', () => {
+      ;(internals as unknown as { handleWebSocketUpdate: (p: object) => void })
+        .handleWebSocketUpdate({ id: device.id, power: 'ON' })
+
+      expect(externalLines()).toEqual(['Test Light: ON (external)'])
+    })
+
+    it('does not log the echo of a write that is still running past 5s', async () => {
+      hangSetPower()
+      const pending = internals.createPowerSetter(device)(true, jest.fn())
+      await jest.advanceTimersByTimeAsync(6000)
+
+      ;(internals as unknown as { handleWebSocketUpdate: (p: object) => void })
+        .handleWebSocketUpdate({ id: device.id, power: 'ON' })
+
+      expect(externalLines()).toEqual([])
+      await jest.advanceTimersByTimeAsync(WRITE_BUDGET_MS)
+      await pending
+    })
+
+    it('does not log the re-read after a write that hit the budget', async () => {
+      hangSetPower()
+      const pending = internals.createPowerSetter(device)(true, jest.fn())
+      await jest.advanceTimersByTimeAsync(WRITE_BUDGET_MS)
+      await pending
+
+      await jest.advanceTimersByTimeAsync(WRITE_FAILURE_RECHECK_MS)
+
+      expect(mocks.mockClient.getDeviceStatus).toHaveBeenCalledTimes(1)
+      expect(externalLines()).toEqual([])
+    })
+  })
+
   it('polls immediately when the WebSocket reconnects after a drop', async () => {
     internals.handleWsConnectionChange(true)
     await jest.advanceTimersByTimeAsync(0)

@@ -90,6 +90,9 @@ const MAX_INIT_RETRY_MS = 5 * 60 * 1000
 /** Fallback TTL when the login response omits `ttl` (seconds). */
 const DEFAULT_TOKEN_TTL_SEC = 3600
 const RECENT_HOMEKIT_COMMAND_TTL_MS = 60_000
+// A state change this soon after a HomeKit write finishes is that write's echo,
+// not an external change. Longer than WRITE_FAILURE_RECHECK_MS.
+const HOMEKIT_ECHO_WINDOW_MS = 5_000
 
 // HAP-NodeJS warns at 3s and abandons a write at 9s. Ending writes before 9s
 // means HomeKit gets the real outcome and no request can land after HomeKit
@@ -160,8 +163,9 @@ export class LevitonDecoraSmartPlatform {
   private signals: LevitonSignals | null = null
   private hasLoggedPagerDutySupport = false
 
-  // Track recent HomeKit commands to avoid logging them as "external"
+  // Track HomeKit writes (running, and finish time) to avoid logging them as "external"
   private recentHomeKitCommands: Map<string, number> = new Map()
+  private inFlightHomeKitWrites: Map<string, number> = new Map()
 
   // Pending re-reads after failed writes, keyed by device id
   private writeRecheckTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
@@ -644,9 +648,7 @@ export class LevitonDecoraSmartPlatform {
       
       // Log brightness change if different and not from recent HomeKit command
       if (newBrightness !== undefined && currentBrightness !== undefined && currentBrightness !== newBrightness) {
-        const lastCommandTime = device?.id ? this.recentHomeKitCommands.get(device.id) : undefined
-        const isRecentCommand = lastCommandTime && (Date.now() - lastCommandTime) < 5000 // 5 second window
-        if (!isRecentCommand) {
+        if (!this.hasRecentHomeKitCommand(device?.id)) {
           this.diagnostics.externalChange()
           this.log.info(`${accessory.displayName}: ${newBrightness}% (external)`, {
             deviceId: device?.id,
@@ -664,9 +666,7 @@ export class LevitonDecoraSmartPlatform {
       
       // Log power change if different and not from recent HomeKit command
       if (currentPowerState !== power) {
-        const lastCommandTime = device?.id ? this.recentHomeKitCommands.get(device.id) : undefined
-        const isRecentCommand = lastCommandTime && (Date.now() - lastCommandTime) < 5000 // 5 second window
-        if (!isRecentCommand) {
+        if (!this.hasRecentHomeKitCommand(device?.id)) {
           this.diagnostics.externalChange()
           this.log.info(`${accessory.displayName}: ${power} (external)`, {
             deviceId: device?.id,
@@ -1427,8 +1427,7 @@ export class LevitonDecoraSmartPlatform {
     callback: (err?: Error) => void,
   ): Promise<void> {
     const startTime = Date.now()
-    // Track this HomeKit command to avoid logging it as "external" later
-    this.recentHomeKitCommands.set(device.id, Date.now())
+    this.inFlightHomeKitWrites.set(device.id, (this.inFlightHomeKitWrites.get(device.id) ?? 0) + 1)
     this.pruneRecentHomeKitCommands()
     this.diagnostics.command()
     try {
@@ -1454,7 +1453,23 @@ export class LevitonDecoraSmartPlatform {
       })
       callback(new Error(message))
       this.scheduleWriteFailureRecheck(device)
+    } finally {
+      this.finishHomeKitWrite(device.id)
     }
+  }
+
+  /**
+   * Ends in-flight tracking for one write and starts the echo window from now,
+   * so a slow write's late echo or failure re-read is not logged as external.
+   */
+  private finishHomeKitWrite(deviceId: string): void {
+    const remaining = (this.inFlightHomeKitWrites.get(deviceId) ?? 1) - 1
+    if (remaining > 0) {
+      this.inFlightHomeKitWrites.set(deviceId, remaining)
+    } else {
+      this.inFlightHomeKitWrites.delete(deviceId)
+    }
+    this.recentHomeKitCommands.set(deviceId, Date.now())
   }
 
   /**
@@ -1787,6 +1802,22 @@ export class LevitonDecoraSmartPlatform {
       this.log.debug(`REST connectivity heartbeat failed: ${sanitizeError(err)}`)
       this.recomputeCloudConnectivity(false)
     }
+  }
+
+  /**
+   * True while a HomeKit write to the device is running and for
+   * {@link HOMEKIT_ECHO_WINDOW_MS} after it finishes, so the device's echo of
+   * that write is not reported as an external change.
+   */
+  private hasRecentHomeKitCommand(deviceId: string | undefined): boolean {
+    if (!deviceId) {
+      return false
+    }
+    if ((this.inFlightHomeKitWrites.get(deviceId) ?? 0) > 0) {
+      return true
+    }
+    const lastCommandTime = this.recentHomeKitCommands.get(deviceId)
+    return lastCommandTime !== undefined && Date.now() - lastCommandTime < HOMEKIT_ECHO_WINDOW_MS
   }
 
   /**
