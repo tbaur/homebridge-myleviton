@@ -9,7 +9,7 @@
 import { RateLimiter } from './rate-limiter';
 import { CircuitBreaker } from './circuit-breaker';
 import { ResponseCache } from './cache';
-import type { DeviceInfo, DeviceStatus, LoginResponse, ResidentialPermission, ResidentialAccount, Residence, PowerState } from '../types';
+import type { DeviceInfo, DeviceStatus, LoginResponse, ResidentialPermission, ResidentialAccount, Residence, PowerState, DeviceWriteOptions } from '../types';
 /**
  * Minimal logger surface used by the client for resilience observability.
  * Optional methods so a partial logger (or none) can be supplied.
@@ -149,15 +149,15 @@ export declare class LevitonApiClient {
     setDeviceState(deviceId: string, token: string, state: {
         power?: PowerState;
         brightness?: number;
-    }, debugLog?: (msg: string) => void): Promise<DeviceStatus>;
+    }, options?: DeviceWriteOptions): Promise<DeviceStatus>;
     /**
      * Set device power
      */
-    setPower(deviceId: string, token: string, power: boolean, debugLog?: (msg: string) => void): Promise<DeviceStatus>;
+    setPower(deviceId: string, token: string, power: boolean, options?: DeviceWriteOptions): Promise<DeviceStatus>;
     /**
      * Set device brightness
      */
-    setBrightness(deviceId: string, token: string, brightness: number, debugLog?: (msg: string) => void): Promise<DeviceStatus>;
+    setBrightness(deviceId: string, token: string, brightness: number, options?: DeviceWriteOptions): Promise<DeviceStatus>;
     /**
      * Clear response cache
      */

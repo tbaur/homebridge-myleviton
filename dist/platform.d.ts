@@ -24,6 +24,7 @@ export declare class LevitonDecoraSmartPlatform {
     private webSocket;
     private pollingInterval;
     private isPolling;
+    private isResyncPending;
     private residenceId;
     private devicePersistence;
     private initRetryTimer;
@@ -34,6 +35,8 @@ export declare class LevitonDecoraSmartPlatform {
     private signals;
     private hasLoggedPagerDutySupport;
     private recentHomeKitCommands;
+    private inFlightHomeKitWrites;
+    private writeRecheckTimers;
     private readonly diagnostics;
     private diagnosticsTimer;
     private lastDiagnosticsHealth;
@@ -247,6 +250,26 @@ export declare class LevitonDecoraSmartPlatform {
      */
     private createBrightnessSetter;
     /**
+     * Sends a HomeKit write to Leviton within {@link WRITE_BUDGET_MS} and reports
+     * the real outcome to HomeKit. On failure, schedules a re-read of the device.
+     */
+    private runDeviceWrite;
+    /**
+     * Ends in-flight tracking for one write and starts the echo window from now,
+     * so a slow write's late echo or failure re-read is not logged as external.
+     */
+    private finishHomeKitWrite;
+    /**
+     * Runs `operation` and rejects once {@link WRITE_BUDGET_MS} elapses. The signal
+     * aborts the in-flight request and stops any retry from starting.
+     */
+    private withinWriteBudget;
+    /**
+     * Re-reads a device shortly after a failed write so HomeKit shows what the
+     * device actually did. Repeated failures for one device share one re-read.
+     */
+    private scheduleWriteFailureRecheck;
+    /**
      * Store login response and compute token expiry
      */
     private setLoginResponse;
@@ -276,6 +299,16 @@ export declare class LevitonDecoraSmartPlatform {
      */
     private startPolling;
     /**
+     * Runs one poll cycle unless one is already in progress.
+     */
+    private runPollCycle;
+    /**
+     * Fetches one device's status from the API and applies it to HomeKit.
+     * Throws on API failure so the caller decides how to report it; HomeKit
+     * state is left unchanged in that case.
+     */
+    private fetchAndApplyDeviceStatus;
+    /**
      * Polls all devices for updates
      *
      * This is a fallback mechanism when WebSocket updates are unavailable.
@@ -296,6 +329,12 @@ export declare class LevitonDecoraSmartPlatform {
      * sensor accurate when WebSocket is down.
      */
     private pollRestReachabilityHeartbeat;
+    /**
+     * True while a HomeKit write to the device is running and for
+     * {@link HOMEKIT_ECHO_WINDOW_MS} after it finishes, so the device's echo of
+     * that write is not reported as an external change.
+     */
+    private hasRecentHomeKitCommand;
     /**
      * Prunes stale HomeKit command timestamps to prevent unbounded map growth.
      */
