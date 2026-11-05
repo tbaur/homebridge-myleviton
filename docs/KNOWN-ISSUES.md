@@ -14,6 +14,7 @@ For configuration, diagnostics fields, and general troubleshooting, see [README-
 |---------|---------------------|----------------|
 | WebSocket **502 Bad Gateway** | `WebSocket error: Unexpected server response: 502` | Usually **no** — auto-reconnects |
 | WebSocket disconnect / 1006 | `WebSocket closed: 1006 (connection dropped)` | Usually **no** — auto-reconnects |
+| Slow write warning | `The write handler for the characteristic 'On' ... was slow to respond!` | Usually **no** — see [Slow write warnings](#slow-write-warnings) |
 | Single REST error in diagnostics | `api ... err 1` with `health: healthy` | Usually **no** — see [Silent API errors](#silent-api-errors-in-diagnostics) |
 | Sustained cloud outage | `No Response` in Home, connectivity sensor open | **Yes** — investigate / open an issue |
 | Auth failure | `WebSocket auth failed` or repeated `Authentication failed` | **Yes** — check credentials |
@@ -26,7 +27,7 @@ The plugin talks to Leviton's cloud at `https://my.leviton.com` (REST) and `wss:
 
 This is a **server-side** limitation. The plugin cannot prevent Leviton from returning 502s. It is built to tolerate them:
 
-- **WebSocket:** automatic reconnect with exponential backoff, then indefinite long-tail retry
+- **WebSocket:** automatic reconnect with exponential backoff, then indefinite long-tail retry; every device is re-read right after a reconnect
 - **REST:** automatic retry for transient network/5xx errors; polling every 30s (default) as a safety net when push is down
 - **Startup:** discovery retries after transient boot-time outages instead of staying offline until restart
 
@@ -64,6 +65,7 @@ The `ws` library surfaces the failed handshake as an `error` event; the plugin l
 2. Reconnects with exponential backoff: 1s → 2s → 4s … capped at **60s**
 3. After **10** quick attempts, continues retrying every **60s** indefinitely (long-tail retry)
 4. Keeps **REST polling** (default every **30s**) so HomeKit state stays current while push reconnects
+5. Re-reads every device as soon as the WebSocket reconnects, so changes made during the drop show up within seconds instead of at the next poll
 
 v3.7.8+ also reduces spurious connectivity flapping during token refresh and reconnect ([changelog #35](https://github.com/tbaur/homebridge-myleviton/pull/35)).
 
@@ -97,6 +99,46 @@ These are also common on Leviton's endpoint and handled the same way (reconnect 
 | Token refresh reconnect | `WebSocket closed by user` then reconnect | Deliberate reconnect after token refresh; not an outage |
 
 Ensure your network allows outbound **HTTPS/WSS** to `my.leviton.com` if disconnects are constant (not occasional).
+
+---
+
+## Slow write warnings
+
+### What you see
+
+```
+This plugin slows down Homebridge. The write handler for the characteristic 'On' on the accessory '<name>' was slow to respond!
+```
+
+Often near WebSocket `1006` drops, and followed by a normal result line:
+
+```
+[myleviton] <name>: OFF (Latency: 4200ms)
+```
+
+### What it means
+
+Every on/off or brightness change from HomeKit is sent to Leviton's cloud, and the plugin waits for Leviton to confirm it before it answers HomeKit. Homebridge logs this warning when the answer takes more than 3 seconds. When Leviton's cloud is slow, the warning appears even though the plugin is working correctly.
+
+The plugin does not answer HomeKit before Leviton confirms the change. If it did, the warning would go away, but Home could show a light as on when the light is off.
+
+### What the plugin does
+
+1. Finishes every write within **8 seconds**, below HomeKit's 9-second limit, so HomeKit always gets the real result
+2. If Leviton has not confirmed the change by then, cancels the request and reports a failure; Home keeps showing the last confirmed state, and the log shows `<name>: ON failed after ...`
+3. Re-reads that device **3 seconds** after a failed write, because Leviton sometimes applies a change after the request failed
+
+Earlier versions could also log `didn't respond at all!`, because a write could keep retrying for up to 30 seconds.
+
+### When to ignore it
+
+- Occasional warnings that line up with WebSocket drops or other signs of Leviton slowness
+- The `Latency:` line or the next state update shows the device in the state you asked for
+
+### When to follow up
+
+- Most writes are slow for hours, or most writes fail
+- Home shows a state that does not match the device for longer than one poll interval
 
 ---
 

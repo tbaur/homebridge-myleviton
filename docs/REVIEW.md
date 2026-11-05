@@ -30,7 +30,8 @@ code review. It reflects the current codebase, not a claim of zero defects.
 | **Self-Healing Startup** | ✅ | Retries init indefinitely with capped exponential backoff (15s → 5min); self-recovers after long outages |
 | **Multi-Residence Discovery** | ✅ | Merges devices across all residential permissions |
 | **Token Lifecycle** | ✅ | Default TTL when API omits `ttl`; WS force-reconnect on refresh without a spurious offline flap |
-| **WebSocket Reconnect** | ✅ | Exponential backoff + long-tail retry after max attempts |
+| **WebSocket Reconnect** | ✅ | Exponential backoff + long-tail retry after max attempts; polls all devices on reconnect so changes made during the drop are not missed |
+| **HomeKit Writes** | ✅ | Bounded at 8s (under HAP's 9s timeout) so HomeKit always gets the real result; failed writes trigger a device re-read |
 | **Connectivity Sensor** | ✅ | Online when WS **or** recent REST poll succeeds |
 | **Polling** | ✅ | Polls every device on a fixed cadence (also a REST connectivity heartbeat); saves dimmer/fan level to persistence |
 | **Diagnostics Gating** | ✅ | Starts only after successful discovery |
@@ -43,9 +44,9 @@ code review. It reflects the current codebase, not a claim of zero defects.
 | Area | Status | Notes |
 |------|--------|-------|
 | **TypeScript** | ✅ | Strict types; minimal HAP interfaces in `src/types/hap.ts` |
-| **Test Coverage** | ✅ | Canonical count in the README; coverage **includes `platform.ts`** |
+| **Test Coverage** | ✅ | Coverage threshold enforced by `npm test`; coverage **includes `platform.ts`** |
 | **Model Registry** | ✅ | Single source of truth in `src/platform/device-models.ts` |
-| **Code Organization** | ⚠️ | `platform.ts` remains large (~1,800 lines); further module extraction planned |
+| **Code Organization** | ⚠️ | `platform.ts` remains the largest module; further module extraction planned |
 | **Global Singletons** | ⚠️ | Deprecated test helpers (`getApiClient`, etc.); production uses per-instance clients |
 | **RequestQueue** | ⚠️ | Implemented and tested; production client uses deduplication instead |
 
