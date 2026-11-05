@@ -5,6 +5,13 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.4](https://github.com/tbaur/homebridge-myleviton/compare/v4.1.3...v4.1.4) (2026-11-05)
+
+
+### Bug Fixes
+
+* bound HomeKit writes and resync state after reconnect ([#113](https://github.com/tbaur/homebridge-myleviton/issues/113)) ([b2d45be](https://github.com/tbaur/homebridge-myleviton/commit/b2d45beb1dfee430077c63ade2bdc2b7facd85e9))
+
 ## [4.1.3](https://github.com/tbaur/homebridge-myleviton/compare/v4.1.2...v4.1.3) (2026-10-25)
 
 
