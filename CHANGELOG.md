@@ -5,6 +5,13 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.5](https://github.com/tbaur/homebridge-myleviton/compare/v4.1.4...v4.1.5) (2026-11-05)
+
+
+### Bug Fixes
+
+* detect silent WebSocket connections and back off until ready ([#115](https://github.com/tbaur/homebridge-myleviton/issues/115)) ([fa0f47e](https://github.com/tbaur/homebridge-myleviton/commit/fa0f47ef38ef7d091cb9e9239b7f301128d5422b))
+
 ## [4.1.4](https://github.com/tbaur/homebridge-myleviton/compare/v4.1.3...v4.1.4) (2026-11-05)
 
 
