@@ -125,6 +125,17 @@ function isCircuitBreakerFailure(error) {
     return false;
 }
 /**
+ * Throws the caller's abort reason (or a generic timeout) if `signal` has fired.
+ */
+function throwIfAborted(signal, timeoutMs) {
+    if (signal?.aborted) {
+        throw abortReason(signal, timeoutMs);
+    }
+}
+function abortReason(signal, timeoutMs) {
+    return signal.reason instanceof Error ? signal.reason : new errors_1.TimeoutError(timeoutMs);
+}
+/**
  * Leviton API client
  */
 class LevitonApiClient {
@@ -210,8 +221,9 @@ class LevitonApiClient {
      * the pre-flight gates and is about to hit the network.
      */
     async runRequest(url, options, requestOptions, markNetworked = () => { }) {
-        const { useCache = false, cacheKey = url, bypassCircuitBreaker = false, debugLog = () => { }, } = requestOptions;
+        const { useCache = false, cacheKey = url, bypassCircuitBreaker = false, debugLog = () => { }, signal, } = requestOptions;
         const method = options.method || 'GET';
+        throwIfAborted(signal, this.config.timeout);
         // Check circuit breaker (gated once per logical request, never retried)
         if (!bypassCircuitBreaker && !this.circuitBreaker.canRequest()) {
             const status = this.circuitBreaker.getStatus();
@@ -234,12 +246,16 @@ class LevitonApiClient {
             // Retry only transient failures (network, timeout, 5xx). Auth (401/403)
             // and rate-limit (429) errors are surfaced immediately so the platform's
             // token-refresh path and the caller can react without blocking here.
-            const data = await (0, retry_1.withRetry)(() => this.fetchAndParse(url, options, debugLog), {
+            const data = await (0, retry_1.withRetry)(() => {
+                // Checked per attempt so a retry never starts after the caller gave up.
+                throwIfAborted(signal, this.config.timeout);
+                return this.fetchAndParse(url, options, debugLog, signal);
+            }, {
                 maxAttempts: Math.max(1, this.config.maxRetryAttempts),
                 baseDelay: 500,
                 maxDelay: 5000,
                 backoffMultiplier: 2,
-                shouldRetry: isTransientError,
+                shouldRetry: error => !signal?.aborted && isTransientError(error),
                 onRetry: (attempt, error) => debugLog(`[API] Retry ${attempt} after transient error: ${error.message}`),
             });
             if (!bypassCircuitBreaker) {
@@ -265,9 +281,11 @@ class LevitonApiClient {
      * typed errors. Intentionally free of circuit-breaker, rate-limit, and cache
      * side effects so it can be safely retried.
      */
-    async fetchAndParse(url, options, debugLog) {
+    async fetchAndParse(url, options, debugLog, callerSignal) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), this.config.timeout);
+        const abortFromCaller = () => controller.abort();
+        callerSignal?.addEventListener('abort', abortFromCaller, { once: true });
         try {
             const response = await fetch(url, {
                 ...options,
@@ -302,6 +320,9 @@ class LevitonApiClient {
         }
         catch (error) {
             if (error.name === 'AbortError') {
+                if (callerSignal?.aborted) {
+                    throw abortReason(callerSignal, this.config.timeout);
+                }
                 throw new errors_1.TimeoutError(this.config.timeout);
             }
             if (error instanceof TypeError || error.message?.includes('fetch')) {
@@ -311,6 +332,7 @@ class LevitonApiClient {
         }
         finally {
             clearTimeout(timeoutId);
+            callerSignal?.removeEventListener('abort', abortFromCaller);
         }
     }
     /**
@@ -403,7 +425,7 @@ class LevitonApiClient {
     /**
      * Update device state
      */
-    async setDeviceState(deviceId, token, state, debugLog) {
+    async setDeviceState(deviceId, token, state, options = {}) {
         const validDeviceId = (0, validators_1.validateDeviceId)(deviceId);
         const validToken = (0, validators_1.validateToken)(token);
         // Validate state
@@ -419,26 +441,30 @@ class LevitonApiClient {
         }
         const url = `${this.config.baseUrl}/IotSwitches/${validDeviceId}`;
         const cacheKey = `device:${validDeviceId}`;
-        const result = await this.request(url, {
-            method: 'PUT',
-            body: JSON.stringify(body),
-            headers: { Authorization: validToken },
-        }, { debugLog });
-        // Invalidate cache after successful update
-        this.cache.delete(cacheKey);
-        return result;
+        try {
+            return await this.request(url, {
+                method: 'PUT',
+                body: JSON.stringify(body),
+                headers: { Authorization: validToken },
+            }, { debugLog: options.debugLog, signal: options.signal });
+        }
+        finally {
+            // Also on failure: a timed-out or aborted PUT may still have been applied,
+            // so a cached pre-write status must not be served to a follow-up read.
+            this.cache.delete(cacheKey);
+        }
     }
     /**
      * Set device power
      */
-    async setPower(deviceId, token, power, debugLog) {
-        return this.setDeviceState(deviceId, token, { power: power ? 'ON' : 'OFF' }, debugLog);
+    async setPower(deviceId, token, power, options = {}) {
+        return this.setDeviceState(deviceId, token, { power: power ? 'ON' : 'OFF' }, options);
     }
     /**
      * Set device brightness
      */
-    async setBrightness(deviceId, token, brightness, debugLog) {
-        return this.setDeviceState(deviceId, token, { brightness }, debugLog);
+    async setBrightness(deviceId, token, brightness, options = {}) {
+        return this.setDeviceState(deviceId, token, { brightness }, options);
     }
     /**
      * Clear response cache

@@ -32,6 +32,7 @@ import type {
   Residence,
   PowerState,
   ApiRequestOptions,
+  DeviceWriteOptions,
 } from '../types'
 
 /**
@@ -209,6 +210,19 @@ function isCircuitBreakerFailure(error: unknown): boolean {
 }
 
 /**
+ * Throws the caller's abort reason (or a generic timeout) if `signal` has fired.
+ */
+function throwIfAborted(signal: AbortSignal | undefined, timeoutMs: number): void {
+  if (signal?.aborted) {
+    throw abortReason(signal, timeoutMs)
+  }
+}
+
+function abortReason(signal: AbortSignal, timeoutMs: number): Error {
+  return signal.reason instanceof Error ? signal.reason : new TimeoutError(timeoutMs)
+}
+
+/**
  * Leviton API client
  */
 export class LevitonApiClient {
@@ -328,9 +342,12 @@ export class LevitonApiClient {
       cacheKey = url,
       bypassCircuitBreaker = false,
       debugLog = () => {},
+      signal,
     } = requestOptions
 
     const method = options.method || 'GET'
+
+    throwIfAborted(signal, this.config.timeout)
 
     // Check circuit breaker (gated once per logical request, never retried)
     if (!bypassCircuitBreaker && !this.circuitBreaker.canRequest()) {
@@ -362,13 +379,17 @@ export class LevitonApiClient {
       // and rate-limit (429) errors are surfaced immediately so the platform's
       // token-refresh path and the caller can react without blocking here.
       const data = await withRetry<T>(
-        () => this.fetchAndParse<T>(url, options, debugLog),
+        () => {
+          // Checked per attempt so a retry never starts after the caller gave up.
+          throwIfAborted(signal, this.config.timeout)
+          return this.fetchAndParse<T>(url, options, debugLog, signal)
+        },
         {
           maxAttempts: Math.max(1, this.config.maxRetryAttempts),
           baseDelay: 500,
           maxDelay: 5000,
           backoffMultiplier: 2,
-          shouldRetry: isTransientError,
+          shouldRetry: error => !signal?.aborted && isTransientError(error),
           onRetry: (attempt, error) =>
             debugLog(`[API] Retry ${attempt} after transient error: ${error.message}`),
         },
@@ -403,9 +424,12 @@ export class LevitonApiClient {
     url: string,
     options: RequestInit,
     debugLog: (msg: string) => void,
+    callerSignal?: AbortSignal,
   ): Promise<T> {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), this.config.timeout)
+    const abortFromCaller = (): void => controller.abort()
+    callerSignal?.addEventListener('abort', abortFromCaller, { once: true })
 
     try {
       const response = await fetch(url, {
@@ -444,6 +468,9 @@ export class LevitonApiClient {
       }
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
+        if (callerSignal?.aborted) {
+          throw abortReason(callerSignal, this.config.timeout)
+        }
         throw new TimeoutError(this.config.timeout)
       }
 
@@ -454,6 +481,7 @@ export class LevitonApiClient {
       throw error
     } finally {
       clearTimeout(timeoutId)
+      callerSignal?.removeEventListener('abort', abortFromCaller)
     }
   }
 
@@ -616,7 +644,7 @@ export class LevitonApiClient {
     deviceId: string,
     token: string,
     state: { power?: PowerState; brightness?: number },
-    debugLog?: (msg: string) => void,
+    options: DeviceWriteOptions = {},
   ): Promise<DeviceStatus> {
     const validDeviceId = validateDeviceId(deviceId)
     const validToken = validateToken(token)
@@ -639,20 +667,21 @@ export class LevitonApiClient {
     const url = `${this.config.baseUrl}/IotSwitches/${validDeviceId}`
     const cacheKey = `device:${validDeviceId}`
 
-    const result = await this.request<DeviceStatus>(
-      url,
-      {
-        method: 'PUT',
-        body: JSON.stringify(body),
-        headers: { Authorization: validToken },
-      },
-      { debugLog },
-    )
-
-    // Invalidate cache after successful update
-    this.cache.delete(cacheKey)
-
-    return result
+    try {
+      return await this.request<DeviceStatus>(
+        url,
+        {
+          method: 'PUT',
+          body: JSON.stringify(body),
+          headers: { Authorization: validToken },
+        },
+        { debugLog: options.debugLog, signal: options.signal },
+      )
+    } finally {
+      // Also on failure: a timed-out or aborted PUT may still have been applied,
+      // so a cached pre-write status must not be served to a follow-up read.
+      this.cache.delete(cacheKey)
+    }
   }
 
   /**
@@ -662,9 +691,9 @@ export class LevitonApiClient {
     deviceId: string,
     token: string,
     power: boolean,
-    debugLog?: (msg: string) => void,
+    options: DeviceWriteOptions = {},
   ): Promise<DeviceStatus> {
-    return this.setDeviceState(deviceId, token, { power: power ? 'ON' : 'OFF' }, debugLog)
+    return this.setDeviceState(deviceId, token, { power: power ? 'ON' : 'OFF' }, options)
   }
 
   /**
@@ -674,9 +703,9 @@ export class LevitonApiClient {
     deviceId: string,
     token: string,
     brightness: number,
-    debugLog?: (msg: string) => void,
+    options: DeviceWriteOptions = {},
   ): Promise<DeviceStatus> {
-    return this.setDeviceState(deviceId, token, { brightness }, debugLog)
+    return this.setDeviceState(deviceId, token, { brightness }, options)
   }
 
   /**

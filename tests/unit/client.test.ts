@@ -393,6 +393,57 @@ describe('LevitonApiClient', () => {
     })
   })
 
+  describe('caller abort signal on writes', () => {
+    /** A fetch that hangs until its signal aborts, like a stalled Leviton call. */
+    const mockHangingFetch = (): void => {
+      mockFetch.mockImplementationOnce((_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => {
+            const error = new Error('aborted')
+            error.name = 'AbortError'
+            reject(error)
+          })
+        }),
+      )
+    }
+
+    it('rejects with the abort reason and does not retry', async () => {
+      const retryClient = new LevitonApiClient({ timeout: 60000, maxRetryAttempts: 3 })
+      const controller = new AbortController()
+      const reason = new TimeoutError(8000)
+      mockHangingFetch()
+
+      const pending = retryClient.setPower('dev1', 'token123', true, { signal: controller.signal })
+      controller.abort(reason)
+
+      await expect(pending).rejects.toBe(reason)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not send the request when the signal has already fired', async () => {
+      const controller = new AbortController()
+      controller.abort(new TimeoutError(8000))
+
+      await expect(
+        client.setBrightness('dev1', 'token123', 50, { signal: controller.signal }),
+      ).rejects.toThrow(TimeoutError)
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('drops the cached device status when a write fails', async () => {
+      mockJsonResponse({ power: 'OFF', brightness: 10 })
+      await client.getDeviceStatus('dev1', 'token123')
+
+      mockErrorResponse(500, 'Server Error')
+      await expect(client.setPower('dev1', 'token123', true)).rejects.toThrow(ApiResponseError)
+
+      mockJsonResponse({ power: 'ON', brightness: 10 })
+      const status = await client.getDeviceStatus('dev1', 'token123')
+      expect(status.power).toBe('ON')
+      expect(mockFetch).toHaveBeenCalledTimes(3)
+    })
+  })
+
   describe('metrics hook', () => {
     it('fires with ok=true and a duration on a successful request', async () => {
       const metrics = jest.fn()

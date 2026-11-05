@@ -90,6 +90,16 @@ const MAX_INIT_RETRY_MS = 5 * 60 * 1000;
 /** Fallback TTL when the login response omits `ttl` (seconds). */
 const DEFAULT_TOKEN_TTL_SEC = 3600;
 const RECENT_HOMEKIT_COMMAND_TTL_MS = 60_000;
+// A state change this soon after a HomeKit write finishes is that write's echo,
+// not an external change. Longer than WRITE_FAILURE_RECHECK_MS.
+const HOMEKIT_ECHO_WINDOW_MS = 5_000;
+// HAP-NodeJS warns at 3s and abandons a write at 9s. Ending writes before 9s
+// means HomeKit gets the real outcome and no request can land after HomeKit
+// has already reported a failure.
+const WRITE_BUDGET_MS = 8_000;
+// After a failed write, re-read the device once, because Leviton may still have
+// applied it. Longer than the client's 2s status cache.
+const WRITE_FAILURE_RECHECK_MS = 3_000;
 // Optional cloud-connectivity status sensor
 const CONNECTIVITY_UUID_SEED = UUID_PREFIX + 'connectivity';
 const DEFAULT_CONNECTIVITY_NAME = 'Leviton Cloud';
@@ -114,6 +124,7 @@ class LevitonDecoraSmartPlatform {
     // Polling
     pollingInterval = null;
     isPolling = false;
+    isResyncPending = false;
     residenceId = null;
     // Device persistence
     devicePersistence;
@@ -127,8 +138,11 @@ class LevitonDecoraSmartPlatform {
     // Optional homebridge-pagerduty signals (off unless pagerdutySignals is true)
     signals = null;
     hasLoggedPagerDutySupport = false;
-    // Track recent HomeKit commands to avoid logging them as "external"
+    // Track HomeKit writes (running, and finish time) to avoid logging them as "external"
     recentHomeKitCommands = new Map();
+    inFlightHomeKitWrites = new Map();
+    // Pending re-reads after failed writes, keyed by device id
+    writeRecheckTimers = new Map();
     // Opt-in diagnostics subsystem (off unless diagnosticsInterval > 0)
     diagnostics;
     diagnosticsTimer = null;
@@ -525,9 +539,7 @@ class LevitonDecoraSmartPlatform {
             // No else — switches/outlets don't have brightness, just skip to power update
             // Log brightness change if different and not from recent HomeKit command
             if (newBrightness !== undefined && currentBrightness !== undefined && currentBrightness !== newBrightness) {
-                const lastCommandTime = device?.id ? this.recentHomeKitCommands.get(device.id) : undefined;
-                const isRecentCommand = lastCommandTime && (Date.now() - lastCommandTime) < 5000; // 5 second window
-                if (!isRecentCommand) {
+                if (!this.hasRecentHomeKitCommand(device?.id)) {
                     this.diagnostics.externalChange();
                     this.log.info(`${accessory.displayName}: ${newBrightness}% (external)`, {
                         deviceId: device?.id,
@@ -543,9 +555,7 @@ class LevitonDecoraSmartPlatform {
             primaryService.getCharacteristic(hap.Characteristic.On).updateValue(newPowerBool);
             // Log power change if different and not from recent HomeKit command
             if (currentPowerState !== power) {
-                const lastCommandTime = device?.id ? this.recentHomeKitCommands.get(device.id) : undefined;
-                const isRecentCommand = lastCommandTime && (Date.now() - lastCommandTime) < 5000; // 5 second window
-                if (!isRecentCommand) {
+                if (!this.hasRecentHomeKitCommand(device?.id)) {
                     this.diagnostics.externalChange();
                     this.log.info(`${accessory.displayName}: ${power} (external)`, {
                         deviceId: device?.id,
@@ -1180,28 +1190,11 @@ class LevitonDecoraSmartPlatform {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     createPowerSetter(device) {
         return async (value, callback) => {
-            const startTime = Date.now();
-            // Track this HomeKit command to avoid logging it as "external" later
-            this.recentHomeKitCommands.set(device.id, Date.now());
-            this.pruneRecentHomeKitCommands();
-            this.diagnostics.command();
-            try {
-                await this.withTokenRetry(async () => {
-                    const token = await this.ensureValidToken();
-                    await this.client.setPower(device.id, token, value);
-                });
-                const latency = Date.now() - startTime;
-                this.log.info(`${device.name}: ${value ? 'ON' : 'OFF'} (Latency: ${latency}ms)`, {
-                    deviceId: device.id,
-                    operation: 'setPower',
-                    duration: latency,
-                });
-                callback();
-            }
-            catch (err) {
-                this.recordThrottleIfRateLimited(err);
-                callback(new Error((0, sanitizers_1.sanitizeError)(err)));
-            }
+            await this.runDeviceWrite(device, {
+                operation: 'setPower',
+                label: value ? 'ON' : 'OFF',
+                write: (token, signal) => this.client.setPower(device.id, token, value, { signal }),
+            }, callback);
         };
     }
     /**
@@ -1210,29 +1203,107 @@ class LevitonDecoraSmartPlatform {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     createBrightnessSetter(device) {
         return async (value, callback) => {
-            const startTime = Date.now();
-            // Track this HomeKit command to avoid logging it as "external" later
-            this.recentHomeKitCommands.set(device.id, Date.now());
-            this.pruneRecentHomeKitCommands();
-            this.diagnostics.command();
-            try {
-                await this.withTokenRetry(async () => {
-                    const token = await this.ensureValidToken();
-                    await this.client.setBrightness(device.id, token, value);
-                });
-                const latency = Date.now() - startTime;
-                this.log.info(`${device.name}: ${value}% (Latency: ${latency}ms)`, {
-                    deviceId: device.id,
-                    operation: 'setBrightness',
-                    duration: latency,
-                });
-                callback();
-            }
-            catch (err) {
-                this.recordThrottleIfRateLimited(err);
-                callback(new Error((0, sanitizers_1.sanitizeError)(err)));
-            }
+            await this.runDeviceWrite(device, {
+                operation: 'setBrightness',
+                label: `${value}%`,
+                write: (token, signal) => this.client.setBrightness(device.id, token, value, { signal }),
+            }, callback);
         };
+    }
+    /**
+     * Sends a HomeKit write to Leviton within {@link WRITE_BUDGET_MS} and reports
+     * the real outcome to HomeKit. On failure, schedules a re-read of the device.
+     */
+    async runDeviceWrite(device, request, callback) {
+        const startTime = Date.now();
+        this.inFlightHomeKitWrites.set(device.id, (this.inFlightHomeKitWrites.get(device.id) ?? 0) + 1);
+        this.pruneRecentHomeKitCommands();
+        this.diagnostics.command();
+        try {
+            await this.withinWriteBudget(signal => this.withTokenRetry(async () => {
+                const token = await this.ensureValidToken();
+                await request.write(token, signal);
+            }));
+            const latency = Date.now() - startTime;
+            this.log.info(`${device.name}: ${request.label} (Latency: ${latency}ms)`, {
+                deviceId: device.id,
+                operation: request.operation,
+                duration: latency,
+            });
+            callback();
+        }
+        catch (err) {
+            this.recordThrottleIfRateLimited(err);
+            const message = (0, sanitizers_1.sanitizeError)(err);
+            this.log.warn(`${device.name}: ${request.label} failed after ${Date.now() - startTime}ms: ${message}`, {
+                deviceId: device.id,
+                operation: request.operation,
+            });
+            callback(new Error(message));
+            this.scheduleWriteFailureRecheck(device);
+        }
+        finally {
+            this.finishHomeKitWrite(device.id);
+        }
+    }
+    /**
+     * Ends in-flight tracking for one write and starts the echo window from now,
+     * so a slow write's late echo or failure re-read is not logged as external.
+     */
+    finishHomeKitWrite(deviceId) {
+        const remaining = (this.inFlightHomeKitWrites.get(deviceId) ?? 1) - 1;
+        if (remaining > 0) {
+            this.inFlightHomeKitWrites.set(deviceId, remaining);
+        }
+        else {
+            this.inFlightHomeKitWrites.delete(deviceId);
+        }
+        this.recentHomeKitCommands.set(deviceId, Date.now());
+    }
+    /**
+     * Runs `operation` and rejects once {@link WRITE_BUDGET_MS} elapses. The signal
+     * aborts the in-flight request and stops any retry from starting.
+     */
+    async withinWriteBudget(operation) {
+        const controller = new AbortController();
+        const budgetError = new errors_1.TimeoutError(WRITE_BUDGET_MS);
+        let timer;
+        const deadline = new Promise((_, reject) => {
+            timer = setTimeout(() => {
+                controller.abort(budgetError);
+                reject(budgetError);
+            }, WRITE_BUDGET_MS);
+        });
+        const pending = operation(controller.signal);
+        // The losing side of the race still settles later; keep that from surfacing
+        // as an unhandled rejection.
+        pending.catch(() => { });
+        try {
+            await Promise.race([pending, deadline]);
+        }
+        finally {
+            clearTimeout(timer);
+        }
+    }
+    /**
+     * Re-reads a device shortly after a failed write so HomeKit shows what the
+     * device actually did. Repeated failures for one device share one re-read.
+     */
+    scheduleWriteFailureRecheck(device) {
+        if (this.isShuttingDown) {
+            return;
+        }
+        const existing = this.writeRecheckTimers.get(device.id);
+        if (existing) {
+            clearTimeout(existing);
+        }
+        const timer = setTimeout(() => {
+            this.writeRecheckTimers.delete(device.id);
+            this.fetchAndApplyDeviceStatus(device).catch(err => {
+                this.log.debug(`Re-read after failed write skipped for ${device.name}: ${(0, sanitizers_1.sanitizeError)(err)}`);
+            });
+        }, WRITE_FAILURE_RECHECK_MS);
+        this.writeRecheckTimers.set(device.id, timer);
     }
     /**
      * Store login response and compute token expiry
@@ -1350,22 +1421,59 @@ class LevitonDecoraSmartPlatform {
         }
         const intervalSeconds = this.config.pollInterval ?? this.config.pollingInterval ?? 30;
         const interval = Math.max(intervalSeconds * 1000, 10000);
-        this.pollingInterval = setInterval(async () => {
-            if (this.isPolling) {
-                this.log.debug('Skipping poll tick because previous poll cycle is still running');
+        this.pollingInterval = setInterval(() => {
+            void this.runPollCycle('interval');
+        }, interval);
+    }
+    /**
+     * Runs one poll cycle unless one is already in progress.
+     */
+    async runPollCycle(reason) {
+        if (this.isPolling) {
+            if (reason === 'reconnect') {
+                // The running cycle may have read devices before the socket came back.
+                this.isResyncPending = true;
+                this.log.debug('Queued resync poll until the running poll cycle finishes');
                 return;
             }
-            this.isPolling = true;
-            try {
-                await this.pollDevices();
-            }
-            catch (err) {
-                this.log.debug(`Polling cycle failed: ${(0, sanitizers_1.sanitizeError)(err)}`);
-            }
-            finally {
-                this.isPolling = false;
-            }
-        }, interval);
+            this.log.debug('Skipping poll tick because previous poll cycle is still running');
+            return;
+        }
+        this.isPolling = true;
+        try {
+            await this.pollDevices();
+        }
+        catch (err) {
+            this.log.debug(`Polling cycle failed: ${(0, sanitizers_1.sanitizeError)(err)}`);
+        }
+        finally {
+            this.isPolling = false;
+        }
+        if (this.isResyncPending && !this.isShuttingDown) {
+            this.isResyncPending = false;
+            await this.runPollCycle('reconnect');
+        }
+    }
+    /**
+     * Fetches one device's status from the API and applies it to HomeKit.
+     * Throws on API failure so the caller decides how to report it; HomeKit
+     * state is left unchanged in that case.
+     */
+    async fetchAndApplyDeviceStatus(device) {
+        // Fetch actual device status from API (bypass getStatus to avoid fallback values)
+        const status = await this.withTokenRetry(async () => {
+            const token = await this.ensureValidToken();
+            return this.client.getDeviceStatus(device.id, token);
+        });
+        // Include motion/occupancy so motion sensors stay current via polling when
+        // the WebSocket push channel is unavailable.
+        this.handleWebSocketUpdate({
+            id: device.id,
+            power: status.power,
+            brightness: status.brightness,
+            occupancy: status.occupancy,
+            motion: status.motion,
+        });
     }
     /**
      * Polls all devices for updates
@@ -1391,23 +1499,9 @@ class LevitonDecoraSmartPlatform {
         const cycleStart = Date.now();
         const pollSingleDevice = async (device) => {
             try {
-                // Fetch actual device status from API (bypass getStatus to avoid fallback values)
-                const status = await this.withTokenRetry(async () => {
-                    const token = await this.ensureValidToken();
-                    return this.client.getDeviceStatus(device.id, token);
-                });
+                await this.fetchAndApplyDeviceStatus(device);
                 anyPollSucceeded = true;
                 pollOk++;
-                // Only update HomeKit if we got real data from API. Include motion/
-                // occupancy so motion sensors stay current via polling when the
-                // WebSocket push channel is unavailable.
-                this.handleWebSocketUpdate({
-                    id: device.id,
-                    power: status.power,
-                    brightness: status.brightness,
-                    occupancy: status.occupancy,
-                    motion: status.motion,
-                });
             }
             catch (err) {
                 // On API failure, preserve current HomeKit state - don't update with fallback values
@@ -1470,6 +1564,21 @@ class LevitonDecoraSmartPlatform {
             this.log.debug(`REST connectivity heartbeat failed: ${(0, sanitizers_1.sanitizeError)(err)}`);
             this.recomputeCloudConnectivity(false);
         }
+    }
+    /**
+     * True while a HomeKit write to the device is running and for
+     * {@link HOMEKIT_ECHO_WINDOW_MS} after it finishes, so the device's echo of
+     * that write is not reported as an external change.
+     */
+    hasRecentHomeKitCommand(deviceId) {
+        if (!deviceId) {
+            return false;
+        }
+        if ((this.inFlightHomeKitWrites.get(deviceId) ?? 0) > 0) {
+            return true;
+        }
+        const lastCommandTime = this.recentHomeKitCommands.get(deviceId);
+        return lastCommandTime !== undefined && Date.now() - lastCommandTime < HOMEKIT_ECHO_WINDOW_MS;
     }
     /**
      * Prunes stale HomeKit command timestamps to prevent unbounded map growth.
@@ -1538,6 +1647,10 @@ class LevitonDecoraSmartPlatform {
             clearTimeout(this.initRetryTimer);
             this.initRetryTimer = null;
         }
+        for (const timer of this.writeRecheckTimers.values()) {
+            clearTimeout(timer);
+        }
+        this.writeRecheckTimers.clear();
         if (this.webSocket) {
             this.webSocket.close();
             this.webSocket = null;
@@ -1560,6 +1673,12 @@ class LevitonDecoraSmartPlatform {
         if (connected && this.wsHasDisconnected) {
             this.diagnostics.wsReconnect();
             this.wsHasDisconnected = false;
+            // Changes made while the socket was down were never pushed; resync now
+            // instead of waiting up to a full poll interval.
+            if (!this.isShuttingDown) {
+                this.log.debug('WebSocket reconnected; resyncing device state');
+                void this.runPollCycle('reconnect');
+            }
         }
         else if (!connected) {
             this.wsHasDisconnected = true;

@@ -26,7 +26,8 @@ Control your **My Leviton Decora Smart** WiFi devices through Apple HomeKit usin
 - **Self-Healing Startup** — Retries device discovery after a transient outage at boot instead of staying offline until restart
 - **Rate Limiting** — Prevents API throttling (300 requests/minute)
 - **Circuit Breaker** — Graceful degradation during API outages, with state transitions surfaced in the logs
-- **Auto-Reconnect** — Automatically recovers from connection issues
+- **Auto-Reconnect** — Automatically recovers from connection issues, then re-reads device state to catch changes made while disconnected
+- **Bounded Writes** — HomeKit commands finish within 8 seconds with the real result; Home never shows a state the device didn't confirm
 - **Account Isolation** — Each configured account has its own circuit breaker, rate limiter, and cache
 - **State Persistence** — Faster startup with cached device data
 - **Token Auto-Refresh** — Refreshes tokens so you stay signed in
@@ -35,8 +36,7 @@ Control your **My Leviton Decora Smart** WiFi devices through Apple HomeKit usin
 - **PagerDuty Signals** *(optional)* — Pages through [homebridge-pagerduty](https://github.com/tbaur/homebridge-pagerduty) when the Leviton cloud stays unreachable or Leviton rejects the sign-in. See [setup](docs/README-DETAILED.md#pagerduty-signals-optional)
 
 ### Quality
-<!-- Canonical test count lives here only; keep other docs number-free to avoid 5-place updates. -->
-- **619 Tests** — Comprehensive test suite with coverage reported by `npm test` (includes `platform.ts`)
+- **Tested** — Unit and integration tests, with coverage reported by `npm test` (includes `platform.ts`)
 - **Child Bridge Support** — Run as isolated bridge for maximum stability
 - **Flexible Logging** — Debug, info, warn, error levels + JSON structured logs
 - **No Analytics** — Zero tracking or data collection

@@ -13,6 +13,8 @@
 - ✅ Response caching (2s TTL)
 - ✅ Request deduplication
 - ✅ API request timeouts (10s)
+- ✅ HomeKit writes bounded at 8s (under HomeKit's 9s limit), with a device re-read after a failed write
+- ✅ Immediate state resync after a WebSocket reconnect
 - ✅ Circuit breaker pattern for API resilience (transitions logged)
 - ✅ Per-account isolation of circuit breaker, rate limiter, and cache
 - ✅ Device state persistence for faster startup
