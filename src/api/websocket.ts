@@ -67,6 +67,9 @@ enum MessageType {
  */
 const STATUS_READY = 'ready'
 
+/** Ping cycles with no inbound traffic before the socket is treated as dead. */
+const MISSED_PINGS_BEFORE_DEAD = 2
+
 /**
  * WebSocket close code descriptions
  */
@@ -273,7 +276,6 @@ export class LevitonWebSocket {
       this.reconnectTimer = null
       isOpen = true
       this.isConnecting = false
-      this.reconnectAttempt = 0
       this.logger.debug(`WebSocket connected (token: ${maskToken(this.loginResponse.id)})`)
     })
 
@@ -358,6 +360,9 @@ export class LevitonWebSocket {
     // Handle ready status
     if (data.type === MessageType.STATUS && data.status === STATUS_READY) {
       this.logger.info('WebSocket authenticated and ready')
+      // Reset backoff only here: a server that accepts the upgrade and then
+      // drops before ready must keep backing off.
+      this.reconnectAttempt = 0
       this.subscribeToDevices()
       this.startPing()
       this.config.onConnectionChange?.(true)
@@ -519,10 +524,19 @@ export class LevitonWebSocket {
       clearInterval(this.pingTimer)
     }
     
+    const deadAfterMs = this.config.pingInterval * MISSED_PINGS_BEFORE_DEAD
     this.pingTimer = setInterval(() => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.ping()
+      if (this.ws?.readyState !== WebSocket.OPEN) {
+        return
       }
+      const silentMs = Date.now() - (this.lastInboundAt ?? 0)
+      if (silentMs > deadAfterMs) {
+        this.logger.warn(`WebSocket silent for ${Math.round(silentMs / 1000)}s; reconnecting`)
+        // terminate() emits close 1006, which runs the normal reconnect path.
+        this.ws.terminate()
+        return
+      }
+      this.ws.ping()
     }, this.config.pingInterval)
   }
 
