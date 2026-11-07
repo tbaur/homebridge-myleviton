@@ -2,8 +2,7 @@
 
 *Last reviewed: 2026-09-12 (env password kept off `config.json`; JSON `"email"` redaction)*
 
-This document is a **point-in-time assessment** after a distinguished/principal-level
-code review. It reflects the current codebase, not a claim of zero defects.
+This document is a **point-in-time assessment** after a distinguished/principal-level code review. It reflects the current codebase, not a claim of zero defects.
 
 ---
 
@@ -86,7 +85,4 @@ Audit:       0 vulnerabilities (at last review)
 
 ## Review Methodology
 
-Principal engineering audit (2026-06-14) covered code quality, security,
-reliability, maintainability, serviceability, performance, and documentation
-sync. Findings were verified against source and addressed in the 3.7.5 release
-batch unless explicitly documented as residual above.
+Principal engineering audit (2026-06-14) covered code quality, security, reliability, maintainability, serviceability, performance, and documentation sync. Findings were verified against source and addressed in the 3.7.5 release batch unless explicitly documented as residual above.
