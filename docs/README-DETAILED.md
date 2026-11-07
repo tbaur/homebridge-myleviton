@@ -190,20 +190,12 @@ Device data is cached to `~/.homebridge/.homebridge-myleviton-state.json`:
 
 ### Connectivity Sensor (optional)
 
-When `connectivitySensor` is enabled, the plugin publishes a dedicated HomeKit
-contact sensor (separate from any device):
+When `connectivitySensor` is enabled, the plugin publishes a dedicated HomeKit contact sensor (separate from any device):
 
 - **Contact detected** = the plugin can reach the Leviton cloud
 - **Contact not detected** = connectivity is currently lost (also reflected via `StatusFault`)
 
-State is driven by two signals combined with **OR** logic: the WebSocket
-connection callback (immediate, on authenticate/disconnect) and the polling loop,
-which doubles as a REST reachability heartbeat each cycle. The sensor reports
-**online** when either push or REST succeeded recently (within two poll intervals).
-This means a brief WebSocket flap does not mark the cloud offline while REST polling
-still works. Transitions are logged (`connectivity lost` / `connectivity restored`) so you can alert or build Home
-automations on loss of connectivity. Disabling the option removes the sensor on
-the next restart.
+State is driven by two signals combined with **OR** logic: the WebSocket connection callback (immediate, on authenticate/disconnect) and the polling loop, which doubles as a REST reachability heartbeat each cycle. The sensor reports **online** when either push or REST succeeded recently (within two poll intervals). This means a brief WebSocket flap does not mark the cloud offline while REST polling still works. Transitions are logged (`connectivity lost` / `connectivity restored`) so you can alert or build Home automations on loss of connectivity. Disabling the option removes the sensor on the next restart.
 
 ### PagerDuty Signals (optional)
 
@@ -231,14 +223,9 @@ How the signals behave:
 
 ### Diagnostics (optional)
 
-Set `diagnosticsInterval` to a value between `30` and `3600` seconds to turn on an
-opt-in diagnostics subsystem. It is **off by default** (`0`) and is **logs/JSON
-only — nothing is ever exposed in HomeKit**. Credentials are never logged (the
-token appears only as `expiresInSec`), and the heartbeat reads in-memory state
-only — it never makes a network call.
+Set `diagnosticsInterval` to a value between `30` and `3600` seconds to turn on an opt-in diagnostics subsystem. It is **off by default** (`0`) and is **logs/JSON only — nothing is ever exposed in HomeKit**. Credentials are never logged (the token appears only as `expiresInSec`), and the heartbeat reads in-memory state only — it never makes a network call.
 
-It pairs naturally with `structuredLogs: true`, which renders each report as a
-JSON object for log-aggregation tools.
+It pairs naturally with `structuredLogs: true`, which renders each report as a JSON object for log-aggregation tools.
 
 ```json
 {
@@ -252,8 +239,7 @@ JSON object for log-aggregation tools.
 
 #### Channels
 
-Each channel logs a human-readable line plus, when `structuredLogs` is enabled,
-a JSON object. All channels are gated behind `diagnosticsInterval > 0`.
+Each channel logs a human-readable line plus, when `structuredLogs` is enabled, a JSON object. All channels are gated behind `diagnosticsInterval > 0`.
 
 | `msg` | Level | When | Counter semantics |
 |-------|-------|------|-------------------|
@@ -261,16 +247,11 @@ a JSON object. All channels are gated behind `diagnosticsInterval > 0`.
 | `diagnostics.start` | info | At boot (after discovery) | Session **cumulative** + redacted config echo |
 | `diagnostics.stop` | info | At shutdown | Session **cumulative** + redacted config echo |
 
-Counters (`reconnects`, `trips`, `throttled`, `refreshes`, polling `ok`/`failed`,
-api `requests`/`errors`, and the whole `activity` group) are **per-interval
-deltas** in a `health` heartbeat and **session-cumulative totals** in the
-`diagnostics.start` / `diagnostics.stop` snapshots. Everything else is an
-absolute gauge.
+Counters (`reconnects`, `trips`, `throttled`, `refreshes`, polling `ok`/`failed`, api `requests`/`errors`, and the whole `activity` group) are **per-interval deltas** in a `health` heartbeat and **session-cumulative totals** in the `diagnostics.start` / `diagnostics.stop` snapshots. Everything else is an absolute gauge.
 
 #### Health rollup
 
-Health is `degraded` (otherwise `healthy`) if any of the following hold, and each
-active cause is listed in `reasons`:
+Health is `degraded` (otherwise `healthy`) if any of the following hold, and each active cause is listed in `reasons`:
 
 | Reason | Condition |
 |--------|-----------|
@@ -294,12 +275,7 @@ active cause is listed in `reasons`:
 | `api` | `p50Ms`, `p95Ms` (gauges over a bounded recent-latency window); `requests`, `errors` (deltas) | mixed |
 | `activity` | `commandsSent`, `externalChanges`, `retries` | deltas |
 
-Device counts: `cloud`, `stateless`, and `excluded` are included in structured JSON
-(`devices` group) and in the one-time discovery log at startup; the human-readable
-diagnostics line shows only the live `on/total` gauge. At discovery, `cloud`
-counts all devices returned by the API; `total` is the controllable HomeKit
-accessory count (excludes connectivity sensor and stateless controllers); `stateless`
-and `excluded` are breakdown counters from the last discovery pass.
+Device counts: `cloud`, `stateless`, and `excluded` are included in structured JSON (`devices` group) and in the one-time discovery log at startup; the human-readable diagnostics line shows only the live `on/total` gauge. At discovery, `cloud` counts all devices returned by the API; `total` is the controllable HomeKit accessory count (excludes connectivity sensor and stateless controllers); `stateless` and `excluded` are breakdown counters from the last discovery pass.
 
 > `reasons` is an array of cause codes (empty when healthy) in both the structured JSON and the `DiagnosticsSnapshot` type. The human-readable line shows the same causes in brackets, for example `Health: degraded [circuitBreakerOpen]`. That line is logged once per interval. The interval where health flips from healthy to degraded is a warning; later degraded heartbeats stay at info until it recovers.
 
@@ -327,9 +303,7 @@ and `excluded` are breakdown counters from the last discovery pass.
 }
 ```
 
-The boot/shutdown snapshots use the same shape with cumulative counters plus a
-redacted `config` echo (e.g. `diagnosticsInterval`, `pollInterval`,
-`structuredLogs`, exclusion counts — never the email, password, or token).
+The boot/shutdown snapshots use the same shape with cumulative counters plus a redacted `config` echo (e.g. `diagnosticsInterval`, `pollInterval`, `structuredLogs`, exclusion counts — never the email, password, or token).
 
 ---
 
