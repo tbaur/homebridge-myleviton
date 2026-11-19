@@ -570,7 +570,7 @@ class LevitonDecoraSmartPlatform {
         }
         const { id, power, brightness, occupancy, motion } = payload;
         const device = accessory.context?.device;
-        this.log.debug(`WebSocket: ${accessory.displayName} (${id}): ${power} ${brightness ? `${brightness}%` : ''}`);
+        let changed = false;
         // Get service
         const fanService = accessory.getService(hap.Service.Fan);
         const lightService = accessory.getService(hap.Service.Lightbulb);
@@ -609,6 +609,7 @@ class LevitonDecoraSmartPlatform {
             // No else — switches/outlets don't have brightness, just skip to power update
             // Log brightness change if different and not from recent HomeKit command
             if (newBrightness !== undefined && currentBrightness !== undefined && currentBrightness !== newBrightness) {
+                changed = true;
                 if (!this.hasRecentHomeKitCommand(device?.id)) {
                     this.diagnostics.externalChange(origin.source);
                     this.log.info(`${accessory.displayName}: ${newBrightness}% (${this.describeChange(origin)})`, {
@@ -626,6 +627,7 @@ class LevitonDecoraSmartPlatform {
             primaryService.getCharacteristic(hap.Characteristic.On).updateValue(newPowerBool);
             // Log power change if different and not from recent HomeKit command
             if (currentPowerState !== power) {
+                changed = true;
                 if (!this.hasRecentHomeKitCommand(device?.id)) {
                     this.diagnostics.externalChange(origin.source);
                     this.log.info(`${accessory.displayName}: ${power} (${this.describeChange(origin)})`, {
@@ -642,6 +644,12 @@ class LevitonDecoraSmartPlatform {
         if (motionService && (occupancy !== undefined || motion !== undefined)) {
             const motionDetected = occupancy === true || motion === true;
             motionService.getCharacteristic(hap.Characteristic.MotionDetected).updateValue(motionDetected);
+        }
+        // Every status read reports every device, so only reads that changed something are logged
+        if (origin.source !== 'pluginPoll' || changed) {
+            const via = origin.source === 'pluginPoll' ? 'Poll' : 'WebSocket';
+            const state = [power, brightness === undefined ? undefined : `${brightness}%`].filter(Boolean).join(' ');
+            this.log.debug(`${via}: ${accessory.displayName} (${id}): ${state || 'no power or level'}`);
         }
         // Invalidate API cache for this device so next getStatus() fetches fresh data
         // This ensures cached API responses don't become stale after real-time updates

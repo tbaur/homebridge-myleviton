@@ -2758,3 +2758,53 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
     expect(pollDevices).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('debug lines for device updates', () => {
+  const device = { id: 'dev-1', name: 'Test Light', model: 'DW15S', serial: 'SERIAL-0001' }
+  interface Internals {
+    currentLoginResponse: { id: string; userId: string; ttl: number } | null
+    residenceId: string | null
+    handleWebSocketUpdate: (payload: object) => void
+    pollDevices: () => Promise<void>
+    cleanup: () => void
+  }
+
+  let mocks: ReturnType<typeof setupMocks>
+  let internals: Internals
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mocks = setupMocks()
+    const platform = new LevitonDecoraSmartPlatform(mocks.mockLog, { ...validConfig, loglevel: 'debug' }, mocks.mockAPI)
+    const accessory = mockAccessory(device)
+    const characteristic = accessory.getService().getCharacteristic() as MockCharacteristic
+    characteristic.updateValue.mockImplementation((value: boolean | number) => {
+      characteristic.value = value
+      return characteristic
+    })
+    platform.configureAccessory(accessory)
+    internals = platform as unknown as Internals
+    internals.currentLoginResponse = { id: 'test-token', userId: 'user-123', ttl: -1 }
+    internals.residenceId = 'residence-123'
+  })
+
+  afterEach(() => internals.cleanup())
+
+  const updateLines = (): string[] => mocks.mockLog.mock.calls
+    .map(([message]) => String(message))
+    .filter(line => /^(Poll|WebSocket): /.test(line))
+
+  it('labels a WebSocket update and leaves out missing values', () => {
+    internals.handleWebSocketUpdate({ id: device.id, power: 'ON' })
+
+    expect(updateLines()).toEqual(['WebSocket: Test Light (dev-1): ON'])
+  })
+
+  it('logs a status read only when it changes something', async () => {
+    mocks.mockClient.getDeviceStatus.mockResolvedValue({ power: 'ON' })
+    await internals.pollDevices()
+    await internals.pollDevices()
+
+    expect(updateLines()).toEqual(['Poll: Test Light (dev-1): ON'])
+  })
+})
