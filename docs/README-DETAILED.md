@@ -354,11 +354,14 @@ Enable verbose logging:
 }
 ```
 
+Debug lines appear in the normal Homebridge log with a `[debug]` prefix. Homebridge's own debug mode (`-D`) is not needed.
+
 Debug logs show:
 - API requests and responses
 - WebSocket connection events
 - Device discovery details
 - Characteristic set operations
+- Status reads dropped because a newer WebSocket update arrived (`Ignored status read for …`)
 
 ### Common Issues
 

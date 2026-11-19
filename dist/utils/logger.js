@@ -40,10 +40,14 @@ function hasLevelMethods(log) {
         && typeof candidate.error === 'function'
         && typeof candidate.debug === 'function';
 }
-function levelSinks(log) {
+function levelSinks(log, level) {
     if (hasLevelMethods(log)) {
         return {
-            debug: message => log.debug(message),
+            // Homebridge hides log.debug unless it runs with -D, so a plugin set to
+            // debug writes its debug lines at info level instead.
+            debug: level === 'debug'
+                ? message => log.info(`[debug] ${message}`)
+                : message => log.debug(message),
             info: message => log.info(message),
             warn: message => log.warn(message),
             error: message => log.error(message),
@@ -68,7 +72,7 @@ class LeveledLogger {
     warn;
     error;
     constructor(log, level = exports.DEFAULT_LOG_LEVEL) {
-        this.sinks = levelSinks(log);
+        this.sinks = levelSinks(log, level);
         this.minLevel = exports.LOG_LEVELS.indexOf(level);
         this.debug = this.createLevelMethod('debug');
         this.info = this.createLevelMethod('info');
