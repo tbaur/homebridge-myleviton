@@ -451,7 +451,10 @@ export class LevitonWebSocket {
     // Only callback if we have meaningful data
     if (payload.power !== undefined || payload.brightness !== undefined || payload.occupancy !== undefined || payload.motion !== undefined) {
       this.lastNotificationAt = Date.now()
-      this.logger.debug(`Device update: ${payload.id} power=${payload.power} brightness=${payload.brightness}`)
+      const fields = (['power', 'brightness', 'occupancy', 'motion'] as const)
+        .filter(key => payload[key] !== undefined)
+        .map(key => `${key}=${String(payload[key])}`)
+      this.logger.debug(`Device update: ${payload.id} ${fields.join(' ')}`)
       this.callback(payload)
     }
   }
