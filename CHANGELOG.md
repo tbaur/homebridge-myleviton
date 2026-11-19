@@ -5,6 +5,13 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.1](https://github.com/tbaur/homebridge-myleviton/compare/v4.2.0...v4.2.1) (2026-11-19)
+
+
+### Bug Fixes
+
+* show debug logs when loglevel is debug ([#125](https://github.com/tbaur/homebridge-myleviton/issues/125)) ([e10a74c](https://github.com/tbaur/homebridge-myleviton/commit/e10a74caff8ba2e1b1bc2e2ccec7069b87e7e466))
+
 ## [4.2.0](https://github.com/tbaur/homebridge-myleviton/compare/v4.1.5...v4.2.0) (2026-11-19)
 
 
