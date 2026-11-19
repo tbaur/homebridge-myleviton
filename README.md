@@ -95,7 +95,8 @@ Your devices will appear in the Home app automatically.
 | `email` | ✓ | My Leviton account email |
 | `password` | ✓* | My Leviton account password. Leave empty if `MYLEVITON_PASSWORD` is set |
 | `loglevel` | | `debug`, `info` (default), `warn`, `error` |
-| `pollInterval` | | Seconds between state updates (default: 30) |
+| `pollInterval` | | Seconds between state checks while the live connection is down (default: 30) |
+| `connectedPollInterval` | | Seconds between state checks while the live connection is up (default: 120) |
 | `connectionTimeout` | | API/WebSocket timeout in ms (default: 10000) |
 | `excludedModels` | | Device models to skip, e.g. `["DW15P"]` |
 | `excludedSerials` | | Device serials to skip |

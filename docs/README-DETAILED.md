@@ -82,7 +82,8 @@ Advanced documentation for power users, developers, and troubleshooting.
 | `email` | string | — | **Required.** My Leviton account email |
 | `password` | string | — | **Required** unless `MYLEVITON_PASSWORD` is set. A value entered here is stored in `config.json`. The environment variable is used in memory only and is not written back into that file. |
 | `loglevel` | string | `"info"` | Logging verbosity: `debug`, `info`, `warn`, `error` |
-| `pollInterval` | number | `30` | Seconds between state updates (min 10, max 3600) |
+| `pollInterval` | number | `30` | Seconds between state checks while the WebSocket is down (min 10, max 3600) |
+| `connectedPollInterval` | number | `120` | Seconds between state checks while the WebSocket is connected (min 10, max 3600, never shorter than `pollInterval`) |
 | `connectionTimeout` | number | `10000` | API/WebSocket timeout in ms (min 5000, max 60000) |
 | `excludedModels` | string[] | `[]` | Device model numbers to exclude |
 | `excludedSerials` | string[] | `[]` | Device serial numbers to exclude |
@@ -179,8 +180,8 @@ Advanced documentation for power users, developers, and troubleshooting.
 2. Subscribes to all device state changes
 3. Instantly updates HomeKit when device state changes
 4. Auto-reconnects with exponential backoff on disconnect
-5. Polling runs continuously as safety net alongside WebSocket (also refreshing motion/occupancy)
-6. A status read is dropped if a WebSocket update arrived after the read was sent, or if Leviton's `lastUpdated` on the read is from an earlier second than the latest update. This stops a slow poll from undoing a newer change.
+5. Polling runs continuously as a safety net (also refreshing motion/occupancy): every `connectedPollInterval` seconds (default 120) while the WebSocket is connected, and every `pollInterval` seconds (default 30) while it is down. After a reconnect, every device is read once right away.
+6. Leviton's REST API can return a device's old state for about 30 seconds after a change at the switch or in the app. For 60 seconds after a WebSocket update, a status read that disagrees with that update is dropped, so a stale read cannot undo the change. With `loglevel: debug`, each dropped read logs `Ignored status read for …`.
 
 ### Change Log Lines
 

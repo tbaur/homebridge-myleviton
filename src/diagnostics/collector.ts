@@ -492,6 +492,7 @@ function redactConfig(config: LevitonConfig): Record<string, unknown> {
   return {
     diagnosticsInterval: config.diagnosticsInterval ?? 0,
     pollInterval: config.pollInterval ?? config.pollingInterval,
+    connectedPollInterval: config.connectedPollInterval,
     connectionTimeout: config.connectionTimeout,
     loglevel: config.loglevel,
     structuredLogs: config.structuredLogs ?? false,

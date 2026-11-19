@@ -33,6 +33,8 @@ export interface LevitonConfig extends PlatformConfig {
     structuredLogs?: boolean;
     pollInterval?: number;
     pollingInterval?: number;
+    /** Poll interval in seconds while the WebSocket is connected */
+    connectedPollInterval?: number;
     connectionTimeout?: number;
     connectivitySensor?: boolean;
     connectivitySensorName?: string;
@@ -108,8 +110,6 @@ export interface DeviceStatus {
     maxLevel?: number;
     occupancy?: boolean;
     motion?: boolean;
-    /** When Leviton last saved this device (ISO string); may be missing or malformed */
-    lastUpdated?: unknown;
 }
 /**
  * Login response from Leviton API

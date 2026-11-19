@@ -37,8 +37,8 @@ export declare class LevitonDecoraSmartPlatform {
     private recentHomeKitCommands;
     private inFlightHomeKitWrites;
     private writeRecheckTimers;
-    private lastPushReceivedAt;
-    private lastPushUpdatedAt;
+    private lastPushes;
+    private lastPollCycleStartedAt;
     private lastCloudCommands;
     private readonly diagnostics;
     private diagnosticsTimer;
@@ -316,6 +316,10 @@ export declare class LevitonDecoraSmartPlatform {
      * Starts polling for device updates
      */
     private startPolling;
+    /** Poll interval while the WebSocket is down, in seconds. */
+    private disconnectedPollSeconds;
+    /** Poll interval while the WebSocket is connected, in seconds. Never shorter than the disconnected interval. */
+    private connectedPollSeconds;
     /**
      * Runs one poll cycle unless one is already in progress.
      */
@@ -327,11 +331,9 @@ export declare class LevitonDecoraSmartPlatform {
      */
     private fetchAndApplyDeviceStatus;
     /**
-     * True when a status read is older than the latest WebSocket update for the
-     * device: the update arrived after the read was sent, or Leviton's
-     * `lastUpdated` on the read is from an earlier second than the update's.
-     * Seconds only, because Leviton sometimes reports `lastUpdated` without
-     * milliseconds.
+     * True when a status read should not override the latest WebSocket update for
+     * the device: the update arrived after the read was sent, or it arrived within
+     * {@link PUSH_TRUST_WINDOW_MS} before the read and the read disagrees with it.
      */
     private isStaleStatus;
     /**
