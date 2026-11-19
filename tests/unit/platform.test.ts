@@ -2567,34 +2567,84 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
       expect(loggedLines().filter(line => line.includes(': ON'))).toEqual([])
     })
 
-    it('drops a read whose lastUpdated is from an earlier second than the last update', async () => {
-      push({ power: 'OFF', lastUpdated: Date.parse('2026-01-01T00:00:10.500Z') })
-      await jest.advanceTimersByTimeAsync(1000)
+    it('drops a read within 60s of an update when the read disagrees with it', async () => {
+      push({ power: 'OFF' })
+      await jest.advanceTimersByTimeAsync(30_000)
 
-      mocks.mockClient.getDeviceStatus.mockResolvedValue({ power: 'ON', lastUpdated: '2026-01-01T00:00:09.000Z' })
+      mocks.mockClient.getDeviceStatus.mockResolvedValue({ power: 'ON' })
       await internals.pollDevices()
 
       expect(onUpdates()).toEqual([false])
     })
 
-    it('applies a read from the same second, since Leviton may drop the milliseconds', async () => {
-      push({ power: 'OFF', lastUpdated: Date.parse('2026-01-01T00:00:10.500Z') })
-      await jest.advanceTimersByTimeAsync(1000)
+    it('drops a read whose level disagrees with the last update', async () => {
+      push({ power: 'ON' })
+      push({ brightness: 40 })
+      await jest.advanceTimersByTimeAsync(5_000)
 
-      mocks.mockClient.getDeviceStatus.mockResolvedValue({ power: 'ON', lastUpdated: '2026-01-01T00:00:10.000Z' })
+      mocks.mockClient.getDeviceStatus.mockResolvedValue({ power: 'ON', brightness: 7 })
+      await internals.pollDevices()
+
+      expect(onUpdates()).toEqual([true, 40])
+    })
+
+    it('applies a read within 60s that agrees with the update', async () => {
+      push({ power: 'OFF' })
+      await jest.advanceTimersByTimeAsync(5_000)
+
+      mocks.mockClient.getDeviceStatus.mockResolvedValue({ power: 'OFF' })
+      await internals.pollDevices()
+
+      expect(onUpdates()).toEqual([false, false])
+    })
+
+    it('applies a disagreeing read once 60s have passed since the update', async () => {
+      push({ power: 'OFF' })
+      await jest.advanceTimersByTimeAsync(60_001)
+
+      mocks.mockClient.getDeviceStatus.mockResolvedValue({ power: 'ON' })
       await internals.pollDevices()
 
       expect(onUpdates()).toEqual([false, true])
     })
+  })
 
-    it('applies a read with no lastUpdated when no update arrived after it was sent', async () => {
-      push({ power: 'OFF' })
-      await jest.advanceTimersByTimeAsync(1000)
+  describe('poll interval', () => {
+    const tick = async (seconds: number): Promise<void> => {
+      await jest.advanceTimersByTimeAsync(seconds * 1000)
+    }
+    const polls = (): number => mocks.mockClient.getDeviceStatus.mock.calls.length
 
-      mocks.mockClient.getDeviceStatus.mockResolvedValue({ power: 'ON', lastUpdated: 'not-a-date' })
-      await internals.pollDevices()
+    beforeEach(() => {
+      mocks.mockClient.getDeviceStatus.mockResolvedValue({ power: 'OFF' })
+      ;(internals as unknown as { startPolling: () => void }).startPolling()
+    })
 
-      expect(onUpdates()).toEqual([false, true])
+    it('polls every 30s while the WebSocket is down', async () => {
+      await tick(90)
+
+      expect(polls()).toBe(3)
+    })
+
+    it('polls every 2 minutes while the WebSocket is connected', async () => {
+      internals.handleWsConnectionChange(true)
+      await tick(30)
+      expect(polls()).toBe(1)
+
+      await tick(90)
+      expect(polls()).toBe(1)
+
+      await tick(30)
+      expect(polls()).toBe(2)
+    })
+
+    it('goes back to 30s polls as soon as the WebSocket drops', async () => {
+      internals.handleWsConnectionChange(true)
+      await tick(30)
+      internals.handleWsConnectionChange(false)
+      await tick(30)
+
+      expect(polls()).toBe(2)
     })
   })
 

@@ -245,6 +245,12 @@ function validateConfig(config) {
             errors.push('pollInterval must be a number between 10 and 3600');
         }
     }
+    if (cfg.connectedPollInterval !== undefined) {
+        const interval = cfg.connectedPollInterval;
+        if (typeof interval !== 'number' || interval < 10 || interval > 3600) {
+            errors.push('connectedPollInterval must be a number between 10 and 3600');
+        }
+    }
     if (cfg.pollingInterval !== undefined) {
         const interval = cfg.pollingInterval;
         if (typeof interval !== 'number' || interval < 10 || interval > 3600) {

@@ -99,6 +99,14 @@ const CLOUD_COMMAND_FOLLOW_UP_MS = 3_000;
 // Larger gaps between Leviton's lastUpdated and arrival mean a replayed or
 // clock-skewed message, so no delivery time is shown.
 const MAX_DELIVERY_MS = 60_000;
+// Leviton's REST API can return a device's old state for about 30s after a
+// change at the switch or in the app, with nothing in the response to show it.
+// For this long after a WebSocket update, a status read that disagrees with it
+// is treated as stale.
+const PUSH_TRUST_WINDOW_MS = 60_000;
+// While the WebSocket is connected it delivers changes, so status reads only
+// need to catch the rare missed message.
+const DEFAULT_CONNECTED_POLL_INTERVAL_SEC = 120;
 const CHANGE_SOURCE_LABELS = {
     atSwitch: 'At switch',
     leviton: 'Leviton',
@@ -156,10 +164,10 @@ class LevitonDecoraSmartPlatform {
     inFlightHomeKitWrites = new Map();
     // Pending re-reads after failed writes, keyed by device id
     writeRecheckTimers = new Map();
-    // Latest WebSocket update per device: when it arrived and Leviton's lastUpdated.
-    // A status read older than either is dropped so it cannot undo the update.
-    lastPushReceivedAt = new Map();
-    lastPushUpdatedAt = new Map();
+    // Latest WebSocket state per device and when it arrived. A status read that
+    // disagrees with it inside PUSH_TRUST_WINDOW_MS is dropped as stale.
+    lastPushes = new Map();
+    lastPollCycleStartedAt = 0;
     // Latest cloud command seen per device, so the switch's follow-up report gets its label
     lastCloudCommands = new Map();
     // Opt-in diagnostics subsystem (off unless diagnosticsInterval > 0)
@@ -514,10 +522,12 @@ class LevitonDecoraSmartPlatform {
         }
         const deviceId = String(payload.id);
         const receivedAt = Date.now();
-        this.lastPushReceivedAt.set(deviceId, receivedAt);
-        if (payload.lastUpdated !== undefined) {
-            this.lastPushUpdatedAt.set(deviceId, payload.lastUpdated);
-        }
+        const previous = this.lastPushes.get(deviceId);
+        this.lastPushes.set(deviceId, {
+            at: receivedAt,
+            power: payload.power ?? previous?.power,
+            brightness: payload.brightness ?? previous?.brightness,
+        });
         const source = this.classifyPush(deviceId, payload, receivedAt);
         const delivery = payload.lastUpdated === undefined ? undefined : receivedAt - payload.lastUpdated;
         const timing = delivery !== undefined && delivery >= 0 && delivery <= MAX_DELIVERY_MS
@@ -1499,11 +1509,23 @@ class LevitonDecoraSmartPlatform {
         if (this.config.pollInterval === undefined && this.config.pollingInterval !== undefined) {
             this.log.warn("Config option 'pollingInterval' is deprecated; use 'pollInterval' instead.");
         }
-        const intervalSeconds = this.config.pollInterval ?? this.config.pollingInterval ?? 30;
-        const interval = Math.max(intervalSeconds * 1000, 10000);
+        const interval = this.disconnectedPollSeconds() * 1000;
         this.pollingInterval = setInterval(() => {
+            if (this.wsPushConnected && Date.now() - this.lastPollCycleStartedAt < this.connectedPollSeconds() * 1000 - 1000) {
+                return;
+            }
             void this.runPollCycle('interval');
         }, interval);
+    }
+    /** Poll interval while the WebSocket is down, in seconds. */
+    disconnectedPollSeconds() {
+        const intervalSeconds = this.config.pollInterval ?? this.config.pollingInterval ?? 30;
+        return Math.max(intervalSeconds, 10);
+    }
+    /** Poll interval while the WebSocket is connected, in seconds. Never shorter than the disconnected interval. */
+    connectedPollSeconds() {
+        const seconds = this.config.connectedPollInterval ?? DEFAULT_CONNECTED_POLL_INTERVAL_SEC;
+        return Math.max(seconds, this.disconnectedPollSeconds());
     }
     /**
      * Runs one poll cycle unless one is already in progress.
@@ -1520,6 +1542,7 @@ class LevitonDecoraSmartPlatform {
             return;
         }
         this.isPolling = true;
+        this.lastPollCycleStartedAt = Date.now();
         try {
             await this.pollDevices();
         }
@@ -1548,7 +1571,7 @@ class LevitonDecoraSmartPlatform {
         });
         const roundTrip = Date.now() - requestedAt;
         if (this.isStaleStatus(device.id, requestedAt, status)) {
-            this.log.debug(`Ignored status read for ${device.name}: a newer WebSocket update arrived`);
+            this.log.debug(`Ignored status read for ${device.name}: it disagrees with a recent WebSocket update`);
             return;
         }
         // Include motion/occupancy so motion sensors stay current via polling when
@@ -1562,23 +1585,24 @@ class LevitonDecoraSmartPlatform {
         }, { source: 'pluginPoll', timing: `Round trip: ${roundTrip}ms` });
     }
     /**
-     * True when a status read is older than the latest WebSocket update for the
-     * device: the update arrived after the read was sent, or Leviton's
-     * `lastUpdated` on the read is from an earlier second than the update's.
-     * Seconds only, because Leviton sometimes reports `lastUpdated` without
-     * milliseconds.
+     * True when a status read should not override the latest WebSocket update for
+     * the device: the update arrived after the read was sent, or it arrived within
+     * {@link PUSH_TRUST_WINDOW_MS} before the read and the read disagrees with it.
      */
     isStaleStatus(deviceId, requestedAt, status) {
-        const pushReceivedAt = this.lastPushReceivedAt.get(deviceId);
-        if (pushReceivedAt !== undefined && pushReceivedAt >= requestedAt) {
-            return true;
-        }
-        const pushUpdatedAt = this.lastPushUpdatedAt.get(deviceId);
-        const statusUpdatedAt = (0, validators_1.parseTimestamp)(status.lastUpdated);
-        if (pushUpdatedAt === undefined || statusUpdatedAt === undefined) {
+        const push = this.lastPushes.get(deviceId);
+        if (!push) {
             return false;
         }
-        return Math.floor(statusUpdatedAt / 1000) < Math.floor(pushUpdatedAt / 1000);
+        if (push.at >= requestedAt) {
+            return true;
+        }
+        if (requestedAt - push.at > PUSH_TRUST_WINDOW_MS) {
+            return false;
+        }
+        const powerDiffers = push.power !== undefined && status.power !== undefined && status.power !== push.power;
+        const levelDiffers = push.brightness !== undefined && status.brightness !== undefined && status.brightness !== push.brightness;
+        return powerDiffers || levelDiffers;
     }
     /**
      * Polls all devices for updates
@@ -1805,8 +1829,7 @@ class LevitonDecoraSmartPlatform {
      * Effective polling cadence in seconds (mirrors startPolling's clamping).
      */
     pollingCadenceSeconds() {
-        const intervalSeconds = this.config.pollInterval ?? this.config.pollingInterval ?? 30;
-        return Math.max(intervalSeconds, 10);
+        return this.wsPushConnected ? this.connectedPollSeconds() : this.disconnectedPollSeconds();
     }
     /**
      * Starts the diagnostics subsystem: emits the boot snapshot and schedules the

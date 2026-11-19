@@ -51,7 +51,15 @@
         "default": 30,
         "minimum": 10,
         "maximum": 3600,
-        "description": "How often (in seconds) to check device states. Lower values = faster updates but more API calls. Default: 30 seconds."
+        "description": "How often (in seconds) to check device states while the live connection to Leviton is down. Lower values = faster updates but more API calls. Default: 30 seconds."
+      },
+      "connectedPollInterval": {
+        "title": "Poll Interval While Connected",
+        "type": "integer",
+        "default": 120,
+        "minimum": 10,
+        "maximum": 3600,
+        "description": "How often (in seconds) to check device states while the live connection to Leviton is up. Changes arrive over that connection, so this only catches a missed update. Never shorter than Poll Interval. Default: 120 seconds."
       },
       "pollingInterval": {
         "title": "Poll Interval (Deprecated)",
@@ -146,7 +154,8 @@
       "items": [
         "name",
         "loglevel",
-        "pollInterval"
+        "pollInterval",
+        "connectedPollInterval"
       ]
     },
     {

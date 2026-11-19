@@ -270,6 +270,13 @@ export function validateConfig(config: unknown): LevitonConfig {
     }
   }
 
+  if (cfg.connectedPollInterval !== undefined) {
+    const interval = cfg.connectedPollInterval as number
+    if (typeof interval !== 'number' || interval < 10 || interval > 3600) {
+      errors.push('connectedPollInterval must be a number between 10 and 3600')
+    }
+  }
+
   if (cfg.pollingInterval !== undefined) {
     const interval = cfg.pollingInterval as number
     if (typeof interval !== 'number' || interval < 10 || interval > 3600) {
