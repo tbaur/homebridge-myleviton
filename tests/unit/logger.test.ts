@@ -128,11 +128,34 @@ describe('LeveledLogger', () => {
       logger.warn('warn message')
       logger.error('error message')
 
-      expect(debug).toHaveBeenCalledWith('debug message')
+      expect(info).toHaveBeenCalledWith('[debug] debug message')
       expect(info).toHaveBeenCalledWith('info message')
       expect(warn).toHaveBeenCalledWith('warn message')
       expect(error).toHaveBeenCalledWith('error message')
+      expect(debug).not.toHaveBeenCalled()
       expect(callable).not.toHaveBeenCalled()
+    })
+
+    it('should write debug lines at info level when the level is debug', () => {
+      const info = jest.fn()
+      const debug = jest.fn()
+      const homebridgeLog = Object.assign(jest.fn(), { info, warn: jest.fn(), error: jest.fn(), debug })
+
+      new LeveledLogger(homebridgeLog, 'debug').debug('status read dropped')
+
+      expect(info).toHaveBeenCalledWith('[debug] status read dropped')
+      expect(debug).not.toHaveBeenCalled()
+    })
+
+    it('should not write debug lines when the level is info', () => {
+      const info = jest.fn()
+      const debug = jest.fn()
+      const homebridgeLog = Object.assign(jest.fn(), { info, warn: jest.fn(), error: jest.fn(), debug })
+
+      new LeveledLogger(homebridgeLog, 'info').debug('status read dropped')
+
+      expect(info).not.toHaveBeenCalled()
+      expect(debug).not.toHaveBeenCalled()
     })
   })
 })
