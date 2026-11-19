@@ -97,6 +97,11 @@ export declare class RequestDeduplicator {
      */
     execute<T>(key: string, fn: () => Promise<T>): Promise<T>;
     /**
+     * Stop sharing the in-flight request for `key`. The request still settles for
+     * callers already waiting on it; the next caller starts a fresh one.
+     */
+    forget(key: string): void;
+    /**
      * Get number of in-flight requests
      */
     get size(): number;

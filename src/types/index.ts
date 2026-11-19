@@ -131,6 +131,8 @@ export interface DeviceStatus {
   maxLevel?: number
   occupancy?: boolean
   motion?: boolean
+  /** When Leviton last saved this device (ISO string); may be missing or malformed */
+  lastUpdated?: unknown
 }
 
 /**
@@ -176,6 +178,8 @@ export interface WebSocketPayload {
   brightness?: number
   occupancy?: boolean
   motion?: boolean
+  /** Leviton's `lastUpdated` for this change, in epoch ms, when the message carried a valid one */
+  lastUpdated?: number
 }
 
 /**

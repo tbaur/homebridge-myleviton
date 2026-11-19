@@ -46,6 +46,11 @@ export declare function validateBrightness(brightness: unknown): number;
  */
 export declare function clampLevel(value: unknown, min: number, max: number): number;
 /**
+ * Parse a Leviton ISO timestamp such as `lastUpdated` into epoch milliseconds.
+ * Anything that is not a string holding a valid date returns `undefined`.
+ */
+export declare function parseTimestamp(value: unknown): number | undefined;
+/**
  * Validate plugin configuration
  */
 export declare function validateConfig(config: unknown): LevitonConfig;

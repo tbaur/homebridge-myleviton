@@ -14,6 +14,7 @@
 
 import WebSocket from 'ws'
 import { maskToken, createResponsePreview } from '../utils/sanitizers'
+import { parseTimestamp } from '../utils/validators'
 import type { WebSocketPayload, DeviceInfo, Logger, LoginResponse } from '../types'
 
 /**
@@ -432,6 +433,11 @@ export class LevitonWebSocket {
 
     if (typeof notificationData.motion === 'boolean') {
       payload.motion = notificationData.motion
+    }
+
+    const lastUpdated = parseTimestamp(notificationData.lastUpdated)
+    if (lastUpdated !== undefined) {
+      payload.lastUpdated = lastUpdated
     }
 
     // Only callback if we have meaningful data

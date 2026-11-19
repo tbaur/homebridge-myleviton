@@ -176,6 +176,18 @@ export function clampLevel(value: unknown, min: number, max: number): number {
 }
 
 /**
+ * Parse a Leviton ISO timestamp such as `lastUpdated` into epoch milliseconds.
+ * Anything that is not a string holding a valid date returns `undefined`.
+ */
+export function parseTimestamp(value: unknown): number | undefined {
+  if (typeof value !== 'string' || value.length === 0) {
+    return undefined
+  }
+  const ms = Date.parse(value)
+  return Number.isFinite(ms) ? ms : undefined
+}
+
+/**
  * Validate plugin configuration
  */
 export function validateConfig(config: unknown): LevitonConfig {

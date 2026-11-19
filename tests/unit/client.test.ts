@@ -179,6 +179,50 @@ describe('LevitonApiClient', () => {
       // Should only make one request due to caching
       expect(mockFetch).toHaveBeenCalledTimes(1)
     })
+
+    it('does not cache a read that was in flight when the device cache was invalidated', async () => {
+      let finishFirst: () => void = () => {}
+      mockFetch.mockImplementationOnce(() => new Promise(resolve => {
+        finishFirst = () => resolve({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Map([['content-type', 'application/json']]) as unknown as Headers,
+          text: () => Promise.resolve(JSON.stringify({ power: 'ON' })),
+        })
+      }))
+      mockJsonResponse({ power: 'OFF' })
+
+      const stale = client.getDeviceStatus('dev1', 'token123')
+      client.invalidateDeviceCache('dev1')
+      finishFirst()
+
+      expect((await stale).power).toBe('ON')
+      expect((await client.getDeviceStatus('dev1', 'token123')).power).toBe('OFF')
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('starts a fresh read after invalidation instead of joining the in-flight one', async () => {
+      let finishFirst: () => void = () => {}
+      mockFetch.mockImplementationOnce(() => new Promise(resolve => {
+        finishFirst = () => resolve({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: new Map([['content-type', 'application/json']]) as unknown as Headers,
+          text: () => Promise.resolve(JSON.stringify({ power: 'ON' })),
+        })
+      }))
+      mockJsonResponse({ power: 'OFF' })
+
+      const stale = client.getDeviceStatus('dev1', 'token123')
+      client.invalidateDeviceCache('dev1')
+      const fresh = client.getDeviceStatus('dev1', 'token123')
+      finishFirst()
+
+      expect((await stale).power).toBe('ON')
+      expect((await fresh).power).toBe('OFF')
+    })
   })
 
   describe('setDeviceState', () => {

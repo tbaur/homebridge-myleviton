@@ -354,6 +354,35 @@ describe('LevitonWebSocket', () => {
       ws.close()
     })
 
+    it('should pass a valid lastUpdated as epoch ms and drop an invalid one', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+      )
+
+      ws.connect()
+      const mock = getLastMockInstance()
+      mock.triggerOpen()
+      mock.triggerMessage({
+        type: 'notification',
+        notification: { modelId: 'dev1', data: { power: 'ON', lastUpdated: '2026-01-01T00:00:10.500Z' } },
+      })
+      mock.triggerMessage({
+        type: 'notification',
+        notification: { modelId: 'dev1', data: { power: 'OFF', lastUpdated: 'yesterday' } },
+      })
+
+      expect(mockCallback).toHaveBeenNthCalledWith(1, {
+        id: 'dev1',
+        power: 'ON',
+        lastUpdated: Date.parse('2026-01-01T00:00:10.500Z'),
+      })
+      expect(mockCallback).toHaveBeenNthCalledWith(2, { id: 'dev1', power: 'OFF' })
+      ws.close()
+    })
+
     it('should ignore a payload whose only fields are invalid', () => {
       const ws = new LevitonWebSocket(
         loginResponse,

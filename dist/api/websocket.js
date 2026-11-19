@@ -20,6 +20,7 @@ exports.LevitonWebSocket = exports.DEFAULT_WEBSOCKET_CONFIG = void 0;
 exports.createWebSocket = createWebSocket;
 const ws_1 = __importDefault(require("ws"));
 const sanitizers_1 = require("../utils/sanitizers");
+const validators_1 = require("../utils/validators");
 /**
  * Default WebSocket configuration
  * Note: Uses native WebSocket endpoint, NOT SockJS
@@ -353,6 +354,10 @@ class LevitonWebSocket {
         }
         if (typeof notificationData.motion === 'boolean') {
             payload.motion = notificationData.motion;
+        }
+        const lastUpdated = (0, validators_1.parseTimestamp)(notificationData.lastUpdated);
+        if (lastUpdated !== undefined) {
+            payload.lastUpdated = lastUpdated;
         }
         // Only callback if we have meaningful data
         if (payload.power !== undefined || payload.brightness !== undefined || payload.occupancy !== undefined || payload.motion !== undefined) {

@@ -91,6 +91,7 @@ export declare class LevitonApiClient {
     private readonly circuitBreaker;
     private readonly cache;
     private readonly deduplicator;
+    private readonly cacheGenerations;
     constructor(config?: Partial<ApiClientConfig>);
     /**
      * Surface circuit-breaker transitions so operators can see when the Leviton
@@ -166,6 +167,11 @@ export declare class LevitonApiClient {
      * Invalidate cache for a specific device
      */
     invalidateDeviceCache(deviceId: string): void;
+    /**
+     * Drops a cached status, stops sharing an in-flight read of it, and keeps a
+     * read that started earlier from caching its now-stale answer.
+     */
+    private invalidateCacheKey;
     /**
      * Get client status
      */
