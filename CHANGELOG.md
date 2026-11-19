@@ -5,6 +5,18 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.0](https://github.com/tbaur/homebridge-myleviton/compare/v4.1.5...v4.2.0) (2026-11-19)
+
+
+### Features
+
+* show where each switch change came from ([#123](https://github.com/tbaur/homebridge-myleviton/issues/123)) ([f68e859](https://github.com/tbaur/homebridge-myleviton/commit/f68e859ba2ca9f3a5bc4ed0f1b2883b78252aafb))
+
+
+### Bug Fixes
+
+* stop a stale poll from undoing a switch change ([#121](https://github.com/tbaur/homebridge-myleviton/issues/121)) ([20d4f2f](https://github.com/tbaur/homebridge-myleviton/commit/20d4f2f3faf63e8b870cd6b66262fce97b8d0398))
+
 ## [4.1.5](https://github.com/tbaur/homebridge-myleviton/compare/v4.1.4...v4.1.5) (2026-11-05)
 
 
