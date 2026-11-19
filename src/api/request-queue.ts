@@ -260,12 +260,22 @@ export class RequestDeduplicator {
     }
 
     // Create and track new request
-    const promise = fn().finally(() => {
-      this.inFlight.delete(key)
+    const promise: Promise<T> = fn().finally(() => {
+      if (this.inFlight.get(key) === promise) {
+        this.inFlight.delete(key)
+      }
     })
 
     this.inFlight.set(key, promise)
     return promise
+  }
+
+  /**
+   * Stop sharing the in-flight request for `key`. The request still settles for
+   * callers already waiting on it; the next caller starts a fresh one.
+   */
+  forget(key: string): void {
+    this.inFlight.delete(key)
   }
 
   /**

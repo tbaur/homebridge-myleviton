@@ -2456,13 +2456,15 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
 
   let mocks: ReturnType<typeof setupMocks>
   let internals: Internals
+  let accessory: MockAccessory
 
   beforeEach(() => {
     jest.clearAllMocks()
     jest.useFakeTimers()
     mocks = setupMocks()
     const platform = new LevitonDecoraSmartPlatform(mocks.mockLog, validConfig, mocks.mockAPI)
-    platform.configureAccessory(mockAccessory(device))
+    accessory = mockAccessory(device)
+    platform.configureAccessory(accessory)
     internals = platform as unknown as Internals
     internals.currentLoginResponse = { id: 'test-token', userId: 'user-123', ttl: -1 }
     internals.residenceId = 'residence-123'
@@ -2535,6 +2537,65 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
     await jest.advanceTimersByTimeAsync(WRITE_FAILURE_RECHECK_MS)
 
     expect(mocks.mockClient.getDeviceStatus).not.toHaveBeenCalled()
+  })
+
+  describe('status reads that race a WebSocket update', () => {
+    const push = (payload: object): void => {
+      ;(internals as unknown as { handleWebSocketUpdate: (p: object) => void })
+        .handleWebSocketUpdate({ id: device.id, ...payload })
+    }
+    const onUpdates = (): unknown[] =>
+      accessory.getService().getCharacteristic().updateValue.mock.calls.map(([value]: [unknown]) => value)
+    const holdStatus = (): ((status: object) => void) => {
+      let release: (status: object) => void = () => {}
+      mocks.mockClient.getDeviceStatus.mockImplementation(
+        () => new Promise(resolve => { release = resolve }),
+      )
+      return status => release(status)
+    }
+
+    it('drops a read that a WebSocket update overtook', async () => {
+      const release = holdStatus()
+      const poll = internals.pollDevices()
+      await jest.advanceTimersByTimeAsync(100)
+
+      push({ power: 'OFF' })
+      release({ power: 'ON' })
+      await poll
+
+      expect(onUpdates()).toEqual([false])
+      expect(loggedLines().filter(line => line.includes(': ON'))).toEqual([])
+    })
+
+    it('drops a read whose lastUpdated is from an earlier second than the last update', async () => {
+      push({ power: 'OFF', lastUpdated: Date.parse('2026-01-01T00:00:10.500Z') })
+      await jest.advanceTimersByTimeAsync(1000)
+
+      mocks.mockClient.getDeviceStatus.mockResolvedValue({ power: 'ON', lastUpdated: '2026-01-01T00:00:09.000Z' })
+      await internals.pollDevices()
+
+      expect(onUpdates()).toEqual([false])
+    })
+
+    it('applies a read from the same second, since Leviton may drop the milliseconds', async () => {
+      push({ power: 'OFF', lastUpdated: Date.parse('2026-01-01T00:00:10.500Z') })
+      await jest.advanceTimersByTimeAsync(1000)
+
+      mocks.mockClient.getDeviceStatus.mockResolvedValue({ power: 'ON', lastUpdated: '2026-01-01T00:00:10.000Z' })
+      await internals.pollDevices()
+
+      expect(onUpdates()).toEqual([false, true])
+    })
+
+    it('applies a read with no lastUpdated when no update arrived after it was sent', async () => {
+      push({ power: 'OFF' })
+      await jest.advanceTimersByTimeAsync(1000)
+
+      mocks.mockClient.getDeviceStatus.mockResolvedValue({ power: 'ON', lastUpdated: 'not-a-date' })
+      await internals.pollDevices()
+
+      expect(onUpdates()).toEqual([false, true])
+    })
   })
 
   describe('external-change logging around HomeKit writes', () => {

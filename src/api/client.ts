@@ -231,6 +231,9 @@ export class LevitonApiClient {
   private readonly circuitBreaker: CircuitBreaker
   private readonly cache: ResponseCache
   private readonly deduplicator: RequestDeduplicator
+  // Bumped when a cache key is invalidated. A read stores its result only if
+  // the count is unchanged since it started, so it cannot restore stale data.
+  private readonly cacheGenerations: Map<string, number> = new Map()
 
   constructor(config: Partial<ApiClientConfig> = {}) {
     this.config = { ...DEFAULT_API_CONFIG, ...config }
@@ -346,6 +349,7 @@ export class LevitonApiClient {
     } = requestOptions
 
     const method = options.method || 'GET'
+    const cacheGeneration = this.cacheGenerations.get(cacheKey) ?? 0
 
     throwIfAborted(signal, this.config.timeout)
 
@@ -400,7 +404,7 @@ export class LevitonApiClient {
       }
 
       // Cache response
-      if (useCache && method === 'GET') {
+      if (useCache && method === 'GET' && (this.cacheGenerations.get(cacheKey) ?? 0) === cacheGeneration) {
         this.cache.set(cacheKey, data)
       }
 
@@ -680,7 +684,7 @@ export class LevitonApiClient {
     } finally {
       // Also on failure: a timed-out or aborted PUT may still have been applied,
       // so a cached pre-write status must not be served to a follow-up read.
-      this.cache.delete(cacheKey)
+      this.invalidateCacheKey(cacheKey, url)
     }
   }
 
@@ -719,7 +723,17 @@ export class LevitonApiClient {
    * Invalidate cache for a specific device
    */
   invalidateDeviceCache(deviceId: string): void {
-    this.cache.delete(`device:${deviceId}`)
+    this.invalidateCacheKey(`device:${deviceId}`, `${this.config.baseUrl}/IotSwitches/${deviceId}`)
+  }
+
+  /**
+   * Drops a cached status, stops sharing an in-flight read of it, and keeps a
+   * read that started earlier from caching its now-stale answer.
+   */
+  private invalidateCacheKey(cacheKey: string, url: string): void {
+    this.cache.delete(cacheKey)
+    this.cacheGenerations.set(cacheKey, (this.cacheGenerations.get(cacheKey) ?? 0) + 1)
+    this.deduplicator.forget(`GET:${url}`)
   }
 
   /**

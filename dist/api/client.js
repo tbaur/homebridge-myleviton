@@ -144,6 +144,9 @@ class LevitonApiClient {
     circuitBreaker;
     cache;
     deduplicator;
+    // Bumped when a cache key is invalidated. A read stores its result only if
+    // the count is unchanged since it started, so it cannot restore stale data.
+    cacheGenerations = new Map();
     constructor(config = {}) {
         this.config = { ...exports.DEFAULT_API_CONFIG, ...config };
         // Each client owns its resilience state so independent platform instances
@@ -223,6 +226,7 @@ class LevitonApiClient {
     async runRequest(url, options, requestOptions, markNetworked = () => { }) {
         const { useCache = false, cacheKey = url, bypassCircuitBreaker = false, debugLog = () => { }, signal, } = requestOptions;
         const method = options.method || 'GET';
+        const cacheGeneration = this.cacheGenerations.get(cacheKey) ?? 0;
         throwIfAborted(signal, this.config.timeout);
         // Check circuit breaker (gated once per logical request, never retried)
         if (!bypassCircuitBreaker && !this.circuitBreaker.canRequest()) {
@@ -262,7 +266,7 @@ class LevitonApiClient {
                 this.circuitBreaker.recordSuccess();
             }
             // Cache response
-            if (useCache && method === 'GET') {
+            if (useCache && method === 'GET' && (this.cacheGenerations.get(cacheKey) ?? 0) === cacheGeneration) {
                 this.cache.set(cacheKey, data);
             }
             return data;
@@ -451,7 +455,7 @@ class LevitonApiClient {
         finally {
             // Also on failure: a timed-out or aborted PUT may still have been applied,
             // so a cached pre-write status must not be served to a follow-up read.
-            this.cache.delete(cacheKey);
+            this.invalidateCacheKey(cacheKey, url);
         }
     }
     /**
@@ -476,7 +480,16 @@ class LevitonApiClient {
      * Invalidate cache for a specific device
      */
     invalidateDeviceCache(deviceId) {
-        this.cache.delete(`device:${deviceId}`);
+        this.invalidateCacheKey(`device:${deviceId}`, `${this.config.baseUrl}/IotSwitches/${deviceId}`);
+    }
+    /**
+     * Drops a cached status, stops sharing an in-flight read of it, and keeps a
+     * read that started earlier from caching its now-stale answer.
+     */
+    invalidateCacheKey(cacheKey, url) {
+        this.cache.delete(cacheKey);
+        this.cacheGenerations.set(cacheKey, (this.cacheGenerations.get(cacheKey) ?? 0) + 1);
+        this.deduplicator.forget(`GET:${url}`);
     }
     /**
      * Get client status

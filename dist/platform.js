@@ -143,6 +143,10 @@ class LevitonDecoraSmartPlatform {
     inFlightHomeKitWrites = new Map();
     // Pending re-reads after failed writes, keyed by device id
     writeRecheckTimers = new Map();
+    // Latest WebSocket update per device: when it arrived and Leviton's lastUpdated.
+    // A status read older than either is dropped so it cannot undo the update.
+    lastPushReceivedAt = new Map();
+    lastPushUpdatedAt = new Map();
     // Opt-in diagnostics subsystem (off unless diagnosticsInterval > 0)
     diagnostics;
     diagnosticsTimer = null;
@@ -493,6 +497,17 @@ class LevitonDecoraSmartPlatform {
             this.log.warn('Received invalid WebSocket payload');
             return;
         }
+        const deviceId = String(payload.id);
+        this.lastPushReceivedAt.set(deviceId, Date.now());
+        if (payload.lastUpdated !== undefined) {
+            this.lastPushUpdatedAt.set(deviceId, payload.lastUpdated);
+        }
+        this.applyDeviceUpdate(payload);
+    }
+    /**
+     * Applies a device state report (WebSocket push or status read) to HomeKit
+     */
+    applyDeviceUpdate(payload) {
         const accessory = this.accessories.find(acc => String(acc.context?.device?.id) === String(payload.id));
         if (!accessory) {
             this.log.debug(`No accessory found for device ID: ${payload.id}`);
@@ -1460,20 +1475,44 @@ class LevitonDecoraSmartPlatform {
      * state is left unchanged in that case.
      */
     async fetchAndApplyDeviceStatus(device) {
+        const requestedAt = Date.now();
         // Fetch actual device status from API (bypass getStatus to avoid fallback values)
         const status = await this.withTokenRetry(async () => {
             const token = await this.ensureValidToken();
             return this.client.getDeviceStatus(device.id, token);
         });
+        if (this.isStaleStatus(device.id, requestedAt, status)) {
+            this.log.debug(`Ignored status read for ${device.name}: a newer WebSocket update arrived`);
+            return;
+        }
         // Include motion/occupancy so motion sensors stay current via polling when
         // the WebSocket push channel is unavailable.
-        this.handleWebSocketUpdate({
+        this.applyDeviceUpdate({
             id: device.id,
             power: status.power,
             brightness: status.brightness,
             occupancy: status.occupancy,
             motion: status.motion,
         });
+    }
+    /**
+     * True when a status read is older than the latest WebSocket update for the
+     * device: the update arrived after the read was sent, or Leviton's
+     * `lastUpdated` on the read is from an earlier second than the update's.
+     * Seconds only, because Leviton sometimes reports `lastUpdated` without
+     * milliseconds.
+     */
+    isStaleStatus(deviceId, requestedAt, status) {
+        const pushReceivedAt = this.lastPushReceivedAt.get(deviceId);
+        if (pushReceivedAt !== undefined && pushReceivedAt >= requestedAt) {
+            return true;
+        }
+        const pushUpdatedAt = this.lastPushUpdatedAt.get(deviceId);
+        const statusUpdatedAt = (0, validators_1.parseTimestamp)(status.lastUpdated);
+        if (pushUpdatedAt === undefined || statusUpdatedAt === undefined) {
+            return false;
+        }
+        return Math.floor(statusUpdatedAt / 1000) < Math.floor(pushUpdatedAt / 1000);
     }
     /**
      * Polls all devices for updates

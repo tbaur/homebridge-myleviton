@@ -16,6 +16,7 @@ exports.validateToken = validateToken;
 exports.validatePowerState = validatePowerState;
 exports.validateBrightness = validateBrightness;
 exports.clampLevel = clampLevel;
+exports.parseTimestamp = parseTimestamp;
 exports.validateConfig = validateConfig;
 exports.assertDefined = assertDefined;
 exports.validateNonEmptyArray = validateNonEmptyArray;
@@ -154,6 +155,17 @@ function clampLevel(value, min, max) {
         return min;
     }
     return Math.min(max, Math.max(min, value));
+}
+/**
+ * Parse a Leviton ISO timestamp such as `lastUpdated` into epoch milliseconds.
+ * Anything that is not a string holding a valid date returns `undefined`.
+ */
+function parseTimestamp(value) {
+    if (typeof value !== 'string' || value.length === 0) {
+        return undefined;
+    }
+    const ms = Date.parse(value);
+    return Number.isFinite(ms) ? ms : undefined;
 }
 /**
  * Validate plugin configuration

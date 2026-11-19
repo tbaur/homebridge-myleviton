@@ -37,6 +37,8 @@ export declare class LevitonDecoraSmartPlatform {
     private recentHomeKitCommands;
     private inFlightHomeKitWrites;
     private writeRecheckTimers;
+    private lastPushReceivedAt;
+    private lastPushUpdatedAt;
     private readonly diagnostics;
     private diagnosticsTimer;
     private lastDiagnosticsHealth;
@@ -81,6 +83,10 @@ export declare class LevitonDecoraSmartPlatform {
      * Handles WebSocket update messages
      */
     private handleWebSocketUpdate;
+    /**
+     * Applies a device state report (WebSocket push or status read) to HomeKit
+     */
+    private applyDeviceUpdate;
     /**
      * Checks if device should be excluded
      */
@@ -308,6 +314,14 @@ export declare class LevitonDecoraSmartPlatform {
      * state is left unchanged in that case.
      */
     private fetchAndApplyDeviceStatus;
+    /**
+     * True when a status read is older than the latest WebSocket update for the
+     * device: the update arrived after the read was sent, or Leviton's
+     * `lastUpdated` on the read is from an earlier second than the update's.
+     * Seconds only, because Leviton sometimes reports `lastUpdated` without
+     * milliseconds.
+     */
+    private isStaleStatus;
     /**
      * Polls all devices for updates
      *
