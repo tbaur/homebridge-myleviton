@@ -17,13 +17,16 @@
  * performs any network I/O.
  */
 
-import type { DiagnosticsSnapshot, LevitonConfig } from '../types'
+import type { ChangeSource, DiagnosticsSnapshot, LevitonConfig } from '../types'
 
 /** Maximum number of recent request latencies retained for percentile math. */
 const LATENCY_WINDOW = 200
 
 /** Recent request outcomes retained for the rollup error-rate calculation. */
 const OUTCOME_WINDOW = 50
+
+/** Every change source, in the order diagnostics report them. */
+const CHANGE_SOURCES: readonly ChangeSource[] = ['atSwitch', 'leviton', 'levitonOrSwitch', 'otherApiClient', 'pluginPoll']
 
 /** Minimum recent requests before the API error rate can mark health degraded. */
 const API_ERROR_MIN_SAMPLES = 10
@@ -92,6 +95,7 @@ interface CounterSnapshot {
   tokenRefreshes: number
   commandsSent: number
   externalChanges: number
+  externalChangesBySource: Record<ChangeSource, number>
   retries: number
   cacheHits: number
   cacheMisses: number
@@ -125,6 +129,7 @@ export class DiagnosticsCollector {
   private tokenRefreshes = 0
   private commandsSent = 0
   private externalChanges = 0
+  private readonly externalChangesBySource: Record<ChangeSource, number> = emptySourceCounts()
   private retries = 0
 
   // Internal gauges advanced by increment methods
@@ -211,8 +216,9 @@ export class DiagnosticsCollector {
   }
 
   /** Record a device state change that did not originate from HomeKit. */
-  externalChange(): void {
+  externalChange(source: ChangeSource): void {
     this.externalChanges++
+    this.externalChangesBySource[source]++
   }
 
   /** Record a retry attempt (e.g. token-refresh-and-retry). */
@@ -297,6 +303,7 @@ export class DiagnosticsCollector {
       errors: current.apiErrors - this.marker.apiErrors,
       commandsSent: current.commandsSent - this.marker.commandsSent,
       externalChanges: current.externalChanges - this.marker.externalChanges,
+      externalChangesBySource: subtractSourceCounts(current.externalChangesBySource, this.marker.externalChangesBySource),
       retries: current.retries - this.marker.retries,
     }
 
@@ -324,6 +331,7 @@ export class DiagnosticsCollector {
       errors: this.apiErrors,
       commandsSent: this.commandsSent,
       externalChanges: this.externalChanges,
+      externalChangesBySource: { ...this.externalChangesBySource },
       retries: this.retries,
     }
 
@@ -349,6 +357,7 @@ export class DiagnosticsCollector {
       tokenRefreshes: this.tokenRefreshes,
       commandsSent: this.commandsSent,
       externalChanges: this.externalChanges,
+      externalChangesBySource: { ...this.externalChangesBySource },
       retries: this.retries,
       cacheHits,
       cacheMisses,
@@ -413,6 +422,7 @@ export class DiagnosticsCollector {
       activity: {
         commandsSent: counters.commandsSent,
         externalChanges: counters.externalChanges,
+        externalChangesBySource: counters.externalChangesBySource,
         retries: counters.retries,
       },
     }
@@ -430,7 +440,25 @@ interface CounterValues {
   errors: number
   commandsSent: number
   externalChanges: number
+  externalChangesBySource: Record<ChangeSource, number>
   retries: number
+}
+
+/** A zero count for every change source. */
+function emptySourceCounts(): Record<ChangeSource, number> {
+  return { atSwitch: 0, leviton: 0, levitonOrSwitch: 0, otherApiClient: 0, pluginPoll: 0 }
+}
+
+/** Per-source counts in `current` minus those in `previous`. */
+function subtractSourceCounts(
+  current: Record<ChangeSource, number>,
+  previous: Record<ChangeSource, number>,
+): Record<ChangeSource, number> {
+  const result = emptySourceCounts()
+  for (const source of CHANGE_SOURCES) {
+    result[source] = current[source] - previous[source]
+  }
+  return result
 }
 
 /** Safe ratio that never divides by zero. */

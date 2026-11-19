@@ -383,6 +383,36 @@ describe('LevitonWebSocket', () => {
       ws.close()
     })
 
+    it('should flag rssi and client_id without passing their values on', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+      )
+
+      ws.connect()
+      const mock = getLastMockInstance()
+      mock.triggerOpen()
+      mock.triggerMessage({
+        type: 'notification',
+        notification: { modelId: 'dev1', data: { power: 'ON', rssi: -60 } },
+      })
+      mock.triggerMessage({
+        type: 'notification',
+        notification: { modelId: 'dev1', data: { power: 'OFF', client_id: 'test-client' } },
+      })
+      mock.triggerMessage({
+        type: 'notification',
+        notification: { modelId: 'dev1', data: { rssi: -60 } },
+      })
+
+      expect(mockCallback).toHaveBeenCalledTimes(2)
+      expect(mockCallback).toHaveBeenNthCalledWith(1, { id: 'dev1', power: 'ON', rssiInFrame: true })
+      expect(mockCallback).toHaveBeenNthCalledWith(2, { id: 'dev1', power: 'OFF', hasClientId: true })
+      ws.close()
+    })
+
     it('should ignore a payload whose only fields are invalid', () => {
       const ws = new LevitonWebSocket(
         loginResponse,

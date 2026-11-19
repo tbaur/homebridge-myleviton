@@ -23,6 +23,8 @@ exports.DiagnosticsCollector = void 0;
 const LATENCY_WINDOW = 200;
 /** Recent request outcomes retained for the rollup error-rate calculation. */
 const OUTCOME_WINDOW = 50;
+/** Every change source, in the order diagnostics report them. */
+const CHANGE_SOURCES = ['atSwitch', 'leviton', 'levitonOrSwitch', 'otherApiClient', 'pluginPoll'];
 /** Minimum recent requests before the API error rate can mark health degraded. */
 const API_ERROR_MIN_SAMPLES = 10;
 /** Recent error rate (0..1) above which health is considered degraded. */
@@ -48,6 +50,7 @@ class DiagnosticsCollector {
     tokenRefreshes = 0;
     commandsSent = 0;
     externalChanges = 0;
+    externalChangesBySource = emptySourceCounts();
     retries = 0;
     // Internal gauges advanced by increment methods
     lastTripAt = null;
@@ -120,8 +123,9 @@ class DiagnosticsCollector {
         this.commandsSent++;
     }
     /** Record a device state change that did not originate from HomeKit. */
-    externalChange() {
+    externalChange(source) {
         this.externalChanges++;
+        this.externalChangesBySource[source]++;
     }
     /** Record a retry attempt (e.g. token-refresh-and-retry). */
     retry() {
@@ -195,6 +199,7 @@ class DiagnosticsCollector {
             errors: current.apiErrors - this.marker.apiErrors,
             commandsSent: current.commandsSent - this.marker.commandsSent,
             externalChanges: current.externalChanges - this.marker.externalChanges,
+            externalChangesBySource: subtractSourceCounts(current.externalChangesBySource, this.marker.externalChangesBySource),
             retries: current.retries - this.marker.retries,
         };
         const report = this.buildReport('health', counters, hitRate, readers);
@@ -219,6 +224,7 @@ class DiagnosticsCollector {
             errors: this.apiErrors,
             commandsSent: this.commandsSent,
             externalChanges: this.externalChanges,
+            externalChangesBySource: { ...this.externalChangesBySource },
             retries: this.retries,
         };
         const report = this.buildReport(msg, counters, hitRate, readers);
@@ -241,6 +247,7 @@ class DiagnosticsCollector {
             tokenRefreshes: this.tokenRefreshes,
             commandsSent: this.commandsSent,
             externalChanges: this.externalChanges,
+            externalChangesBySource: { ...this.externalChangesBySource },
             retries: this.retries,
             cacheHits,
             cacheMisses,
@@ -298,12 +305,25 @@ class DiagnosticsCollector {
             activity: {
                 commandsSent: counters.commandsSent,
                 externalChanges: counters.externalChanges,
+                externalChangesBySource: counters.externalChangesBySource,
                 retries: counters.retries,
             },
         };
     }
 }
 exports.DiagnosticsCollector = DiagnosticsCollector;
+/** A zero count for every change source. */
+function emptySourceCounts() {
+    return { atSwitch: 0, leviton: 0, levitonOrSwitch: 0, otherApiClient: 0, pluginPoll: 0 };
+}
+/** Per-source counts in `current` minus those in `previous`. */
+function subtractSourceCounts(current, previous) {
+    const result = emptySourceCounts();
+    for (const source of CHANGE_SOURCES) {
+        result[source] = current[source] - previous[source];
+    }
+    return result;
+}
 /** Safe ratio that never divides by zero. */
 function ratio(numerator, denominator) {
     return denominator > 0 ? numerator / denominator : 0;

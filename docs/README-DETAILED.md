@@ -180,6 +180,33 @@ Advanced documentation for power users, developers, and troubleshooting.
 3. Instantly updates HomeKit when device state changes
 4. Auto-reconnects with exponential backoff on disconnect
 5. Polling runs continuously as safety net alongside WebSocket (also refreshing motion/occupancy)
+6. A status read is dropped if a WebSocket update arrived after the read was sent, or if Leviton's `lastUpdated` on the read is from an earlier second than the latest update. This stops a slow poll from undoing a newer change.
+
+### Change Log Lines
+
+Each state change is logged with where it came from:
+
+```text
+Zone One: ON (HomeKit | Round trip: 520ms)
+Zone One: OFF (At switch | Delivery: 43ms)
+Zone One: ON (Leviton | Delivery: 42ms)
+Zone One: 40% (Leviton or switch | Delivery: 45ms)
+Zone One: ON (Other API client | Delivery: 45ms)
+Zone One: OFF (Plugin poll | Round trip: 310ms)
+```
+
+| Label | Meaning |
+|-------|---------|
+| `HomeKit` | A write sent by this plugin. A failed write logs `Zone One: ON (HomeKit) failed after …`. |
+| `At switch` | The switch reported a power change on its own, with no cloud command in the 3 seconds before it. This covers rocker presses and Leviton schedules. |
+| `Leviton` | A power change sent through Leviton's cloud, such as the My Leviton app, the web app, or a scene. |
+| `Leviton or switch` | A brightness or fan speed change alone. Leviton's messages look the same for both, so the plugin can't tell them apart. |
+| `Other API client` | A change written by another program that uses the Leviton API, not this plugin. |
+| `Plugin poll` | A change found by the regular status read rather than a WebSocket update. |
+
+A report from the switch within 3 seconds of a cloud command gets that command's label, because the switch confirms each command about a second after it arrives.
+
+`Round trip` is the time from sending the request to Leviton's reply. `Delivery` is the time from Leviton's `lastUpdated` on the change to the moment the plugin received it. The plugin leaves `Delivery` out when that time is missing, negative, or over 60 seconds. Echoes of a HomeKit write within 5 seconds are not logged again.
 
 ### State Persistence
 
@@ -273,7 +300,7 @@ Health is `degraded` (otherwise `healthy`) if any of the following hold, and eac
 | `polling` | `cadenceSec`, `lastDurationMs` (gauges); `ok`, `failed` (deltas) | mixed |
 | `token` | `expiresInSec`, `lastRefreshAt` (gauges); `refreshes` (delta) | mixed |
 | `api` | `p50Ms`, `p95Ms` (gauges over a bounded recent-latency window); `requests`, `errors` (deltas) | mixed |
-| `activity` | `commandsSent`, `externalChanges`, `retries` | deltas |
+| `activity` | `commandsSent`, `externalChanges`, `externalChangesBySource` (`atSwitch`, `leviton`, `levitonOrSwitch`, `otherApiClient`, `pluginPoll`), `retries` | deltas |
 
 Device counts: `cloud`, `stateless`, and `excluded` are included in structured JSON (`devices` group) and in the one-time discovery log at startup; the human-readable diagnostics line shows only the live `on/total` gauge. At discovery, `cloud` counts all devices returned by the API; `total` is the controllable HomeKit accessory count (excludes connectivity sensor and stateless controllers); `stateless` and `excluded` are breakdown counters from the last discovery pass.
 
@@ -299,7 +326,12 @@ Device counts: `cloud`, `stateless`, and `excluded` are included in structured J
   "polling": { "cadenceSec": 30, "lastDurationMs": 120, "ok": 10, "failed": 0 },
   "token": { "expiresInSec": 86200, "lastRefreshAt": null, "refreshes": 0 },
   "api": { "p50Ms": 82, "p95Ms": 240, "requests": 12, "errors": 0 },
-  "activity": { "commandsSent": 2, "externalChanges": 1, "retries": 0 }
+  "activity": {
+    "commandsSent": 2,
+    "externalChanges": 1,
+    "externalChangesBySource": { "atSwitch": 1, "leviton": 0, "levitonOrSwitch": 0, "otherApiClient": 0, "pluginPoll": 0 },
+    "retries": 0
+  }
 }
 ```
 

@@ -114,7 +114,12 @@ createBrightnessSetter(device)
 
 // Real-time Updates
 handleWebSocketUpdate(payload)    // WebSocket update handler
+classifyPush(deviceId, payload, receivedAt) // Source label for a WebSocket update
+applyDeviceUpdate(payload, origin) // Apply a push or status read and log its source
+isStaleStatus(deviceId, requestedAt, status) // Drop a status read older than the last push
 ```
+
+Change sources come from three fields of each WebSocket message. `rssi` is only sent by the switch itself. `client_id` is only present on changes written by an API client. `lastUpdated` gives the delivery time. `websocket.ts` passes on whether `rssi` and `client_id` were present (`rssiInFrame`, `hasClientId`), never their values. See "Change Log Lines" in `docs/README-DETAILED.md` for the labels.
 
 **Device models** live in `src/platform/device-models.ts` (imported by the platform):
 

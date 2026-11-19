@@ -25,6 +25,7 @@ import type {
   WebSocketPayload,
   LoginResponse,
   DiagnosticsSnapshot,
+  ChangeSource,
 } from './types'
 import type {
   CharacteristicRef,
@@ -93,6 +94,26 @@ const RECENT_HOMEKIT_COMMAND_TTL_MS = 60_000
 // A state change this soon after a HomeKit write finishes is that write's echo,
 // not an external change. Longer than WRITE_FAILURE_RECHECK_MS.
 const HOMEKIT_ECHO_WINDOW_MS = 5_000
+// A switch reports its new state about a second after a cloud command reaches
+// it. A switch report this soon after a command belongs to that command.
+const CLOUD_COMMAND_FOLLOW_UP_MS = 3_000
+// Larger gaps between Leviton's lastUpdated and arrival mean a replayed or
+// clock-skewed message, so no delivery time is shown.
+const MAX_DELIVERY_MS = 60_000
+
+const CHANGE_SOURCE_LABELS: Record<ChangeSource, string> = {
+  atSwitch: 'At switch',
+  leviton: 'Leviton',
+  levitonOrSwitch: 'Leviton or switch',
+  otherApiClient: 'Other API client',
+  pluginPoll: 'Plugin poll',
+}
+
+/** Where a change came from, and the timing to show next to it in the log. */
+interface ChangeOrigin {
+  source: ChangeSource
+  timing?: string
+}
 
 // HAP-NodeJS warns at 3s and abandons a write at 9s. Ending writes before 9s
 // means HomeKit gets the real outcome and no request can land after HomeKit
@@ -174,6 +195,9 @@ export class LevitonDecoraSmartPlatform {
   // A status read older than either is dropped so it cannot undo the update.
   private lastPushReceivedAt: Map<string, number> = new Map()
   private lastPushUpdatedAt: Map<string, number> = new Map()
+
+  // Latest cloud command seen per device, so the switch's follow-up report gets its label
+  private lastCloudCommands: Map<string, { at: number; source: ChangeSource }> = new Map()
 
   // Opt-in diagnostics subsystem (off unless diagnosticsInterval > 0)
   private readonly diagnostics: DiagnosticsCollector
@@ -597,18 +621,61 @@ export class LevitonDecoraSmartPlatform {
     }
 
     const deviceId = String(payload.id)
-    this.lastPushReceivedAt.set(deviceId, Date.now())
+    const receivedAt = Date.now()
+    this.lastPushReceivedAt.set(deviceId, receivedAt)
     if (payload.lastUpdated !== undefined) {
       this.lastPushUpdatedAt.set(deviceId, payload.lastUpdated)
     }
 
-    this.applyDeviceUpdate(payload)
+    const source = this.classifyPush(deviceId, payload, receivedAt)
+    const delivery = payload.lastUpdated === undefined ? undefined : receivedAt - payload.lastUpdated
+    const timing = delivery !== undefined && delivery >= 0 && delivery <= MAX_DELIVERY_MS
+      ? `Delivery: ${delivery}ms`
+      : undefined
+
+    this.applyDeviceUpdate(payload, { source, timing })
+  }
+
+  /**
+   * Works out where a WebSocket update came from. A client_id means an API
+   * client wrote it. A power change without the switch's rssi is a command
+   * from Leviton (app, web, scenes). A report from the switch shortly after a
+   * command belongs to that command; otherwise a power change with rssi
+   * happened at the switch (rocker or schedule). A level change alone cannot
+   * be told apart.
+   */
+  private classifyPush(deviceId: string, payload: WebSocketPayload, receivedAt: number): ChangeSource {
+    // The echo of a HomeKit write is not a cloud command; recording it would
+    // label a rocker press just after the echo as that command.
+    const isCommand = (source: ChangeSource): ChangeSource => {
+      if (!this.hasRecentHomeKitCommand(deviceId)) {
+        this.lastCloudCommands.set(deviceId, { at: receivedAt, source })
+      }
+      return source
+    }
+    if (payload.hasClientId) {
+      return isCommand('otherApiClient')
+    }
+    if (payload.power !== undefined && !payload.rssiInFrame) {
+      return isCommand('leviton')
+    }
+    const command = this.lastCloudCommands.get(deviceId)
+    if (command && receivedAt - command.at <= CLOUD_COMMAND_FOLLOW_UP_MS) {
+      return command.source
+    }
+    return payload.power !== undefined ? 'atSwitch' : 'levitonOrSwitch'
+  }
+
+  /** Text inside the parentheses after a change, such as `At switch | Delivery: 40ms`. */
+  private describeChange(origin: ChangeOrigin): string {
+    const label = CHANGE_SOURCE_LABELS[origin.source]
+    return origin.timing ? `${label} | ${origin.timing}` : label
   }
 
   /**
    * Applies a device state report (WebSocket push or status read) to HomeKit
    */
-  private applyDeviceUpdate(payload: WebSocketPayload): void {
+  private applyDeviceUpdate(payload: WebSocketPayload, origin: ChangeOrigin): void {
     const accessory = this.accessories.find(
       acc => String(acc.context?.device?.id) === String(payload.id),
     )
@@ -667,11 +734,12 @@ export class LevitonDecoraSmartPlatform {
       // Log brightness change if different and not from recent HomeKit command
       if (newBrightness !== undefined && currentBrightness !== undefined && currentBrightness !== newBrightness) {
         if (!this.hasRecentHomeKitCommand(device?.id)) {
-          this.diagnostics.externalChange()
-          this.log.info(`${accessory.displayName}: ${newBrightness}% (external)`, {
+          this.diagnostics.externalChange(origin.source)
+          this.log.info(`${accessory.displayName}: ${newBrightness}% (${this.describeChange(origin)})`, {
             deviceId: device?.id,
             operation: 'externalBrightnessUpdate',
             brightness: newBrightness,
+            source: origin.source,
           })
         }
       }
@@ -685,11 +753,12 @@ export class LevitonDecoraSmartPlatform {
       // Log power change if different and not from recent HomeKit command
       if (currentPowerState !== power) {
         if (!this.hasRecentHomeKitCommand(device?.id)) {
-          this.diagnostics.externalChange()
-          this.log.info(`${accessory.displayName}: ${power} (external)`, {
+          this.diagnostics.externalChange(origin.source)
+          this.log.info(`${accessory.displayName}: ${power} (${this.describeChange(origin)})`, {
             deviceId: device?.id,
             operation: 'externalPowerUpdate',
             power,
+            source: origin.source,
           })
         }
       }
@@ -1456,7 +1525,7 @@ export class LevitonDecoraSmartPlatform {
         }),
       )
       const latency = Date.now() - startTime
-      this.log.info(`${device.name}: ${request.label} (Latency: ${latency}ms)`, {
+      this.log.info(`${device.name}: ${request.label} (HomeKit | Round trip: ${latency}ms)`, {
         deviceId: device.id,
         operation: request.operation,
         duration: latency,
@@ -1465,7 +1534,7 @@ export class LevitonDecoraSmartPlatform {
     } catch (err) {
       this.recordThrottleIfRateLimited(err)
       const message = sanitizeError(err)
-      this.log.warn(`${device.name}: ${request.label} failed after ${Date.now() - startTime}ms: ${message}`, {
+      this.log.warn(`${device.name}: ${request.label} (HomeKit) failed after ${Date.now() - startTime}ms: ${message}`, {
         deviceId: device.id,
         operation: request.operation,
       })
@@ -1708,6 +1777,7 @@ export class LevitonDecoraSmartPlatform {
       const token = await this.ensureValidToken()
       return this.client.getDeviceStatus(device.id, token)
     })
+    const roundTrip = Date.now() - requestedAt
 
     if (this.isStaleStatus(device.id, requestedAt, status)) {
       this.log.debug(`Ignored status read for ${device.name}: a newer WebSocket update arrived`)
@@ -1722,7 +1792,7 @@ export class LevitonDecoraSmartPlatform {
       brightness: status.brightness,
       occupancy: status.occupancy,
       motion: status.motion,
-    })
+    }, { source: 'pluginPoll', timing: `Round trip: ${roundTrip}ms` })
   }
 
   /**

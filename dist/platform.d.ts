@@ -39,6 +39,7 @@ export declare class LevitonDecoraSmartPlatform {
     private writeRecheckTimers;
     private lastPushReceivedAt;
     private lastPushUpdatedAt;
+    private lastCloudCommands;
     private readonly diagnostics;
     private diagnosticsTimer;
     private lastDiagnosticsHealth;
@@ -83,6 +84,17 @@ export declare class LevitonDecoraSmartPlatform {
      * Handles WebSocket update messages
      */
     private handleWebSocketUpdate;
+    /**
+     * Works out where a WebSocket update came from. A client_id means an API
+     * client wrote it. A power change without the switch's rssi is a command
+     * from Leviton (app, web, scenes). A report from the switch shortly after a
+     * command belongs to that command; otherwise a power change with rssi
+     * happened at the switch (rocker or schedule). A level change alone cannot
+     * be told apart.
+     */
+    private classifyPush;
+    /** Text inside the parentheses after a change, such as `At switch | Delivery: 40ms`. */
+    private describeChange;
     /**
      * Applies a device state report (WebSocket push or status read) to HomeKit
      */
