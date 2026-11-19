@@ -95,7 +95,9 @@ describe('DiagnosticsCollector', () => {
       collector.pollCycle(3, 1, 42)
       collector.command()
       collector.command()
-      collector.externalChange()
+      collector.externalChange('atSwitch')
+      collector.externalChange('atSwitch')
+      collector.externalChange('pluginPoll')
       collector.retry()
       collector.tokenRefresh()
       collector.wsReconnect()
@@ -109,7 +111,10 @@ describe('DiagnosticsCollector', () => {
       expect(first.polling.failed).toBe(1)
       expect(first.polling.lastDurationMs).toBe(42)
       expect(first.activity.commandsSent).toBe(2)
-      expect(first.activity.externalChanges).toBe(1)
+      expect(first.activity.externalChanges).toBe(3)
+      expect(first.activity.externalChangesBySource).toEqual({
+        atSwitch: 2, leviton: 0, levitonOrSwitch: 0, otherApiClient: 0, pluginPoll: 1,
+      })
       expect(first.activity.retries).toBe(1)
       expect(first.token.refreshes).toBe(1)
       expect(first.websocket.reconnects).toBe(1)
@@ -121,6 +126,8 @@ describe('DiagnosticsCollector', () => {
       expect(second.api.requests).toBe(0)
       expect(second.api.errors).toBe(0)
       expect(second.activity.commandsSent).toBe(0)
+      expect(second.activity.externalChanges).toBe(0)
+      expect(second.activity.externalChangesBySource.atSwitch).toBe(0)
       expect(second.circuitBreaker.trips).toBe(0)
 
       // New activity after the marker is reflected in the next delta only.

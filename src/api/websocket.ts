@@ -440,6 +440,14 @@ export class LevitonWebSocket {
       payload.lastUpdated = lastUpdated
     }
 
+    if (notificationData.rssi !== undefined && notificationData.rssi !== null) {
+      payload.rssiInFrame = true
+    }
+
+    if (notificationData.client_id !== undefined && notificationData.client_id !== null && notificationData.client_id !== '') {
+      payload.hasClientId = true
+    }
+
     // Only callback if we have meaningful data
     if (payload.power !== undefined || payload.brightness !== undefined || payload.occupancy !== undefined || payload.motion !== undefined) {
       this.lastNotificationAt = Date.now()

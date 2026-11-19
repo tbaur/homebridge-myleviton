@@ -2055,7 +2055,7 @@ describe('Latency logging', () => {
       await setHandler(true, callback)
       
       expect(mockLog).toHaveBeenCalledWith(
-        expect.stringMatching(/^Test Light: ON \(Latency: \d+ms\)$/),
+        expect.stringMatching(/^Test Light: ON \(HomeKit \| Round trip: \d+ms\)$/),
       )
     }
   })
@@ -2084,7 +2084,7 @@ describe('Latency logging', () => {
       await brightnessHandler(75, callback)
       
       expect(mockLog).toHaveBeenCalledWith(
-        expect.stringMatching(/^Test Dimmer: 75% \(Latency: \d+ms\)$/),
+        expect.stringMatching(/^Test Dimmer: 75% \(HomeKit \| Round trip: \d+ms\)$/),
       )
     }
   })
@@ -2165,11 +2165,11 @@ describe('Latency logging', () => {
       const elapsed = Date.now() - startTime
       
       const latencyLogCall = mockLog.mock.calls.find((call: string[]) => 
-        call[0].includes('Latency Test: OFF (Latency:'),
+        call[0].includes('Latency Test: OFF (HomeKit | Round trip:'),
       )
       expect(latencyLogCall).toBeDefined()
       
-      const match = latencyLogCall?.[0].match(/Latency: (\d+)ms/)
+      const match = latencyLogCall?.[0].match(/Round trip: (\d+)ms/)
       if (match) {
         const reportedLatency = parseInt(match[1], 10)
         // The mocked setPower takes ~60ms; assert with margin on both sides so
@@ -2497,7 +2497,7 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
     expect(callback).toHaveBeenCalledWith(expect.any(Error))
     expect(callback.mock.calls[0][0].message).toContain(`${WRITE_BUDGET_MS}ms`)
     expect(writeSignal?.aborted).toBe(true)
-    expect(loggedLines().some(line => line.includes('Test Light: ON failed after'))).toBe(true)
+    expect(loggedLines().some(line => line.includes('Test Light: ON (HomeKit) failed after'))).toBe(true)
   })
 
   it('reports success when the write finishes inside the budget', async () => {
@@ -2598,17 +2598,107 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
     })
   })
 
+  describe('change source labels', () => {
+    type Push = { power?: string; brightness?: number; lastUpdated?: number; rssiInFrame?: boolean; hasClientId?: boolean }
+    const push = (update: Push): void => {
+      ;(internals as unknown as { handleWebSocketUpdate: (p: object) => void })
+        .handleWebSocketUpdate({ id: device.id, ...update })
+    }
+    const classify = (update: Push): string =>
+      (internals as unknown as { classifyPush: (id: string, p: object, at: number) => string })
+        .classifyPush(device.id, { id: device.id, ...update }, Date.now())
+    const changeLines = (): string[] => loggedLines().filter(line => /^Test Light: (ON|OFF|\d+%) \(/.test(line))
+
+    beforeEach(() => {
+      const characteristic = accessory.getService().getCharacteristic() as MockCharacteristic
+      characteristic.updateValue.mockImplementation((value: boolean | number) => {
+        characteristic.value = value
+        return characteristic
+      })
+    })
+
+    it('labels a power change with rssi and no recent command as At switch, with delivery time', () => {
+      push({ power: 'ON', rssiInFrame: true, lastUpdated: Date.now() - 40 })
+
+      expect(changeLines()).toEqual(['Test Light: ON (At switch | Delivery: 40ms)'])
+    })
+
+    it('labels a power change without rssi as Leviton', () => {
+      push({ power: 'ON', lastUpdated: Date.now() - 45 })
+
+      expect(changeLines()).toEqual(['Test Light: ON (Leviton | Delivery: 45ms)'])
+    })
+
+    it('labels a frame with a client_id as Other API client', () => {
+      push({ power: 'ON', hasClientId: true })
+
+      expect(changeLines()).toEqual(['Test Light: ON (Other API client)'])
+    })
+
+    it('gives a switch report within 3s of a command that command\'s label', async () => {
+      push({ power: 'ON' })
+      await jest.advanceTimersByTimeAsync(1000)
+      push({ power: 'OFF', rssiInFrame: true })
+      await jest.advanceTimersByTimeAsync(2500)
+      push({ power: 'ON', rssiInFrame: true })
+
+      expect(changeLines()).toEqual([
+        'Test Light: ON (Leviton)',
+        'Test Light: OFF (Leviton)',
+        'Test Light: ON (At switch)',
+      ])
+    })
+
+    it('labels a level change alone as Leviton or switch unless a command just ran', async () => {
+      expect(classify({ brightness: 40, rssiInFrame: true })).toBe('levitonOrSwitch')
+      expect(classify({ brightness: 40 })).toBe('levitonOrSwitch')
+
+      classify({ power: 'ON', hasClientId: true })
+      expect(classify({ brightness: 7, rssiInFrame: true })).toBe('otherApiClient')
+      await jest.advanceTimersByTimeAsync(3001)
+      expect(classify({ brightness: 7, rssiInFrame: true })).toBe('levitonOrSwitch')
+    })
+
+    it('does not treat the echo of a HomeKit write as a command for the next switch report', async () => {
+      const pending = internals.createPowerSetter(device)(true, jest.fn())
+      await pending
+      await jest.advanceTimersByTimeAsync(4000)
+      push({ power: 'ON', hasClientId: true })
+      await jest.advanceTimersByTimeAsync(1001)
+
+      expect(classify({ power: 'OFF', rssiInFrame: true })).toBe('atSwitch')
+    })
+
+    it('omits delivery time when lastUpdated is in the future or over 60s old', () => {
+      push({ power: 'ON', rssiInFrame: true, lastUpdated: Date.now() + 500 })
+      push({ power: 'OFF', rssiInFrame: true, lastUpdated: Date.now() - 61_000 })
+
+      expect(changeLines()).toEqual(['Test Light: ON (At switch)', 'Test Light: OFF (At switch)'])
+    })
+
+    it('labels a change found by the status read as Plugin poll with its round trip', async () => {
+      mocks.mockClient.getDeviceStatus.mockImplementation(
+        () => new Promise(resolve => setTimeout(() => resolve({ power: 'ON' }), 250)),
+      )
+      const poll = internals.pollDevices()
+      await jest.advanceTimersByTimeAsync(250)
+      await poll
+
+      expect(changeLines()).toEqual(['Test Light: ON (Plugin poll | Round trip: 250ms)'])
+    })
+  })
+
   describe('external-change logging around HomeKit writes', () => {
-    const externalLines = (): string[] => loggedLines().filter(line => line.includes('(external)'))
+    const externalLines = (): string[] => loggedLines().filter(line => /: (ON|OFF|\d+%) \((?!HomeKit)/.test(line))
     const hangSetPower = (): void => {
       mocks.mockClient.setPower.mockImplementation(() => new Promise(() => {}))
     }
 
-    it('logs a change with no HomeKit write as external', () => {
+    it('logs a change with no HomeKit write with its source', () => {
       ;(internals as unknown as { handleWebSocketUpdate: (p: object) => void })
         .handleWebSocketUpdate({ id: device.id, power: 'ON' })
 
-      expect(externalLines()).toEqual(['Test Light: ON (external)'])
+      expect(externalLines()).toEqual(['Test Light: ON (Leviton)'])
     })
 
     it('does not log the echo of a write that is still running past 5s', async () => {

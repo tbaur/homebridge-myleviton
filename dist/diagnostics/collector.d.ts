@@ -16,7 +16,7 @@
  * It only ever reads in-memory state via the supplied `readers`; it never
  * performs any network I/O.
  */
-import type { DiagnosticsSnapshot, LevitonConfig } from '../types';
+import type { ChangeSource, DiagnosticsSnapshot, LevitonConfig } from '../types';
 /** Subset of `client.getStatus()` the collector relies on. */
 export interface ClientStatusLike {
     circuitBreaker: {
@@ -92,6 +92,7 @@ export declare class DiagnosticsCollector {
     private tokenRefreshes;
     private commandsSent;
     private externalChanges;
+    private readonly externalChangesBySource;
     private retries;
     private lastTripAt;
     private lastPollDurationMs;
@@ -123,7 +124,7 @@ export declare class DiagnosticsCollector {
     /** Record a HomeKit-originated command (power/brightness write). */
     command(): void;
     /** Record a device state change that did not originate from HomeKit. */
-    externalChange(): void;
+    externalChange(source: ChangeSource): void;
     /** Record a retry attempt (e.g. token-refresh-and-retry). */
     retry(): void;
     /**

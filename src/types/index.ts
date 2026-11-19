@@ -180,7 +180,16 @@ export interface WebSocketPayload {
   motion?: boolean
   /** Leviton's `lastUpdated` for this change, in epoch ms, when the message carried a valid one */
   lastUpdated?: number
+  /** The message carried the switch's signal strength, which only the switch itself reports */
+  rssiInFrame?: boolean
+  /** The message carried a client_id, which Leviton adds to changes written by an API client */
+  hasClientId?: boolean
 }
+
+/**
+ * Where a device change that HomeKit did not send came from, as counted in diagnostics
+ */
+export type ChangeSource = 'atSwitch' | 'leviton' | 'levitonOrSwitch' | 'otherApiClient' | 'pluginPoll'
 
 /**
  * Cache entry structure
@@ -324,6 +333,7 @@ export interface DiagnosticsSnapshot {
   activity: {
     commandsSent: number
     externalChanges: number
+    externalChangesBySource: Record<ChangeSource, number>
     retries: number
   }
   /** Redacted config echo, present only on boot/shutdown snapshots. */
