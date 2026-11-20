@@ -15,6 +15,7 @@ For configuration, diagnostics fields, and general troubleshooting, see [README-
 | WebSocket **502 Bad Gateway** | `WebSocket error: Unexpected server response: 502` | Usually **no** — auto-reconnects |
 | WebSocket disconnect / 1006 | `WebSocket closed: 1006 (connection dropped)` | Usually **no** — auto-reconnects |
 | Slow write warning | `The write handler for the characteristic 'On' ... was slow to respond!` | Usually **no** — see [Slow write warnings](#slow-write-warnings) |
+| Light turns back on after a paddle press | `Switch applied command` right after `At switch` | **Sometimes** — see [Light turns back on](#a-light-turns-back-on-after-you-turn-it-off-at-the-switch) |
 | Single REST error in diagnostics | `api ... err 1` with `health: healthy` | Usually **no** — see [Silent API errors](#silent-api-errors-in-diagnostics) |
 | Sustained cloud outage | `No Response` in Home, connectivity sensor open | **Yes** — investigate / open an issue |
 | Auth failure | `WebSocket auth failed` or repeated `Authentication failed` | **Yes** — check credentials |
@@ -137,6 +138,33 @@ The plugin does not answer HomeKit before Leviton confirms the change. If it did
 
 - Most writes are slow for hours, or most writes fail
 - Home shows a state that does not match the device for longer than one poll interval
+
+---
+
+## A light turns back on after you turn it off at the switch
+
+### What you see
+
+```
+[myleviton] Zone One: OFF (At switch | Delivery: 45ms)
+[myleviton] Zone One: ON 30% (Switch applied command | Delivery: 48ms)
+```
+
+The light comes back on about half a second after the paddle turned it off. No app, scene, or automation ran at that moment.
+
+### What it means
+
+The switch reported that it applied a command from Leviton's cloud, but no command reached the cloud just before. The switch applied an older command late. This has been seen on switches that got two commands at almost the same moment, such as a power command and a brightness command from one automation.
+
+### What the plugin does
+
+1. Sends power and brightness from one HomeKit action as one request, so the switch gets one command
+2. Labels the late command `Switch applied command`, so the log shows that the switch turned the light back on, not an app or an automation
+
+### When to follow up
+
+- If it keeps happening, look for another app or program that sends power and brightness to the same switch as separate commands. Its commands show up as `Leviton` or `Other API client` lines.
+- If no other app or program sends commands to the switch, report it to Leviton support with the log lines. The switch decides when it applies a command.
 
 ---
 

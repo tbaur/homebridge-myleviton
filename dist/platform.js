@@ -94,8 +94,17 @@ const RECENT_HOMEKIT_COMMAND_TTL_MS = 60_000;
 // not an external change. Longer than WRITE_FAILURE_RECHECK_MS.
 const HOMEKIT_ECHO_WINDOW_MS = 5_000;
 // A switch reports its new state about a second after a cloud command reaches
-// it. A switch report this soon after a command belongs to that command.
+// it. A switch report this soon after a command, and agreeing with it, belongs
+// to that command.
 const CLOUD_COMMAND_FOLLOW_UP_MS = 3_000;
+// The switch's chgReason values. Any other value, or none, is labeled At switch.
+const SWITCH_REASON_SOURCES = {
+    1: 'atSwitch', // paddle
+    3: 'switchCommand', // applied a command from the cloud
+    4: 'switchTimer', // auto-off timer
+    5: 'switchSchedule', // schedule stored on the switch
+};
+const CHANGE_REASON_COMMAND = 3;
 // Larger gaps between Leviton's lastUpdated and arrival mean a replayed or
 // clock-skewed message, so no delivery time is shown.
 const MAX_DELIVERY_MS = 60_000;
@@ -109,6 +118,9 @@ const PUSH_TRUST_WINDOW_MS = 60_000;
 const DEFAULT_CONNECTED_POLL_INTERVAL_SEC = 120;
 const CHANGE_SOURCE_LABELS = {
     atSwitch: 'At switch',
+    switchCommand: 'Switch applied command',
+    switchTimer: 'Switch timer',
+    switchSchedule: 'Switch schedule',
     leviton: 'Leviton',
     levitonOrSwitch: 'Leviton or switch',
     otherApiClient: 'Other API client',
@@ -543,33 +555,35 @@ class LevitonDecoraSmartPlatform {
         this.applyDeviceUpdate(payload, { source, timing });
     }
     /**
-     * Works out where a WebSocket update came from. A client_id means an API
-     * client wrote it. A power change without the switch's rssi is a command
-     * from Leviton (app, web, scenes). A report from the switch shortly after a
-     * command belongs to that command; otherwise a power change with rssi
-     * happened at the switch (rocker or schedule). A level change alone cannot
-     * be told apart.
+     * Works out where a WebSocket update came from. A cloud message is a command:
+     * from an API client when it has a client_id, otherwise from Leviton (app,
+     * web, scenes). A switch message is labeled by its chgReason, except that a
+     * confirmation of a cloud command just before it gets that command's label.
      */
     classifyPush(deviceId, payload, receivedAt) {
-        // The echo of a HomeKit write is not a cloud command; recording it would
-        // label a rocker press just after the echo as that command.
-        const isCommand = (source) => {
+        if (payload.sender === 'cloud') {
+            const source = payload.hasClientId ? 'otherApiClient' : 'leviton';
+            // The echo of a HomeKit write is not a cloud command; recording it would
+            // label a paddle press just after the echo as that command.
             if (!this.hasRecentHomeKitCommand(deviceId)) {
-                this.lastCloudCommands.set(deviceId, { at: receivedAt, source });
+                this.lastCloudCommands.set(deviceId, { at: receivedAt, source, power: payload.power });
             }
             return source;
-        };
-        if (payload.hasClientId) {
-            return isCommand('otherApiClient');
         }
-        if (payload.power !== undefined && !payload.rssiInFrame) {
-            return isCommand('leviton');
+        if (payload.sender !== 'switch') {
+            return 'levitonOrSwitch';
         }
-        const command = this.lastCloudCommands.get(deviceId);
-        if (command && receivedAt - command.at <= CLOUD_COMMAND_FOLLOW_UP_MS) {
-            return command.source;
+        const reason = payload.changeReason;
+        if (reason === undefined || reason === CHANGE_REASON_COMMAND) {
+            const command = this.lastCloudCommands.get(deviceId);
+            const confirmsCommand = command !== undefined &&
+                receivedAt - command.at <= CLOUD_COMMAND_FOLLOW_UP_MS &&
+                (payload.power === undefined || payload.power === command.power);
+            if (confirmsCommand) {
+                return command.source;
+            }
         }
-        return payload.power !== undefined ? 'atSwitch' : 'levitonOrSwitch';
+        return reason === undefined ? 'atSwitch' : SWITCH_REASON_SOURCES[reason] ?? 'atSwitch';
     }
     /** Text inside the parentheses after a change, such as `At switch | Delivery: 40ms`. */
     describeChange(origin) {
@@ -587,7 +601,9 @@ class LevitonDecoraSmartPlatform {
         }
         const { id, power, brightness, occupancy, motion } = payload;
         const device = accessory.context?.device;
-        let changed = false;
+        // What this update changed, for the one log line about it
+        let powerChange;
+        let levelChange;
         // Get service
         const fanService = accessory.getService(hap.Service.Fan);
         const lightService = accessory.getService(hap.Service.Lightbulb);
@@ -624,37 +640,29 @@ class LevitonDecoraSmartPlatform {
                 brightnessChar.updateValue(newBrightness);
             }
             // No else — switches/outlets don't have brightness, just skip to power update
-            // Log brightness change if different and not from recent HomeKit command
             if (newBrightness !== undefined && currentBrightness !== undefined && currentBrightness !== newBrightness) {
-                changed = true;
-                if (!this.hasRecentHomeKitCommand(device?.id)) {
-                    this.diagnostics.externalChange(origin.source);
-                    this.log.info(`${accessory.displayName}: ${newBrightness}% (${this.describeChange(origin)})`, {
-                        deviceId: device?.id,
-                        operation: 'externalBrightnessUpdate',
-                        brightness: newBrightness,
-                        source: origin.source,
-                    });
-                }
+                levelChange = newBrightness;
             }
         }
         // Update power state
         if (power !== undefined) {
             const newPowerBool = power === POWER_ON;
             primaryService.getCharacteristic(hap.Characteristic.On).updateValue(newPowerBool);
-            // Log power change if different and not from recent HomeKit command
             if (currentPowerState !== power) {
-                changed = true;
-                if (!this.hasRecentHomeKitCommand(device?.id)) {
-                    this.diagnostics.externalChange(origin.source);
-                    this.log.info(`${accessory.displayName}: ${power} (${this.describeChange(origin)})`, {
-                        deviceId: device?.id,
-                        operation: 'externalPowerUpdate',
-                        power,
-                        source: origin.source,
-                    });
-                }
+                powerChange = power;
             }
+        }
+        const changed = powerChange !== undefined || levelChange !== undefined;
+        if (changed && !this.hasRecentHomeKitCommand(device?.id)) {
+            this.diagnostics.externalChange(origin.source);
+            const text = [powerChange, levelChange === undefined ? undefined : `${levelChange}%`].filter(Boolean).join(' ');
+            this.log.info(`${accessory.displayName}: ${text} (${this.describeChange(origin)})`, {
+                deviceId: device?.id,
+                operation: powerChange === undefined ? 'externalBrightnessUpdate' : 'externalPowerUpdate',
+                ...(powerChange === undefined ? {} : { power: powerChange }),
+                ...(levelChange === undefined ? {} : { brightness: levelChange }),
+                source: origin.source,
+            });
         }
         // Update motion sensor
         const motionService = accessory.getService(hap.Service.MotionSensor);

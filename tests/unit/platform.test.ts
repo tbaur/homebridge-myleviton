@@ -2731,7 +2731,14 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
   })
 
   describe('change source labels', () => {
-    type Push = { power?: string; brightness?: number; lastUpdated?: number; rssiInFrame?: boolean; hasClientId?: boolean }
+    type Push = {
+      power?: string
+      brightness?: number
+      lastUpdated?: number
+      sender?: 'cloud' | 'switch'
+      changeReason?: number
+      hasClientId?: boolean
+    }
     const push = (update: Push): void => {
       ;(internals as unknown as { handleWebSocketUpdate: (p: object) => void })
         .handleWebSocketUpdate({ id: device.id, ...update })
@@ -2739,7 +2746,7 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
     const classify = (update: Push): string =>
       (internals as unknown as { classifyPush: (id: string, p: object, at: number) => string })
         .classifyPush(device.id, { id: device.id, ...update }, Date.now())
-    const changeLines = (): string[] => loggedLines().filter(line => /^Test Light: (ON|OFF|\d+%) \(/.test(line))
+    const changeLines = (): string[] => loggedLines().filter(line => /^Test Light: (ON|OFF|\d+%)/.test(line))
 
     beforeEach(() => {
       const characteristic = accessory.getService().getCharacteristic() as MockCharacteristic
@@ -2749,60 +2756,92 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
       })
     })
 
-    it('labels a power change with rssi and no recent command as At switch, with delivery time', () => {
-      push({ power: 'ON', rssiInFrame: true, lastUpdated: Date.now() - 40 })
+    it('labels a paddle press as At switch, with delivery time', () => {
+      push({ power: 'ON', sender: 'switch', changeReason: 1, lastUpdated: Date.now() - 40 })
 
       expect(changeLines()).toEqual(['Test Light: ON (At switch | Delivery: 40ms)'])
     })
 
-    it('labels a power change without rssi as Leviton', () => {
-      push({ power: 'ON', lastUpdated: Date.now() - 45 })
+    it('labels a switch report without rssi or chgReason as At switch, not Leviton', () => {
+      push({ power: 'ON', sender: 'switch' })
 
-      expect(changeLines()).toEqual(['Test Light: ON (Leviton | Delivery: 45ms)'])
+      expect(changeLines()).toEqual(['Test Light: ON (At switch)'])
     })
 
-    it('labels a frame with a client_id as Other API client', () => {
-      push({ power: 'ON', hasClientId: true })
+    it('labels a cloud command as Leviton, or Other API client when it has a client_id', () => {
+      push({ power: 'ON', sender: 'cloud', lastUpdated: Date.now() - 45 })
+      push({ power: 'OFF', sender: 'cloud', hasClientId: true })
 
-      expect(changeLines()).toEqual(['Test Light: ON (Other API client)'])
+      expect(changeLines()).toEqual([
+        'Test Light: ON (Leviton | Delivery: 45ms)',
+        'Test Light: OFF (Other API client)',
+      ])
     })
 
-    it('gives a switch report within 3s of a command that command\'s label', async () => {
-      push({ power: 'ON' })
+    it('labels changes from the switch timer and a schedule on the switch', async () => {
+      push({ power: 'ON', sender: 'switch', changeReason: 5 })
+      await jest.advanceTimersByTimeAsync(5000)
+      push({ power: 'OFF', sender: 'switch', changeReason: 4 })
+
+      expect(changeLines()).toEqual(['Test Light: ON (Switch schedule)', 'Test Light: OFF (Switch timer)'])
+    })
+
+    it('labels a command the switch applies on its own after a paddle press, in one line', async () => {
+      ;(accessory.getService().getCharacteristic() as MockCharacteristic).value = true
+      push({ power: 'OFF', sender: 'switch', changeReason: 1 })
+      await jest.advanceTimersByTimeAsync(500)
+      push({ power: 'ON', brightness: 30, sender: 'switch', changeReason: 3 })
+
+      expect(changeLines()).toEqual(['Test Light: OFF (At switch)', 'Test Light: ON 30% (Switch applied command)'])
+    })
+
+    it('gives a switch confirmation within 3s of a cloud command that command\'s label', async () => {
+      push({ power: 'ON', sender: 'cloud' })
       await jest.advanceTimersByTimeAsync(1000)
-      push({ power: 'OFF', rssiInFrame: true })
-      await jest.advanceTimersByTimeAsync(2500)
-      push({ power: 'ON', rssiInFrame: true })
+      push({ brightness: 7, sender: 'switch', changeReason: 3 })
+
+      expect(changeLines()).toEqual(['Test Light: ON (Leviton)', 'Test Light: 7% (Leviton)'])
+    })
+
+    it('does not give a cloud command\'s label to a switch report that disagrees with it', async () => {
+      push({ power: 'ON', sender: 'cloud' })
+      await jest.advanceTimersByTimeAsync(1000)
+      push({ power: 'OFF', sender: 'switch', changeReason: 3 })
+      await jest.advanceTimersByTimeAsync(1000)
+      push({ power: 'ON', sender: 'switch', changeReason: 1 })
 
       expect(changeLines()).toEqual([
         'Test Light: ON (Leviton)',
-        'Test Light: OFF (Leviton)',
+        'Test Light: OFF (Switch applied command)',
         'Test Light: ON (At switch)',
       ])
     })
 
-    it('labels a level change alone as Leviton or switch unless a command just ran', async () => {
-      expect(classify({ brightness: 40, rssiInFrame: true })).toBe('levitonOrSwitch')
-      expect(classify({ brightness: 40 })).toBe('levitonOrSwitch')
+    it('gives a cloud command\'s label for 3s only', async () => {
+      classify({ power: 'ON', sender: 'cloud', hasClientId: true })
+      expect(classify({ brightness: 7, sender: 'switch' })).toBe('otherApiClient')
 
-      classify({ power: 'ON', hasClientId: true })
-      expect(classify({ brightness: 7, rssiInFrame: true })).toBe('otherApiClient')
       await jest.advanceTimersByTimeAsync(3001)
-      expect(classify({ brightness: 7, rssiInFrame: true })).toBe('levitonOrSwitch')
+      expect(classify({ brightness: 7, sender: 'switch' })).toBe('atSwitch')
+    })
+
+    it('labels a frame that shows no sender as Leviton or switch', () => {
+      expect(classify({ power: 'ON' })).toBe('levitonOrSwitch')
+      expect(classify({ brightness: 40 })).toBe('levitonOrSwitch')
     })
 
     it('does not treat the echo of a HomeKit write as a command for the next switch report', async () => {
       await settle(internals.createPowerSetter(device)(true, jest.fn()))
       await jest.advanceTimersByTimeAsync(4000)
-      push({ power: 'ON', hasClientId: true })
+      push({ power: 'ON', sender: 'cloud', hasClientId: true })
       await jest.advanceTimersByTimeAsync(1001)
 
-      expect(classify({ power: 'OFF', rssiInFrame: true })).toBe('atSwitch')
+      expect(classify({ power: 'ON', sender: 'switch' })).toBe('atSwitch')
     })
 
     it('omits delivery time when lastUpdated is in the future or over 60s old', () => {
-      push({ power: 'ON', rssiInFrame: true, lastUpdated: Date.now() + 500 })
-      push({ power: 'OFF', rssiInFrame: true, lastUpdated: Date.now() - 61_000 })
+      push({ power: 'ON', sender: 'switch', lastUpdated: Date.now() + 500 })
+      push({ power: 'OFF', sender: 'switch', lastUpdated: Date.now() - 61_000 })
 
       expect(changeLines()).toEqual(['Test Light: ON (At switch)', 'Test Light: OFF (At switch)'])
     })
@@ -2827,7 +2866,7 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
 
     it('logs a change with no HomeKit write with its source', () => {
       ;(internals as unknown as { handleWebSocketUpdate: (p: object) => void })
-        .handleWebSocketUpdate({ id: device.id, power: 'ON' })
+        .handleWebSocketUpdate({ id: device.id, power: 'ON', sender: 'cloud' })
 
       expect(externalLines()).toEqual(['Test Light: ON (Leviton)'])
     })

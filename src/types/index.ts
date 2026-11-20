@@ -180,16 +180,32 @@ export interface WebSocketPayload {
   motion?: boolean
   /** Leviton's `lastUpdated` for this change, in epoch ms, when the message carried a valid one */
   lastUpdated?: number
-  /** The message carried the switch's signal strength, which only the switch itself reports */
-  rssiInFrame?: boolean
+  /** Who wrote the message, when it carried a field that shows it */
+  sender?: FrameSender
+  /** The switch's `chgReason` for this change, from switch messages only */
+  changeReason?: number
   /** The message carried a client_id, which Leviton adds to changes written by an API client */
   hasClientId?: boolean
 }
 
 /**
+ * Who wrote a WebSocket message: Leviton's cloud, for a command it received,
+ * or the switch, reporting its own state
+ */
+export type FrameSender = 'cloud' | 'switch'
+
+/**
  * Where a device change that HomeKit did not send came from, as counted in diagnostics
  */
-export type ChangeSource = 'atSwitch' | 'leviton' | 'levitonOrSwitch' | 'otherApiClient' | 'pluginPoll'
+export type ChangeSource =
+  | 'atSwitch'
+  | 'switchCommand'
+  | 'switchTimer'
+  | 'switchSchedule'
+  | 'leviton'
+  | 'levitonOrSwitch'
+  | 'otherApiClient'
+  | 'pluginPoll'
 
 /**
  * Cache entry structure

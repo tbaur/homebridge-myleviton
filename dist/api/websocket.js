@@ -66,6 +66,28 @@ const CLOSE_CODES = {
     1013: 'try again later',
     1014: 'bad gateway',
 };
+function hasValue(value) {
+    return value !== undefined && value !== null && value !== '';
+}
+/**
+ * Who wrote a notification. Leviton's cloud writes commands with a client_id
+ * (API clients only) and zeroed DST fields. The switch's own reports carry its
+ * signal strength, a change reason, or the residence's DST dates. A switch in
+ * a time zone without DST may also report zeroed DST fields, so a report from
+ * it with neither rssi nor chgReason would read as the cloud's.
+ */
+function frameSender(data) {
+    if (hasValue(data.client_id)) {
+        return 'cloud';
+    }
+    if (hasValue(data.rssi) || typeof data.chgReason === 'number') {
+        return 'switch';
+    }
+    if (typeof data.dstStart === 'number') {
+        return data.dstStart === 0 ? 'cloud' : 'switch';
+    }
+    return undefined;
+}
 /**
  * WebSocket connection for real-time updates
  *
@@ -359,16 +381,21 @@ class LevitonWebSocket {
         if (lastUpdated !== undefined) {
             payload.lastUpdated = lastUpdated;
         }
-        if (notificationData.rssi !== undefined && notificationData.rssi !== null) {
-            payload.rssiInFrame = true;
+        const sender = frameSender(notificationData);
+        if (sender !== undefined) {
+            payload.sender = sender;
         }
-        if (notificationData.client_id !== undefined && notificationData.client_id !== null && notificationData.client_id !== '') {
+        const changeReason = notificationData.chgReason;
+        if (sender === 'switch' && typeof changeReason === 'number' && Number.isInteger(changeReason)) {
+            payload.changeReason = changeReason;
+        }
+        if (hasValue(notificationData.client_id)) {
             payload.hasClientId = true;
         }
         // Only callback if we have meaningful data
         if (payload.power !== undefined || payload.brightness !== undefined || payload.occupancy !== undefined || payload.motion !== undefined) {
             this.lastNotificationAt = Date.now();
-            const fields = ['power', 'brightness', 'occupancy', 'motion']
+            const fields = ['power', 'brightness', 'occupancy', 'motion', 'sender', 'changeReason']
                 .filter(key => payload[key] !== undefined)
                 .map(key => `${key}=${String(payload[key])}`);
             this.logger.debug(`Device update: ${payload.id} ${fields.join(' ')}`);
