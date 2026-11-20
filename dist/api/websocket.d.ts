@@ -68,6 +68,8 @@ export declare class LevitonWebSocket {
     private timers;
     private reconnectTimer;
     private pingTimer;
+    private handshakeTimer;
+    private consecutiveAuthCloses;
     private isConnecting;
     private isClosed;
     /**
@@ -124,6 +126,11 @@ export declare class LevitonWebSocket {
      * Schedule reconnection
      */
     private scheduleReconnect;
+    /**
+     * Schedule one reconnect after the maximum delay, starting a fresh backoff
+     * cycle when it runs.
+     */
+    private scheduleLongTailReconnect;
     /**
      * Remove a timer from tracking
      */

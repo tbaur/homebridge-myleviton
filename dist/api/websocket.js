@@ -109,6 +109,8 @@ class LevitonWebSocket {
     timers = [];
     reconnectTimer = null;
     pingTimer = null;
+    handshakeTimer = null;
+    consecutiveAuthCloses = 0;
     isConnecting = false;
     isClosed = false;
     /**
@@ -171,6 +173,9 @@ class LevitonWebSocket {
         if (this.ws) {
             try {
                 this.ws.removeAllListeners();
+                // Closing a socket that is still connecting emits 'error' on the next
+                // tick, and an 'error' with no listener crashes the process.
+                this.ws.on('error', () => { });
                 this.ws.close();
             }
             catch {
@@ -226,22 +231,33 @@ class LevitonWebSocket {
             return;
         }
         let isOpen = false;
-        // Connection timeout
+        // Runs until the server says ready, not just until the socket opens: a
+        // socket that opens but never authenticates would otherwise sit idle with
+        // no ping and no reconnect.
         const connectionTimeout = setTimeout(() => {
-            if (!isOpen && this.ws) {
-                this.logger.error('WebSocket connection timeout');
-                try {
+            this.removeTimer(connectionTimeout);
+            this.handshakeTimer = null;
+            if (!this.ws) {
+                return;
+            }
+            try {
+                if (isOpen) {
+                    this.logger.error('WebSocket opened but was not ready in time; reconnecting');
+                    // terminate() emits close 1006, which runs the normal reconnect path.
+                    this.ws.terminate();
+                }
+                else {
+                    this.logger.error('WebSocket connection timeout');
                     this.ws.close();
                 }
-                catch {
-                    // Ignore
-                }
+            }
+            catch {
+                // Ignore
             }
         }, this.config.connectionTimeout);
         this.timers.push(connectionTimeout);
+        this.handshakeTimer = connectionTimeout;
         this.ws.on('open', () => {
-            clearTimeout(connectionTimeout);
-            this.removeTimer(connectionTimeout);
             this.reconnectTimer = null;
             isOpen = true;
             this.isConnecting = false;
@@ -259,11 +275,21 @@ class LevitonWebSocket {
             }
             // Any non-user close means the live push channel is down.
             this.config.onConnectionChange?.(false);
-            // Auth failure - don't reconnect. 401 is not a valid WebSocket close code
-            // (codes are 1000-4999), so detect auth failures via the policy-violation
-            // code (1008) or an auth-related close reason instead.
+            // 401 is not a valid WebSocket close code (codes are 1000-4999), so
+            // detect auth failures via the policy-violation code (1008) or an
+            // auth-related close reason instead. Retrying fast with the same token is
+            // pointless, but giving up would leave push down until the next token
+            // refresh, so retry on the slow long-tail schedule.
             if (code === 1008 || /unauth|forbidden|401|403/i.test(reasonStr)) {
-                this.logger.warn(`WebSocket auth failed: ${code} ${reasonStr}`);
+                this.consecutiveAuthCloses++;
+                const message = `WebSocket auth failed: ${code} ${reasonStr}; retrying in ${Math.round(this.config.maxReconnectDelay / 1000)}s`;
+                if (this.consecutiveAuthCloses === 1) {
+                    this.logger.warn(message);
+                }
+                else {
+                    this.logger.debug(message);
+                }
+                this.scheduleLongTailReconnect();
                 return;
             }
             // Remote normal closes still require reconnecting to preserve push updates.
@@ -279,7 +305,14 @@ class LevitonWebSocket {
         this.ws.on('error', (error) => {
             clearTimeout(connectionTimeout);
             this.removeTimer(connectionTimeout);
-            this.logger.error(`WebSocket error: ${error.message || 'Unknown error'}`);
+            this.handshakeTimer = null;
+            const message = `WebSocket error: ${error.message || 'Unknown error'}`;
+            if (this.isClosed) {
+                this.logger.debug(message);
+            }
+            else {
+                this.logger.error(message);
+            }
         });
         this.ws.on('message', (data) => {
             this.lastInboundAt = Date.now();
@@ -318,9 +351,15 @@ class LevitonWebSocket {
         // Handle ready status
         if (data.type === MessageType.STATUS && data.status === STATUS_READY) {
             this.logger.info('WebSocket authenticated and ready');
+            if (this.handshakeTimer) {
+                clearTimeout(this.handshakeTimer);
+                this.removeTimer(this.handshakeTimer);
+                this.handshakeTimer = null;
+            }
             // Reset backoff only here: a server that accepts the upgrade and then
             // drops before ready must keep backing off.
             this.reconnectAttempt = 0;
+            this.consecutiveAuthCloses = 0;
             this.subscribeToDevices();
             this.startPing();
             this.config.onConnectionChange?.(true);
@@ -414,17 +453,7 @@ class LevitonWebSocket {
         }
         if (this.reconnectAttempt >= this.config.maxReconnectAttempts) {
             this.logger.warn(`WebSocket unavailable after ${this.config.maxReconnectAttempts} attempts; scheduling long-tail retry in ${Math.round(this.config.maxReconnectDelay / 1000)}s`);
-            const timer = setTimeout(() => {
-                this.removeTimer(timer);
-                this.reconnectTimer = null;
-                if (this.isClosed) {
-                    return;
-                }
-                this.reconnectAttempt = 0;
-                this.connect();
-            }, this.config.maxReconnectDelay);
-            this.reconnectTimer = timer;
-            this.timers.push(timer);
+            this.scheduleLongTailReconnect();
             return;
         }
         // Jittered so that several Homebridge instances on one Leviton account do
@@ -441,6 +470,26 @@ class LevitonWebSocket {
             this.reconnectAttempt++;
             this.connect();
         }, delay);
+        this.reconnectTimer = timer;
+        this.timers.push(timer);
+    }
+    /**
+     * Schedule one reconnect after the maximum delay, starting a fresh backoff
+     * cycle when it runs.
+     */
+    scheduleLongTailReconnect() {
+        if (this.isClosed || this.reconnectTimer) {
+            return;
+        }
+        const timer = setTimeout(() => {
+            this.removeTimer(timer);
+            this.reconnectTimer = null;
+            if (this.isClosed) {
+                return;
+            }
+            this.reconnectAttempt = 0;
+            this.connect();
+        }, this.config.maxReconnectDelay);
         this.reconnectTimer = timer;
         this.timers.push(timer);
     }
@@ -462,6 +511,7 @@ class LevitonWebSocket {
         }
         this.timers = [];
         this.reconnectTimer = null;
+        this.handshakeTimer = null;
         if (this.pingTimer) {
             clearInterval(this.pingTimer);
             this.pingTimer = null;

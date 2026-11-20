@@ -193,6 +193,20 @@ describe('LevitonWebSocket', () => {
       expect(onConnectionChange).toHaveBeenCalledWith(false)
       ws.close()
     })
+
+    it('survives the error that closing a still-connecting socket emits', () => {
+      const ws = new LevitonWebSocket(loginResponse, devices, mockCallback, mockLogger)
+
+      ws.connect()
+      const connecting = getLastMockInstance()
+
+      ws.forceReconnect()
+
+      // ws emits 'error' on the next tick when close() aborts a handshake. An
+      // 'error' with no listener throws, which would crash Homebridge.
+      expect(() => connecting.emit('error', new Error('WebSocket was closed before the connection was established'))).not.toThrow()
+      ws.close()
+    })
   })
 
   describe('updateToken (legacy)', () => {
@@ -642,6 +656,39 @@ describe('LevitonWebSocket', () => {
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.stringContaining('auth'),
       )
+      ws.close()
+    })
+
+    it('retries on the slow schedule after an auth close instead of giving up', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+        { maxReconnectDelay: 60000 },
+      )
+
+      ws.connect()
+      const first = getLastMockInstance()
+      first.triggerOpen()
+      first.triggerClose(1008, 'Unauthorized')
+
+      jest.advanceTimersByTime(59000)
+      expect(MockWebSocket.instances).toHaveLength(1)
+      jest.advanceTimersByTime(1000)
+      expect(MockWebSocket.instances).toHaveLength(2)
+
+      // A second auth close in a row is logged quietly so a revoked token
+      // does not warn every minute.
+      mockLogger.warn.mockClear()
+      const second = getLastMockInstance()
+      second.triggerOpen()
+      second.triggerClose(1008, 'Unauthorized')
+      expect(mockLogger.warn).not.toHaveBeenCalled()
+      expect(mockLogger.debug).toHaveBeenCalledWith(expect.stringContaining('auth failed'))
+      jest.advanceTimersByTime(60000)
+      expect(MockWebSocket.instances).toHaveLength(3)
+      ws.close()
     })
 
     it('should handle abnormal close with reconnect', () => {
@@ -848,6 +895,58 @@ describe('LevitonWebSocket', () => {
 
       expect(mockLogger.error).toHaveBeenCalledWith('WebSocket connection timeout')
       ws.close()
+    })
+
+    it('reconnects when the socket opens but the server never says ready', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+        { connectionTimeout: 1000, initialReconnectDelay: 100 },
+      )
+
+      ws.connect()
+      const mock = getLastMockInstance()
+      mock.triggerOpen()
+
+      jest.advanceTimersByTime(1000)
+      expect(mock.terminate).toHaveBeenCalledTimes(1)
+
+      jest.advanceTimersByTime(200)
+      expect(MockWebSocket.instances).toHaveLength(2)
+      ws.close()
+    })
+
+    it('leaves a ready socket alone when the connect timeout would have run', () => {
+      const ws = new LevitonWebSocket(
+        loginResponse,
+        devices,
+        mockCallback,
+        mockLogger,
+        { connectionTimeout: 1000, pingInterval: 60000 },
+      )
+
+      ws.connect()
+      const mock = getLastMockInstance()
+      mock.triggerOpen()
+      mock.triggerMessage({ type: 'status', status: 'ready' })
+
+      jest.advanceTimersByTime(5000)
+      expect(mock.terminate).not.toHaveBeenCalled()
+      expect(mock.close).not.toHaveBeenCalled()
+      ws.close()
+    })
+
+    it('logs the error from closing a connecting socket quietly on shutdown', () => {
+      const ws = new LevitonWebSocket(loginResponse, devices, mockCallback, mockLogger)
+
+      ws.connect()
+      const mock = getLastMockInstance()
+      ws.close()
+      mock.triggerError('WebSocket was closed before the connection was established')
+
+      expect(mockLogger.error).not.toHaveBeenCalled()
     })
   })
 
