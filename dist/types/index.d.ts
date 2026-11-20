@@ -340,6 +340,11 @@ export interface ApiRequestOptions {
      * as the abort reason is rethrown to the caller.
      */
     signal?: AbortSignal;
+    /**
+     * Asked before each retry. Returning false stops retrying, and the last
+     * error is thrown. The attempt already in flight is left to finish.
+     */
+    canRetry?: () => boolean;
 }
 /**
  * Options for device write calls (`setPower`, `setBrightness`, `setDeviceState`)
@@ -347,6 +352,7 @@ export interface ApiRequestOptions {
 export interface DeviceWriteOptions {
     debugLog?: (msg: string) => void;
     signal?: AbortSignal;
+    canRetry?: () => boolean;
 }
 /**
  * Accessory context stored in Homebridge

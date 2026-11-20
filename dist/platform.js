@@ -138,6 +138,8 @@ const WRITE_FAILURE_RECHECK_MS = 3_000;
 // switch can apply the second one after a later paddle press and turn the
 // light back on. Writes to one device inside this window go as one request.
 const WRITE_COALESCE_MS = 50;
+/** Abort reason when a newer HomeKit command replaces an in-flight write. */
+const WRITE_SUPERSEDED_MESSAGE = 'Write superseded by a newer HomeKit command';
 // Optional cloud-connectivity status sensor
 const CONNECTIVITY_UUID_SEED = UUID_PREFIX + 'connectivity';
 const DEFAULT_CONNECTIVITY_NAME = 'Leviton Cloud';
@@ -181,6 +183,12 @@ class LevitonDecoraSmartPlatform {
     inFlightHomeKitWrites = new Map();
     // HomeKit writes waiting out WRITE_COALESCE_MS, keyed by device id
     pendingWrites = new Map();
+    // Generation of the latest HomeKit write per device. An older write's retries
+    // stop once a newer generation starts, so they cannot undo it.
+    writeGeneration = new Map();
+    // AbortController for the in-flight write per device, so a newer command can
+    // cancel it instead of waiting for the budget.
+    activeWriteAbort = new Map();
     // Pending re-reads after failed writes, keyed by device id
     writeRecheckTimers = new Map();
     // Latest WebSocket state per device and when it arrived. A status read that
@@ -1373,6 +1381,13 @@ class LevitonDecoraSmartPlatform {
      * failure, schedules a re-read of the device.
      */
     async runDeviceWrite(device, write) {
+        const generation = (this.writeGeneration.get(device.id) ?? 0) + 1;
+        this.writeGeneration.set(device.id, generation);
+        // Stop any earlier write for this device so its retries cannot undo this one.
+        const previousAbort = this.activeWriteAbort.get(device.id);
+        if (previousAbort && !previousAbort.signal.aborted) {
+            previousAbort.abort(new Error(WRITE_SUPERSEDED_MESSAGE));
+        }
         const state = {};
         if (write.power !== undefined) {
             state.power = write.power;
@@ -1397,14 +1412,22 @@ class LevitonDecoraSmartPlatform {
                 }
             }
         };
+        const isCurrent = () => this.writeGeneration.get(device.id) === generation;
         const startTime = Date.now();
         this.pruneRecentHomeKitCommands();
         this.diagnostics.command();
+        let writeController;
         try {
             await this.withinWriteBudget(signal => this.withTokenRetry(async () => {
                 const token = await this.ensureValidToken();
-                await this.client.setDeviceState(device.id, token, state, { signal });
-            }));
+                await this.client.setDeviceState(device.id, token, state, {
+                    signal,
+                    canRetry: isCurrent,
+                });
+            }), controller => {
+                writeController = controller;
+                this.activeWriteAbort.set(device.id, controller);
+            });
             const latency = Date.now() - startTime;
             this.log.info(`${device.name}: ${label} (HomeKit | Round trip: ${latency}ms)`, {
                 deviceId: device.id,
@@ -1414,6 +1437,13 @@ class LevitonDecoraSmartPlatform {
             answer();
         }
         catch (err) {
+            // A newer command for this device already started (or this abort was it).
+            // HomeKit has the newer values from the later set handlers.
+            if (!isCurrent() || (err instanceof Error && err.message === WRITE_SUPERSEDED_MESSAGE)) {
+                this.log.debug(`${device.name}: ${label} (HomeKit) superseded by a newer command`);
+                answer();
+                return;
+            }
             this.recordThrottleIfRateLimited(err);
             const message = (0, sanitizers_1.sanitizeError)(err);
             this.log.warn(`${device.name}: ${label} (HomeKit) failed after ${Date.now() - startTime}ms: ${message}`, {
@@ -1424,6 +1454,9 @@ class LevitonDecoraSmartPlatform {
             this.scheduleWriteFailureRecheck(device);
         }
         finally {
+            if (writeController && this.activeWriteAbort.get(device.id) === writeController) {
+                this.activeWriteAbort.delete(device.id);
+            }
             this.finishHomeKitWrite(device.id);
         }
     }
@@ -1444,9 +1477,13 @@ class LevitonDecoraSmartPlatform {
     /**
      * Runs `operation` and rejects once {@link WRITE_BUDGET_MS} elapses. The signal
      * aborts the in-flight request and stops any retry from starting.
+     *
+     * `register` receives the AbortController so a newer write for the same device
+     * can cancel this one.
      */
-    async withinWriteBudget(operation) {
+    async withinWriteBudget(operation, register) {
         const controller = new AbortController();
+        register?.(controller);
         const budgetError = new errors_1.TimeoutError(WRITE_BUDGET_MS);
         let timer;
         const deadline = new Promise((_, reject) => {
@@ -1876,6 +1913,12 @@ class LevitonDecoraSmartPlatform {
             pending.settle();
         }
         this.pendingWrites.clear();
+        for (const controller of this.activeWriteAbort.values()) {
+            if (!controller.signal.aborted) {
+                controller.abort(new Error('Homebridge is shutting down'));
+            }
+        }
+        this.activeWriteAbort.clear();
         for (const timer of this.writeRecheckTimers.values()) {
             clearTimeout(timer);
         }
