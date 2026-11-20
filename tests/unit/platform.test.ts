@@ -1757,7 +1757,10 @@ describe('Characteristic handlers for all device types', () => {
         await setHandler!(true, callback)
 
         expect(mockClient.setDeviceState).toHaveBeenCalledWith(
-          device.id, 'test-token', { power: 'ON' }, { signal: expect.any(AbortSignal) },
+          device.id,
+          'test-token',
+          { power: 'ON' },
+          { signal: expect.any(AbortSignal), canRetry: expect.any(Function) },
         )
         expect(callback).toHaveBeenCalledWith()
       })
@@ -1820,7 +1823,10 @@ describe('Characteristic handlers for all device types', () => {
         await brightnessSetHandler(75, callback)
 
         expect(mockClient.setDeviceState).toHaveBeenCalledWith(
-          device.id, 'test-token', { brightness: 75 }, { signal: expect.any(AbortSignal) },
+          device.id,
+          'test-token',
+          { brightness: 75 },
+          { signal: expect.any(AbortSignal), canRetry: expect.any(Function) },
         )
         expect(callback).toHaveBeenCalledWith()
       })
@@ -2589,7 +2595,10 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
 
       expect(mocks.mockClient.setDeviceState).toHaveBeenCalledTimes(1)
       expect(mocks.mockClient.setDeviceState).toHaveBeenCalledWith(
-        device.id, 'test-token', { power: 'ON', brightness: 30 }, { signal: expect.any(AbortSignal) },
+        device.id,
+        'test-token',
+        { power: 'ON', brightness: 30 },
+        { signal: expect.any(AbortSignal), canRetry: expect.any(Function) },
       )
       expect(onCallback).toHaveBeenCalledWith()
       expect(levelCallback).toHaveBeenCalledWith()
@@ -2656,6 +2665,41 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
 
       expect(callback).toHaveBeenCalledWith(expect.any(Error))
       expect(mocks.mockClient.setDeviceState).not.toHaveBeenCalled()
+    })
+
+    it('aborts an in-flight write when a newer HomeKit command starts', async () => {
+      let firstSignal: AbortSignal | undefined
+      const firstCallback = jest.fn()
+      const secondCallback = jest.fn()
+
+      mocks.mockClient.setDeviceState.mockImplementation(
+        (_id: string, _token: string, _state: object, options: { signal: AbortSignal }) => {
+          if (!firstSignal) {
+            firstSignal = options.signal
+            return new Promise((_resolve, reject) => {
+              options.signal.addEventListener('abort', () => {
+                reject(options.signal.reason instanceof Error ? options.signal.reason : new Error('aborted'))
+              })
+            })
+          }
+          return Promise.resolve({})
+        },
+      )
+
+      const first = internals.createPowerSetter(device)(true, firstCallback)
+      await jest.advanceTimersByTimeAsync(WRITE_COALESCE_MS)
+      expect(mocks.mockClient.setDeviceState).toHaveBeenCalledTimes(1)
+
+      const second = internals.createPowerSetter(device)(false, secondCallback)
+      await jest.advanceTimersByTimeAsync(WRITE_COALESCE_MS)
+      await Promise.all([first, second])
+
+      expect(firstSignal?.aborted).toBe(true)
+      expect(firstCallback).toHaveBeenCalledWith()
+      expect(secondCallback).toHaveBeenCalledWith()
+      expect(mocks.mockClient.setDeviceState).toHaveBeenCalledTimes(2)
+      expect(mocks.mockClient.setDeviceState.mock.calls[1][2]).toEqual({ power: 'OFF' })
+      expect(loggedLines().some(line => line.includes('(HomeKit) failed after'))).toBe(false)
     })
   })
 

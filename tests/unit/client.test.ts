@@ -435,6 +435,42 @@ describe('LevitonApiClient', () => {
       await expect(retryClient.getDevices('res1', 'token123')).rejects.toThrow(ApiResponseError)
       expect(mockFetch).toHaveBeenCalledTimes(3)
     })
+
+    it('does not retry a write when canRetry returns false', async () => {
+      const retryClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 3 })
+      mockErrorResponse(503, 'Service Unavailable')
+      mockJsonResponse({ power: 'ON' })
+
+      await expect(
+        retryClient.setPower('dev1', 'token123', true, { canRetry: () => false }),
+      ).rejects.toThrow(ApiResponseError)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('drops a scheduled retry when canRetry turns false during the backoff', async () => {
+      jest.useFakeTimers()
+      try {
+        const retryClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 3 })
+        mockErrorResponse(503, 'Service Unavailable')
+        mockJsonResponse({ power: 'ON' })
+
+        let allowRetry = true
+        const pending = retryClient.setPower('dev1', 'token123', true, {
+          canRetry: () => allowRetry,
+        })
+        const settled = expect(pending).rejects.toThrow(ApiResponseError)
+
+        // First attempt fails and schedules a retry; revoke before the 500ms backoff ends.
+        await Promise.resolve()
+        allowRetry = false
+        await jest.advanceTimersByTimeAsync(5000)
+        await settled
+
+        expect(mockFetch).toHaveBeenCalledTimes(1)
+      } finally {
+        jest.useRealTimers()
+      }
+    })
   })
 
   describe('caller abort signal on writes', () => {

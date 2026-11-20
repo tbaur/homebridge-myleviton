@@ -200,7 +200,7 @@ A change to both power and brightness (or fan speed) is logged as one line.
 
 | Label | Meaning |
 |-------|---------|
-| `HomeKit` | A write sent by this plugin. When one HomeKit action sets both power and brightness (or fan speed), the plugin sends them to Leviton in one request. A failed write logs `Zone One: ON (HomeKit) failed after …`. |
+| `HomeKit` | A write sent by this plugin. When one HomeKit action sets both power and brightness (or fan speed), the plugin sends them to Leviton in one request. A newer write for the same device cancels an older one that is still in flight or waiting to retry, so a late retry cannot undo it. A failed write logs `Zone One: ON (HomeKit) failed after …`. |
 | `At switch` | The switch reported a change of its own, such as a paddle press. Changes from a Leviton schedule can also show this label. |
 | `Switch applied command` | The switch reported that it applied a command from the cloud, and no cloud command for it arrived in the 3 seconds before. Seen right after a paddle press, it means the switch applied an older command late. |
 | `Switch timer` | The switch's auto-off timer turned it off. |

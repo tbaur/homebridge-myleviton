@@ -37,6 +37,8 @@ export declare class LevitonDecoraSmartPlatform {
     private recentHomeKitCommands;
     private inFlightHomeKitWrites;
     private pendingWrites;
+    private writeGeneration;
+    private activeWriteAbort;
     private writeRecheckTimers;
     private lastPushes;
     private lastPollCycleStartedAt;
@@ -290,6 +292,9 @@ export declare class LevitonDecoraSmartPlatform {
     /**
      * Runs `operation` and rejects once {@link WRITE_BUDGET_MS} elapses. The signal
      * aborts the in-flight request and stops any retry from starting.
+     *
+     * `register` receives the AbortController so a newer write for the same device
+     * can cancel this one.
      */
     private withinWriteBudget;
     /**

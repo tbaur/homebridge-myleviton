@@ -224,7 +224,7 @@ class LevitonApiClient {
      * the pre-flight gates and is about to hit the network.
      */
     async runRequest(url, options, requestOptions, markNetworked = () => { }) {
-        const { useCache = false, cacheKey = url, bypassCircuitBreaker = false, debugLog = () => { }, signal, } = requestOptions;
+        const { useCache = false, cacheKey = url, bypassCircuitBreaker = false, debugLog = () => { }, signal, canRetry = () => true, } = requestOptions;
         const method = options.method || 'GET';
         const cacheGeneration = this.cacheGenerations.get(cacheKey) ?? 0;
         throwIfAborted(signal, this.config.timeout);
@@ -250,16 +250,27 @@ class LevitonApiClient {
             // Retry only transient failures (network, timeout, 5xx). Auth (401/403)
             // and rate-limit (429) errors are surfaced immediately so the platform's
             // token-refresh path and the caller can react without blocking here.
-            const data = await (0, retry_1.withRetry)(() => {
-                // Checked per attempt so a retry never starts after the caller gave up.
+            let lastAttemptError;
+            const data = await (0, retry_1.withRetry)(async () => {
+                // Checked per attempt, after the backoff delay, so a retry never
+                // starts after the caller gave up or no longer wants it.
                 throwIfAborted(signal, this.config.timeout);
-                return this.fetchAndParse(url, options, debugLog, signal);
+                if (lastAttemptError !== undefined && !canRetry()) {
+                    throw lastAttemptError;
+                }
+                try {
+                    return await this.fetchAndParse(url, options, debugLog, signal);
+                }
+                catch (error) {
+                    lastAttemptError = error;
+                    throw error;
+                }
             }, {
                 maxAttempts: Math.max(1, this.config.maxRetryAttempts),
                 baseDelay: 500,
                 maxDelay: 5000,
                 backoffMultiplier: 2,
-                shouldRetry: error => !signal?.aborted && isTransientError(error),
+                shouldRetry: error => !signal?.aborted && isTransientError(error) && canRetry(),
                 onRetry: (attempt, error) => debugLog(`[API] Retry ${attempt} after transient error: ${error.message}`),
             });
             if (!bypassCircuitBreaker) {
@@ -460,7 +471,7 @@ class LevitonApiClient {
                 method: 'PUT',
                 body: JSON.stringify(body),
                 headers: { Authorization: validToken },
-            }, { debugLog: options.debugLog, signal: options.signal });
+            }, { debugLog: options.debugLog, signal: options.signal, canRetry: options.canRetry });
         }
         finally {
             // Also on failure: a timed-out or aborted PUT may still have been applied,

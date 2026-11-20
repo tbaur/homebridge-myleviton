@@ -161,7 +161,8 @@ The switch reported that it applied a command from Leviton's cloud, but no comma
 ### What the plugin does
 
 1. Sends power and brightness from one HomeKit action as one request, so the switch gets one command
-2. Labels the late command `Switch applied command`, so the log shows that the switch turned the light back on, not an app or an automation
+2. Cancels an in-flight or retrying write when a newer HomeKit command for the same device starts, so a late retry cannot turn the light back on
+3. Labels the late command `Switch applied command`, so the log shows that the switch turned the light back on, not an app or an automation
 
 ### When to follow up
 
