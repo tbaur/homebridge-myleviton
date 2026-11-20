@@ -634,6 +634,68 @@ describe('LevitonDecoraSmartPlatform', () => {
       expect(mockAPI.unregisterPlatformAccessories).not.toHaveBeenCalled()
     })
 
+    describe('when part of the account fails to load', () => {
+      const listed = { id: 'dev-1', name: 'Listed Light', model: 'DW6HD', serial: 'SERIAL-0001' }
+      const unlisted = { id: 'dev-2', name: 'Unlisted Light', model: 'DW6HD', serial: 'SERIAL-0002' }
+
+      const launchWithCache = async (mocks: ReturnType<typeof setupMocks>) => {
+        const platform = new LevitonDecoraSmartPlatform(mocks.mockLog, validConfig, mocks.mockAPI)
+        const unlistedAccessory = mockAccessory(unlisted)
+        platform.configureAccessory(mockAccessory(listed))
+        platform.configureAccessory(unlistedAccessory)
+        mocks.mockAPI.emit('didFinishLaunching')
+        await new Promise(resolve => setTimeout(resolve, 100))
+        return unlistedAccessory
+      }
+
+      const expectKept = (mocks: ReturnType<typeof setupMocks>, unlistedAccessory: ReturnType<typeof mockAccessory>) => {
+        expect(mocks.mockAPI.unregisterPlatformAccessories).not.toHaveBeenCalled()
+        // Still set up from the cache, so it keeps working until the next restart.
+        expect(unlistedAccessory.getService).toHaveBeenCalledWith('Lightbulb')
+        expect(
+          mocks.mockLog.mock.calls.some(
+            (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('1 cached accessories were kept'),
+          ),
+        ).toBe(true)
+      }
+
+      it('keeps accessories when one residence fails to list its devices', async () => {
+        const mocks = setupMocks()
+        mocks.mockClient.getResidences.mockResolvedValue([{ id: 'residence-123' }, { id: 'residence-2' }])
+        mocks.mockClient.getDevices.mockImplementation((residenceId: string) =>
+          residenceId === 'residence-2'
+            ? Promise.reject(new Error('502 Bad Gateway'))
+            : Promise.resolve([listed]),
+        )
+
+        expectKept(mocks, await launchWithCache(mocks))
+      })
+
+      it('keeps accessories when the residence list fails', async () => {
+        const mocks = setupMocks()
+        mocks.mockClient.getResidences.mockRejectedValue(new Error('502 Bad Gateway'))
+        mocks.mockClient.getDevices.mockResolvedValue([listed])
+
+        expectKept(mocks, await launchWithCache(mocks))
+      })
+
+      it('keeps accessories when one account fails to load', async () => {
+        const mocks = setupMocks()
+        mocks.mockClient.getResidentialPermissions.mockResolvedValue([
+          { residentialAccountId: 'account-123' },
+          { residentialAccountId: 'account-2' },
+        ])
+        mocks.mockClient.getResidentialAccount.mockImplementation((accountId: string) =>
+          accountId === 'account-2'
+            ? Promise.reject(new Error('502 Bad Gateway'))
+            : Promise.resolve({ id: 'res-obj-123', primaryResidenceId: 'residence-123' }),
+        )
+        mocks.mockClient.getDevices.mockResolvedValue([listed])
+
+        expectKept(mocks, await launchWithCache(mocks))
+      })
+    })
+
     it('should never remove the synthesized connectivity sensor', async () => {
       const { mockLog, mockAPI, mockClient } = setupMocks()
       const device = { id: 'dev-1', name: 'Kept Light', model: 'DW6HD', serial: 'ABC123' }

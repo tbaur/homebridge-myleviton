@@ -168,9 +168,9 @@ Advanced documentation for power users, developers, and troubleshooting.
 
 1. Authenticates with the My Leviton API
 2. Loads **all** residential permissions and merges devices (deduped by id)
-3. For each permission: residential account → primary residence → `iotSwitches`
-4. If a residence returns no devices, tries the v2 residences fallback API
-5. Creates HomeKit accessories for supported, non-excluded devices
+3. For each permission: residential account → its primary residence plus every residence listed for the account → `iotSwitches`
+4. Creates HomeKit accessories for supported, non-excluded devices
+5. Removes cached accessories whose device is no longer in the account. It does this only when every account, residence list and device list loaded. If any of them failed, the cached accessories are kept and set up from the cache, and the log says how many were kept.
 6. Subscribes WebSocket only to controllable (non-excluded, non-stateless) devices
 7. Persists device data for faster subsequent startups
 

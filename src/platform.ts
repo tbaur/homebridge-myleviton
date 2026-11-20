@@ -420,7 +420,7 @@ export class LevitonDecoraSmartPlatform {
       // This is defensive - duplicates can occur due to race conditions in older versions
       this.deduplicateAccessories()
 
-      const { devices, loginResponse, residenceId } = await this.discoverDevices()
+      const { devices, loginResponse, residenceId, isComplete } = await this.discoverDevices()
       
       this.setLoginResponse(loginResponse)
       this.residenceId = residenceId
@@ -488,9 +488,23 @@ export class LevitonDecoraSmartPlatform {
         }
       }
 
-      // Safe here and not earlier: discovery returned a non-empty device list,
-      // so anything still cached and unmatched really is gone from the account.
-      const removedCount = this.removeOrphanedAccessories(devices)
+      // Removal is safe only when every account and residence loaded. If one
+      // failed, its devices are missing from the list but still exist, so their
+      // cached accessories are set up from the cache instead.
+      let removedCount = 0
+      if (isComplete) {
+        removedCount = this.removeOrphanedAccessories(devices)
+      } else {
+        const unconfirmed = this.findUnlistedAccessories(devices)
+        if (unconfirmed.length > 0) {
+          this.log.warn(
+            `Some residences did not load, so ${unconfirmed.length} cached accessories were kept as they are. Restart Homebridge once Leviton is reachable to refresh them.`,
+          )
+        }
+        for (const accessory of unconfirmed) {
+          await this.setupService(accessory)
+        }
+      }
 
       this.lastCloudDeviceCount = devices.length
       this.lastStatelessCount = statelessCount
@@ -516,7 +530,13 @@ export class LevitonDecoraSmartPlatform {
   /**
    * Discovers devices from Leviton API
    */
-  private async discoverDevices(): Promise<{ devices: DeviceInfo[]; loginResponse: LoginResponse; residenceId: string }> {
+  private async discoverDevices(): Promise<{
+    devices: DeviceInfo[]
+    loginResponse: LoginResponse
+    residenceId: string
+    /** False when any account, residence list or device list failed to load. */
+    isComplete: boolean
+  }> {
     const debugLog = (msg: string) => this.log.debug(msg)
     
     // Login
@@ -538,6 +558,7 @@ export class LevitonDecoraSmartPlatform {
     this.log.info('Discovering devices...')
     const deviceById = new Map<string, DeviceInfo>()
     let residenceId = ''
+    let isComplete = true
 
     for (const permission of permissions) {
       const accountId = permission.residentialAccountId
@@ -549,6 +570,7 @@ export class LevitonDecoraSmartPlatform {
       try {
         account = await this.client.getResidentialAccount(accountId, token, debugLog)
       } catch (err) {
+        isComplete = false
         this.log.warn(`Failed to load residential account ${accountId}: ${sanitizeError(err)}`)
         continue
       }
@@ -571,6 +593,7 @@ export class LevitonDecoraSmartPlatform {
           }
         }
       } catch (err) {
+        isComplete = false
         this.log.warn(
           `Could not list all residences for account ${accountId}: ${sanitizeError(err)}. Using known residence ids only.`,
         )
@@ -593,6 +616,7 @@ export class LevitonDecoraSmartPlatform {
             residenceId = rid
           }
         } catch (err) {
+          isComplete = false
           this.log.warn(`Failed to load devices for residence ${rid}: ${sanitizeError(err)}`)
         }
       }
@@ -639,7 +663,7 @@ export class LevitonDecoraSmartPlatform {
       this.log.warn(`WebSocket unavailable: ${sanitizeError(err)}`)
     }
 
-    return { devices, loginResponse, residenceId }
+    return { devices, loginResponse, residenceId, isComplete }
   }
 
   /**
@@ -1194,13 +1218,27 @@ export class LevitonDecoraSmartPlatform {
    * @returns Number of accessories removed
    */
   private removeOrphanedAccessories(devices: DeviceInfo[]): number {
+    const orphans = this.findUnlistedAccessories(devices)
+
+    for (const orphan of orphans) {
+      this.log.info(`Removing "${orphan.displayName}" — no longer in your My Leviton account`)
+      this.removeCachedAccessory(orphan)
+    }
+
+    return orphans.length
+  }
+
+  /**
+   * Cached device accessories whose serial is not in `devices`.
+   */
+  private findUnlistedAccessories(devices: DeviceInfo[]): PlatformAccessory[] {
     const liveSerials = new Set(
       devices
         .map(device => String(device.serial || '').trim().toUpperCase())
         .filter(serial => serial.length > 0),
     )
 
-    const orphans = this.accessories.filter((accessory) => {
+    return this.accessories.filter((accessory) => {
       // The connectivity sensor is synthesized by the plugin, not discovered.
       if (accessory.context?.connectivity) {
         return false
@@ -1210,13 +1248,6 @@ export class LevitonDecoraSmartPlatform {
       // is left alone rather than deleted on a guess.
       return serial.length > 0 && !liveSerials.has(serial)
     })
-
-    for (const orphan of orphans) {
-      this.log.info(`Removing "${orphan.displayName}" — no longer in your My Leviton account`)
-      this.removeCachedAccessory(orphan)
-    }
-
-    return orphans.length
   }
 
   /**
