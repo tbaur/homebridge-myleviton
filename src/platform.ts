@@ -130,6 +130,11 @@ const WRITE_BUDGET_MS = 8_000
 // After a failed write, re-read the device once, because Leviton may still have
 // applied it. Longer than the client's 2s status cache.
 const WRITE_FAILURE_RECHECK_MS = 3_000
+// HomeKit sends On and Brightness for one action as two writes in the same
+// tick. Sent as two requests, they reach the switch as two commands, and the
+// switch can apply the second one after a later paddle press and turn the
+// light back on. Writes to one device inside this window go as one request.
+const WRITE_COALESCE_MS = 50
 
 // Optional cloud-connectivity status sensor
 const CONNECTIVITY_UUID_SEED = UUID_PREFIX + 'connectivity'
@@ -138,13 +143,16 @@ const DEFAULT_CONNECTIVITY_NAME = 'Leviton Cloud'
 type HAP = HAPModule
 type Service = HAPService
 
-/** One HomeKit write to send to Leviton (power or brightness). */
-interface DeviceWriteRequest {
-  /** Operation name for structured logs, e.g. `setPower` */
-  operation: string
-  /** Human-readable target value, e.g. `ON` or `75%` */
-  label: string
-  write: (token: string, signal: AbortSignal) => Promise<unknown>
+/** HomeKit writes to one device that go to Leviton as one request. */
+interface PendingDeviceWrite {
+  power?: PowerState
+  /** Brightness, or rotation speed for fans */
+  level?: number
+  callbacks: Array<(err?: Error) => void>
+  timer: ReturnType<typeof setTimeout>
+  /** Returned to each set handler; settles once the request finishes */
+  settled: Promise<void>
+  settle: () => void
 }
 
 let hap: HAP
@@ -195,6 +203,9 @@ export class LevitonDecoraSmartPlatform {
   // Track HomeKit writes (running, and finish time) to avoid logging them as "external"
   private recentHomeKitCommands: Map<string, number> = new Map()
   private inFlightHomeKitWrites: Map<string, number> = new Map()
+
+  // HomeKit writes waiting out WRITE_COALESCE_MS, keyed by device id
+  private pendingWrites: Map<string, PendingDeviceWrite> = new Map()
 
   // Pending re-reads after failed writes, keyed by device id
   private writeRecheckTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
@@ -1378,7 +1389,7 @@ export class LevitonDecoraSmartPlatform {
     brightnessChar.setProps({ minValue: minBrightness, maxValue: maxBrightness, minStep: 1 })
     brightnessChar.removeAllListeners('get')
     brightnessChar.removeAllListeners('set')
-    brightnessChar.on('set', this.createBrightnessSetter(device))
+    brightnessChar.on('set', this.createLevelSetter(device))
 
     return status
   }
@@ -1432,7 +1443,7 @@ export class LevitonDecoraSmartPlatform {
     speedChar.setProps({ minValue: 0, maxValue: maxSpeed, minStep: 1 })
     speedChar.removeAllListeners('get')
     speedChar.removeAllListeners('set')
-    speedChar.on('set', this.createBrightnessSetter(device))
+    speedChar.on('set', this.createLevelSetter(device))
   }
 
   /**
@@ -1495,69 +1506,118 @@ export class LevitonDecoraSmartPlatform {
   }
 
   /**
-   * Creates a power setter handler
+   * Creates the On set handler
    */
   // HAP-NodeJS set handlers are loosely typed; narrow at the implementation boundary.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private createPowerSetter(device: DeviceInfo): any {
-    return async (value: boolean, callback: (err?: Error) => void) => {
-      await this.runDeviceWrite(device, {
-        operation: 'setPower',
-        label: value ? 'ON' : 'OFF',
-        write: (token, signal) => this.client.setPower(device.id, token, value, { signal }),
-      }, callback)
-    }
+    return (value: boolean, callback: (err?: Error) => void): Promise<void> =>
+      this.queueDeviceWrite(device, { power: value ? POWER_ON : POWER_OFF }, callback)
   }
 
   /**
-   * Creates a brightness setter handler
+   * Creates the Brightness (or fan RotationSpeed) set handler
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private createBrightnessSetter(device: DeviceInfo): any {
-    return async (value: number, callback: (err?: Error) => void) => {
-      await this.runDeviceWrite(device, {
-        operation: 'setBrightness',
-        label: `${value}%`,
-        write: (token, signal) => this.client.setBrightness(device.id, token, value, { signal }),
-      }, callback)
-    }
+  private createLevelSetter(device: DeviceInfo): any {
+    return (value: number, callback: (err?: Error) => void): Promise<void> =>
+      this.queueDeviceWrite(device, { level: value }, callback)
   }
 
   /**
-   * Sends a HomeKit write to Leviton within {@link WRITE_BUDGET_MS} and reports
-   * the real outcome to HomeKit. On failure, schedules a re-read of the device.
+   * Adds a HomeKit write to the device's pending request, starting one if
+   * none is waiting. The returned promise settles once the request finishes.
    */
-  private async runDeviceWrite(
+  private queueDeviceWrite(
     device: DeviceInfo,
-    request: DeviceWriteRequest,
+    change: { power?: PowerState; level?: number },
     callback: (err?: Error) => void,
   ): Promise<void> {
-    const startTime = Date.now()
+    const pending = this.pendingWrites.get(device.id) ?? this.startPendingWrite(device)
+    if (change.power !== undefined) {
+      pending.power = change.power
+    }
+    if (change.level !== undefined) {
+      pending.level = change.level
+    }
+    pending.callbacks.push(callback)
+    return pending.settled
+  }
+
+  private startPendingWrite(device: DeviceInfo): PendingDeviceWrite {
+    // Counted as running from now, so a status read inside the window is not
+    // reported as an external change.
     this.inFlightHomeKitWrites.set(device.id, (this.inFlightHomeKitWrites.get(device.id) ?? 0) + 1)
+    let settle: () => void = () => {}
+    const settled = new Promise<void>(resolve => { settle = resolve })
+    const pending: PendingDeviceWrite = {
+      callbacks: [],
+      settled,
+      settle,
+      timer: setTimeout(() => {
+        this.pendingWrites.delete(device.id)
+        void this.runDeviceWrite(device, pending).finally(settle)
+      }, WRITE_COALESCE_MS),
+    }
+    this.pendingWrites.set(device.id, pending)
+    return pending
+  }
+
+  /**
+   * Sends a device's pending HomeKit writes to Leviton as one request within
+   * {@link WRITE_BUDGET_MS}, and reports the real outcome to every write. On
+   * failure, schedules a re-read of the device.
+   */
+  private async runDeviceWrite(device: DeviceInfo, write: PendingDeviceWrite): Promise<void> {
+    const state: { power?: PowerState; brightness?: number } = {}
+    if (write.power !== undefined) {
+      state.power = write.power
+    }
+    // A level would turn the light back on, so OFF goes alone.
+    if (write.level !== undefined && write.power !== POWER_OFF) {
+      state.brightness = write.level
+    }
+    const label = [state.power, state.brightness === undefined ? undefined : `${state.brightness}%`]
+      .filter(Boolean)
+      .join(' ')
+    const operation = state.brightness === undefined
+      ? 'setPower'
+      : state.power === undefined ? 'setBrightness' : 'setPowerAndBrightness'
+    const answer = (err?: Error): void => {
+      for (const callback of write.callbacks) {
+        if (err) {
+          callback(err)
+        } else {
+          callback()
+        }
+      }
+    }
+
+    const startTime = Date.now()
     this.pruneRecentHomeKitCommands()
     this.diagnostics.command()
     try {
       await this.withinWriteBudget(signal =>
         this.withTokenRetry(async () => {
           const token = await this.ensureValidToken()
-          await request.write(token, signal)
+          await this.client.setDeviceState(device.id, token, state, { signal })
         }),
       )
       const latency = Date.now() - startTime
-      this.log.info(`${device.name}: ${request.label} (HomeKit | Round trip: ${latency}ms)`, {
+      this.log.info(`${device.name}: ${label} (HomeKit | Round trip: ${latency}ms)`, {
         deviceId: device.id,
-        operation: request.operation,
+        operation,
         duration: latency,
       })
-      callback()
+      answer()
     } catch (err) {
       this.recordThrottleIfRateLimited(err)
       const message = sanitizeError(err)
-      this.log.warn(`${device.name}: ${request.label} (HomeKit) failed after ${Date.now() - startTime}ms: ${message}`, {
+      this.log.warn(`${device.name}: ${label} (HomeKit) failed after ${Date.now() - startTime}ms: ${message}`, {
         deviceId: device.id,
-        operation: request.operation,
+        operation,
       })
-      callback(new Error(message))
+      answer(new Error(message))
       this.scheduleWriteFailureRecheck(device)
     } finally {
       this.finishHomeKitWrite(device.id)
@@ -2042,6 +2102,16 @@ export class LevitonDecoraSmartPlatform {
       clearTimeout(this.initRetryTimer)
       this.initRetryTimer = null
     }
+
+    for (const [deviceId, pending] of this.pendingWrites) {
+      clearTimeout(pending.timer)
+      this.finishHomeKitWrite(deviceId)
+      for (const callback of pending.callbacks) {
+        callback(new Error('Homebridge is shutting down'))
+      }
+      pending.settle()
+    }
+    this.pendingWrites.clear()
 
     for (const timer of this.writeRecheckTimers.values()) {
       clearTimeout(timer)

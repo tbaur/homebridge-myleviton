@@ -36,6 +36,7 @@ export declare class LevitonDecoraSmartPlatform {
     private hasLoggedPagerDutySupport;
     private recentHomeKitCommands;
     private inFlightHomeKitWrites;
+    private pendingWrites;
     private writeRecheckTimers;
     private lastPushes;
     private lastPollCycleStartedAt;
@@ -260,16 +261,23 @@ export declare class LevitonDecoraSmartPlatform {
     private syncServiceName;
     private syncExistingServiceNames;
     /**
-     * Creates a power setter handler
+     * Creates the On set handler
      */
     private createPowerSetter;
     /**
-     * Creates a brightness setter handler
+     * Creates the Brightness (or fan RotationSpeed) set handler
      */
-    private createBrightnessSetter;
+    private createLevelSetter;
     /**
-     * Sends a HomeKit write to Leviton within {@link WRITE_BUDGET_MS} and reports
-     * the real outcome to HomeKit. On failure, schedules a re-read of the device.
+     * Adds a HomeKit write to the device's pending request, starting one if
+     * none is waiting. The returned promise settles once the request finishes.
+     */
+    private queueDeviceWrite;
+    private startPendingWrite;
+    /**
+     * Sends a device's pending HomeKit writes to Leviton as one request within
+     * {@link WRITE_BUDGET_MS}, and reports the real outcome to every write. On
+     * failure, schedules a re-read of the device.
      */
     private runDeviceWrite;
     /**
