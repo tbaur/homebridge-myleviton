@@ -212,6 +212,10 @@ export declare class LevitonDecoraSmartPlatform {
      */
     private removeOrphanedAccessories;
     /**
+     * Cached device accessories whose serial is not in `devices`.
+     */
+    private findUnlistedAccessories;
+    /**
      * Removes an accessory from Homebridge cache and local tracking
      */
     private removeCachedAccessory;
