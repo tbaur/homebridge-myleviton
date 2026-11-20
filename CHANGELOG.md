@@ -5,6 +5,20 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.4](https://github.com/tbaur/homebridge-myleviton/compare/v4.2.3...v4.2.4) (2026-11-20)
+
+
+### Bug Fixes
+
+* drop superseded HomeKit writes so a late retry cannot undo them ([c0ab1bb](https://github.com/tbaur/homebridge-myleviton/commit/c0ab1bbd11da3f69ee1723cfc36b3c58d85f178d))
+* keep accessories when part of the account fails to load ([b216a1e](https://github.com/tbaur/homebridge-myleviton/commit/b216a1e6205f769d7e8405d730f4545969cd58f4))
+* keep WebSocket push recovering after refreshes, stalls and auth closes ([#136](https://github.com/tbaur/homebridge-myleviton/issues/136)) ([38d9ce1](https://github.com/tbaur/homebridge-myleviton/commit/38d9ce1be59e4ae3a5449f5c40bd1ca38eb07854))
+* label changes by who sent them and the switch's change reason ([#135](https://github.com/tbaur/homebridge-myleviton/issues/135)) ([1abe2e5](https://github.com/tbaur/homebridge-myleviton/commit/1abe2e51c035f9558534451d3a23836b0dca9cdc))
+* let the circuit breaker close again after Leviton answers ([#132](https://github.com/tbaur/homebridge-myleviton/issues/132)) ([0d5b828](https://github.com/tbaur/homebridge-myleviton/commit/0d5b8280c98c8fef4731386ba07cac596c96302b))
+* page cloud-offline when sign-in works but devices fail to load ([ab7f460](https://github.com/tbaur/homebridge-myleviton/commit/ab7f460d741b25e98870209e4056397a8c6b78a7))
+* send power and level from one HomeKit action as one request ([#131](https://github.com/tbaur/homebridge-myleviton/issues/131)) ([f93e11f](https://github.com/tbaur/homebridge-myleviton/commit/f93e11fe5c1b44e67041f4b4bb335687515b7746))
+* stop adding button controllers as empty accessories ([f07c52f](https://github.com/tbaur/homebridge-myleviton/commit/f07c52f5d95d9415b5ae3392ca5e149bbc724d50))
+
 ## [4.2.3](https://github.com/tbaur/homebridge-myleviton/compare/v4.2.2...v4.2.3) (2026-11-19)
 
 
