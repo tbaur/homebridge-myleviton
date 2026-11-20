@@ -562,6 +562,28 @@ describe('LevitonDecoraSmartPlatform', () => {
         
         expect(accessory.addService).not.toHaveBeenCalled()
       })
+
+      it(`removes a cached ${model} accessory and never registers or polls it`, async () => {
+        const { mockLog, mockAPI, mockClient } = setupMocks()
+        const controller = { id: 'dev-1', name: 'Test Controller', model, serial: 'SERIAL-0001' }
+        const newController = { id: 'dev-2', name: 'New Controller', model, serial: 'SERIAL-0002' }
+        mockClient.getDevices.mockResolvedValue([controller, newController])
+
+        const platform = new LevitonDecoraSmartPlatform(mockLog, validConfig, mockAPI)
+        const cached = mockAccessory(controller)
+        platform.configureAccessory(cached)
+
+        mockAPI.emit('didFinishLaunching')
+        await new Promise(resolve => setTimeout(resolve, 100))
+
+        expect(mockAPI.unregisterPlatformAccessories).toHaveBeenCalledWith(
+          'homebridge-myleviton',
+          'MyLevitonDecoraSmart',
+          [cached],
+        )
+        expect(mockAPI.registerPlatformAccessories).not.toHaveBeenCalled()
+        expect(mockClient.getDeviceStatus).not.toHaveBeenCalled()
+      })
     })
 
     // Test unknown model defaults to switch
