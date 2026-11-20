@@ -184,8 +184,7 @@ const setupMocks = () => {
     getDevices: jest.fn().mockResolvedValue([]),
     getResidences: jest.fn().mockResolvedValue([]),
     getDeviceStatus: jest.fn().mockResolvedValue({ power: 'ON', brightness: 50, minLevel: 1, maxLevel: 100 }),
-    setPower: jest.fn().mockResolvedValue({}),
-    setBrightness: jest.fn().mockResolvedValue({}),
+    setDeviceState: jest.fn().mockResolvedValue({}),
     clearCache: jest.fn(),
     invalidateDeviceCache: jest.fn(),
     getStatus: jest.fn().mockReturnValue({
@@ -1665,17 +1664,18 @@ describe('Characteristic handlers for all device types', () => {
         
         const service = accessory.getService()
         const onChar = service.getCharacteristic()
-        const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as (value: boolean, callback: () => void) => Promise<void>
-        
-        if (setHandler) {
-          const callback = jest.fn()
-          await setHandler(true, callback)
-          
-          expect(mockClient.setPower).toHaveBeenCalledWith(
-            device.id, 'test-token', true, { signal: expect.any(AbortSignal) },
-          )
-          expect(callback).toHaveBeenCalled()
-        }
+        const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as
+          | ((value: boolean, callback: () => void) => Promise<void>)
+          | undefined
+        expect(setHandler).toBeDefined()
+
+        const callback = jest.fn()
+        await setHandler!(true, callback)
+
+        expect(mockClient.setDeviceState).toHaveBeenCalledWith(
+          device.id, 'test-token', { power: 'ON' }, { signal: expect.any(AbortSignal) },
+        )
+        expect(callback).toHaveBeenCalledWith()
       })
     })
   })
@@ -1729,17 +1729,16 @@ describe('Characteristic handlers for all device types', () => {
         const service = accessory.getService()
         const brightnessChar = service.getCharacteristic()
         const setHandlers = brightnessChar.on.mock.calls.filter((call: [string, unknown]) => call[0] === 'set')
-        const brightnessSetHandler = setHandlers.length >= 2 ? setHandlers[1][1] as (value: number, callback: () => void) => Promise<void> : null
-        
-        if (brightnessSetHandler) {
-          const callback = jest.fn()
-          await brightnessSetHandler(75, callback)
-          
-          expect(mockClient.setBrightness).toHaveBeenCalledWith(
-            device.id, 'test-token', 75, { signal: expect.any(AbortSignal) },
-          )
-          expect(callback).toHaveBeenCalled()
-        }
+        expect(setHandlers).toHaveLength(2)
+        const brightnessSetHandler = setHandlers[1][1] as (value: number, callback: () => void) => Promise<void>
+
+        const callback = jest.fn()
+        await brightnessSetHandler(75, callback)
+
+        expect(mockClient.setDeviceState).toHaveBeenCalledWith(
+          device.id, 'test-token', { brightness: 75 }, { signal: expect.any(AbortSignal) },
+        )
+        expect(callback).toHaveBeenCalledWith()
       })
     })
   })
@@ -2034,7 +2033,7 @@ describe('Latency logging', () => {
 
   it('should include latency in power setter log message', async () => {
     const { mockLog, mockAPI, mockClient } = setupMocks()
-    mockClient.setPower.mockImplementation(() => 
+    mockClient.setDeviceState.mockImplementation(() =>
       new Promise(resolve => setTimeout(() => resolve({}), 50)),
     )
     const device = { id: 'dev-1', name: 'Test Light', model: 'DW6HD', serial: 'ABC123' }
@@ -2048,21 +2047,21 @@ describe('Latency logging', () => {
     await new Promise(resolve => setTimeout(resolve, 100))
     
     const onChar = accessory.getService().getCharacteristic()
-    const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as (value: boolean, callback: () => void) => Promise<void>
-    
-    if (setHandler) {
-      const callback = jest.fn()
-      await setHandler(true, callback)
-      
-      expect(mockLog).toHaveBeenCalledWith(
-        expect.stringMatching(/^Test Light: ON \(HomeKit \| Round trip: \d+ms\)$/),
-      )
-    }
+    const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as
+      | ((value: boolean, callback: () => void) => Promise<void>)
+      | undefined
+    expect(setHandler).toBeDefined()
+
+    await setHandler!(true, jest.fn())
+
+    expect(mockLog).toHaveBeenCalledWith(
+      expect.stringMatching(/^Test Light: ON \(HomeKit \| Round trip: \d+ms\)$/),
+    )
   })
 
   it('should include latency in brightness setter log message', async () => {
     const { mockLog, mockAPI, mockClient } = setupMocks()
-    mockClient.setBrightness.mockImplementation(() => 
+    mockClient.setDeviceState.mockImplementation(() =>
       new Promise(resolve => setTimeout(() => resolve({}), 50)),
     )
     const device = { id: 'dev-1', name: 'Test Dimmer', model: 'DW6HD', serial: 'ABC123' }
@@ -2078,15 +2077,14 @@ describe('Latency logging', () => {
     const onChar = accessory.getService().getCharacteristic()
     const setHandlers = onChar.on.mock.calls.filter((call: [string, unknown]) => call[0] === 'set')
     
-    if (setHandlers.length >= 2) {
-      const brightnessHandler = setHandlers[1][1] as (value: number, callback: () => void) => Promise<void>
-      const callback = jest.fn()
-      await brightnessHandler(75, callback)
-      
-      expect(mockLog).toHaveBeenCalledWith(
-        expect.stringMatching(/^Test Dimmer: 75% \(HomeKit \| Round trip: \d+ms\)$/),
-      )
-    }
+    expect(setHandlers).toHaveLength(2)
+    const brightnessHandler = setHandlers[1][1] as (value: number, callback: () => void) => Promise<void>
+
+    await brightnessHandler(75, jest.fn())
+
+    expect(mockLog).toHaveBeenCalledWith(
+      expect.stringMatching(/^Test Dimmer: 75% \(HomeKit \| Round trip: \d+ms\)$/),
+    )
   })
 
   it('should output structured JSON with duration when structuredLogs enabled', async () => {
@@ -2096,7 +2094,6 @@ describe('Latency logging', () => {
       structuredLogs: true,
     }
     
-    mockClient.setPower.mockResolvedValue({})
     const device = { id: 'dev-123', name: 'JSON Test', model: 'DW6HD', serial: 'ABC123' }
     mockClient.getDevices.mockResolvedValue([device])
     
@@ -2108,33 +2105,31 @@ describe('Latency logging', () => {
     await new Promise(resolve => setTimeout(resolve, 100))
     
     const onChar = accessory.getService().getCharacteristic()
-    const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as (value: boolean, callback: () => void) => Promise<void>
-    
-    if (setHandler) {
-      const callback = jest.fn()
-      await setHandler(true, callback)
-      
-      const jsonLogCall = mockLog.mock.calls.find((call: string[]) => {
-        try {
-          const parsed = JSON.parse(call[0])
-          return parsed.deviceId && parsed.operation && parsed.duration !== undefined
-        } catch {
-          return false
-        }
-      })
-      
-      expect(jsonLogCall).toBeDefined()
-      if (jsonLogCall) {
-        const parsed = JSON.parse(jsonLogCall[0])
-        expect(parsed).toMatchObject({
-          level: 'info',
-          deviceId: 'dev-123',
-          operation: 'setPower',
-          duration: expect.any(Number),
-        })
-        expect(parsed.message).toContain('JSON Test: ON')
+    const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as
+      | ((value: boolean, callback: () => void) => Promise<void>)
+      | undefined
+    expect(setHandler).toBeDefined()
+
+    await setHandler!(true, jest.fn())
+
+    const jsonLogCall = mockLog.mock.calls.find((call: string[]) => {
+      try {
+        const parsed = JSON.parse(call[0])
+        return parsed.deviceId && parsed.operation && parsed.duration !== undefined
+      } catch {
+        return false
       }
-    }
+    })
+
+    expect(jsonLogCall).toBeDefined()
+    const parsed = JSON.parse(jsonLogCall![0])
+    expect(parsed).toMatchObject({
+      level: 'info',
+      deviceId: 'dev-123',
+      operation: 'setPower',
+      duration: expect.any(Number),
+    })
+    expect(parsed.message).toContain('JSON Test: ON')
   })
 
   it('should measure actual latency including token refresh', async () => {
@@ -2142,7 +2137,7 @@ describe('Latency logging', () => {
     mockClient.login.mockImplementation(() =>
       new Promise(resolve => setTimeout(() => resolve({ id: 'new-token', userId: 'user-123' }), 30)),
     )
-    mockClient.setPower.mockImplementation(() =>
+    mockClient.setDeviceState.mockImplementation(() =>
       new Promise(resolve => setTimeout(() => resolve({}), 60)),
     )
     const device = { id: 'dev-1', name: 'Latency Test', model: 'DW15S', serial: 'ABC123' }
@@ -2156,29 +2151,26 @@ describe('Latency logging', () => {
     await new Promise(resolve => setTimeout(resolve, 100))
     
     const onChar = accessory.getService().getCharacteristic()
-    const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as (value: boolean, callback: () => void) => Promise<void>
-    
-    if (setHandler) {
-      const callback = jest.fn()
-      const startTime = Date.now()
-      await setHandler(false, callback)
-      const elapsed = Date.now() - startTime
-      
-      const latencyLogCall = mockLog.mock.calls.find((call: string[]) => 
-        call[0].includes('Latency Test: OFF (HomeKit | Round trip:'),
-      )
-      expect(latencyLogCall).toBeDefined()
-      
-      const match = latencyLogCall?.[0].match(/Round trip: (\d+)ms/)
-      if (match) {
-        const reportedLatency = parseInt(match[1], 10)
-        // The mocked setPower takes ~60ms; assert with margin on both sides so
-        // timer/clock granularity can't make this race at the boundary, while
-        // still proving the reported latency reflects the real elapsed time.
-        expect(reportedLatency).toBeGreaterThanOrEqual(40)
-        expect(reportedLatency).toBeLessThanOrEqual(elapsed + 50)
-      }
-    }
+    const setHandler = onChar.on.mock.calls.find((call: [string, unknown]) => call[0] === 'set')?.[1] as
+      | ((value: boolean, callback: () => void) => Promise<void>)
+      | undefined
+    expect(setHandler).toBeDefined()
+
+    const startTime = Date.now()
+    await setHandler!(false, jest.fn())
+    const elapsed = Date.now() - startTime
+
+    const latencyLogCall = mockLog.mock.calls.find((call: string[]) =>
+      call[0].includes('Latency Test: OFF (HomeKit | Round trip:'),
+    )
+    const match = latencyLogCall?.[0].match(/Round trip: (\d+)ms/)
+    expect(match).toBeTruthy()
+    const reportedLatency = parseInt(match![1], 10)
+    // The mocked write takes ~60ms; assert with margin on both sides so
+    // timer/clock granularity can't make this race at the boundary, while
+    // still proving the reported latency reflects the real elapsed time.
+    expect(reportedLatency).toBeGreaterThanOrEqual(40)
+    expect(reportedLatency).toBeLessThanOrEqual(elapsed + 50)
   })
 
   describe('polling reliability', () => {
@@ -2441,14 +2433,17 @@ describeWithSqlite('PagerDuty signals', () => {
 describe('Write budget, failed-write re-read, and reconnect resync', () => {
   const WRITE_BUDGET_MS = 8000
   const WRITE_FAILURE_RECHECK_MS = 3000
+  const WRITE_COALESCE_MS = 50
   const device = { id: 'dev-1', name: 'Test Light', model: 'DW15S', serial: 'SERIAL-0001' }
 
   type PowerSetter = (value: boolean, callback: (err?: Error) => void) => Promise<void>
+  type LevelSetter = (value: number, callback: (err?: Error) => void) => Promise<void>
   interface Internals {
     currentLoginResponse: { id: string; userId: string; ttl: number } | null
     residenceId: string | null
     isShuttingDown: boolean
     createPowerSetter: (d: typeof device) => PowerSetter
+    createLevelSetter: (d: typeof device) => LevelSetter
     handleWsConnectionChange: (connected: boolean) => void
     pollDevices: () => Promise<void>
     cleanup: () => void
@@ -2476,11 +2471,98 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
   })
 
   const loggedLines = (): string[] => mocks.mockLog.mock.calls.map(([message]) => String(message))
+  const settle = async (pending: Promise<void>): Promise<void> => {
+    await jest.advanceTimersByTimeAsync(WRITE_COALESCE_MS)
+    await pending
+  }
+
+  describe('one request per HomeKit action', () => {
+    it('sends On and Brightness from the same action as one request', async () => {
+      const onCallback = jest.fn()
+      const levelCallback = jest.fn()
+
+      const writes = Promise.all([
+        internals.createPowerSetter(device)(true, onCallback),
+        internals.createLevelSetter(device)(30, levelCallback),
+      ])
+      await settle(writes.then(() => undefined))
+
+      expect(mocks.mockClient.setDeviceState).toHaveBeenCalledTimes(1)
+      expect(mocks.mockClient.setDeviceState).toHaveBeenCalledWith(
+        device.id, 'test-token', { power: 'ON', brightness: 30 }, { signal: expect.any(AbortSignal) },
+      )
+      expect(onCallback).toHaveBeenCalledWith()
+      expect(levelCallback).toHaveBeenCalledWith()
+      expect(loggedLines().filter(line => line.includes('(HomeKit'))).toEqual([
+        expect.stringMatching(/^Test Light: ON 30% \(HomeKit \| Round trip: \d+ms\)$/),
+      ])
+    })
+
+    it('sends OFF without the level, because a level turns the light on', async () => {
+      const writes = Promise.all([
+        internals.createLevelSetter(device)(0, jest.fn()),
+        internals.createPowerSetter(device)(false, jest.fn()),
+      ])
+      await settle(writes.then(() => undefined))
+
+      expect(mocks.mockClient.setDeviceState).toHaveBeenCalledTimes(1)
+      expect(mocks.mockClient.setDeviceState.mock.calls[0][2]).toEqual({ power: 'OFF' })
+    })
+
+    it('sends the latest value when one characteristic is written twice in the window', async () => {
+      const writes = Promise.all([
+        internals.createLevelSetter(device)(20, jest.fn()),
+        internals.createLevelSetter(device)(45, jest.fn()),
+      ])
+      await settle(writes.then(() => undefined))
+
+      expect(mocks.mockClient.setDeviceState).toHaveBeenCalledTimes(1)
+      expect(mocks.mockClient.setDeviceState.mock.calls[0][2]).toEqual({ brightness: 45 })
+    })
+
+    it('sends separate requests for writes further apart than the window', async () => {
+      await settle(internals.createPowerSetter(device)(true, jest.fn()))
+      await settle(internals.createLevelSetter(device)(60, jest.fn()))
+
+      expect(mocks.mockClient.setDeviceState.mock.calls.map(call => call[2])).toEqual([
+        { power: 'ON' },
+        { brightness: 60 },
+      ])
+    })
+
+    it('reports a failed request to every write it carried', async () => {
+      mocks.mockClient.setDeviceState.mockRejectedValue(new Error('upstream 503'))
+      const onCallback = jest.fn()
+      const levelCallback = jest.fn()
+
+      const writes = Promise.all([
+        internals.createPowerSetter(device)(true, onCallback),
+        internals.createLevelSetter(device)(30, levelCallback),
+      ])
+      await settle(writes.then(() => undefined))
+
+      expect(onCallback).toHaveBeenCalledWith(expect.any(Error))
+      expect(levelCallback).toHaveBeenCalledWith(expect.any(Error))
+      expect(loggedLines().some(line => line.includes('Test Light: ON 30% (HomeKit) failed after'))).toBe(true)
+    })
+
+    it('fails waiting writes on shutdown without sending them', async () => {
+      const callback = jest.fn()
+      const pending = internals.createPowerSetter(device)(true, callback)
+
+      internals.cleanup()
+      await pending
+      await jest.advanceTimersByTimeAsync(WRITE_COALESCE_MS)
+
+      expect(callback).toHaveBeenCalledWith(expect.any(Error))
+      expect(mocks.mockClient.setDeviceState).not.toHaveBeenCalled()
+    })
+  })
 
   it('fails a stalled write at the budget and aborts the request', async () => {
     let writeSignal: AbortSignal | undefined
-    mocks.mockClient.setPower.mockImplementation(
-      (_id: string, _token: string, _value: boolean, options: { signal: AbortSignal }) => {
+    mocks.mockClient.setDeviceState.mockImplementation(
+      (_id: string, _token: string, _state: object, options: { signal: AbortSignal }) => {
         writeSignal = options.signal
         return new Promise(() => {})
       },
@@ -2488,7 +2570,7 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
     const callback = jest.fn()
 
     const pending = internals.createPowerSetter(device)(true, callback)
-    await jest.advanceTimersByTimeAsync(WRITE_BUDGET_MS - 1)
+    await jest.advanceTimersByTimeAsync(WRITE_COALESCE_MS + WRITE_BUDGET_MS - 1)
     expect(callback).not.toHaveBeenCalled()
 
     await jest.advanceTimersByTimeAsync(1)
@@ -2501,13 +2583,13 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
   })
 
   it('reports success when the write finishes inside the budget', async () => {
-    mocks.mockClient.setPower.mockImplementation(
+    mocks.mockClient.setDeviceState.mockImplementation(
       () => new Promise(resolve => setTimeout(() => resolve({}), WRITE_BUDGET_MS - 1000)),
     )
     const callback = jest.fn()
 
     const pending = internals.createPowerSetter(device)(false, callback)
-    await jest.advanceTimersByTimeAsync(WRITE_BUDGET_MS - 1000)
+    await jest.advanceTimersByTimeAsync(WRITE_COALESCE_MS + WRITE_BUDGET_MS - 1000)
     await pending
 
     expect(callback).toHaveBeenCalledWith()
@@ -2516,11 +2598,11 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
   })
 
   it('re-reads the device once after a failed write', async () => {
-    mocks.mockClient.setPower.mockRejectedValue(new Error('upstream 503'))
+    mocks.mockClient.setDeviceState.mockRejectedValue(new Error('upstream 503'))
     const setter = internals.createPowerSetter(device)
 
-    await setter(true, jest.fn())
-    await setter(true, jest.fn())
+    await settle(setter(true, jest.fn()))
+    await settle(setter(true, jest.fn()))
     expect(mocks.mockClient.getDeviceStatus).not.toHaveBeenCalled()
 
     await jest.advanceTimersByTimeAsync(WRITE_FAILURE_RECHECK_MS)
@@ -2530,8 +2612,8 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
   })
 
   it('cancels a pending re-read on shutdown', async () => {
-    mocks.mockClient.setPower.mockRejectedValue(new Error('upstream 503'))
-    await internals.createPowerSetter(device)(true, jest.fn())
+    mocks.mockClient.setDeviceState.mockRejectedValue(new Error('upstream 503'))
+    await settle(internals.createPowerSetter(device)(true, jest.fn()))
 
     internals.cleanup()
     await jest.advanceTimersByTimeAsync(WRITE_FAILURE_RECHECK_MS)
@@ -2710,8 +2792,7 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
     })
 
     it('does not treat the echo of a HomeKit write as a command for the next switch report', async () => {
-      const pending = internals.createPowerSetter(device)(true, jest.fn())
-      await pending
+      await settle(internals.createPowerSetter(device)(true, jest.fn()))
       await jest.advanceTimersByTimeAsync(4000)
       push({ power: 'ON', hasClientId: true })
       await jest.advanceTimersByTimeAsync(1001)
@@ -2741,7 +2822,7 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
   describe('external-change logging around HomeKit writes', () => {
     const externalLines = (): string[] => loggedLines().filter(line => /: (ON|OFF|\d+%) \((?!HomeKit)/.test(line))
     const hangSetPower = (): void => {
-      mocks.mockClient.setPower.mockImplementation(() => new Promise(() => {}))
+      mocks.mockClient.setDeviceState.mockImplementation(() => new Promise(() => {}))
     }
 
     it('logs a change with no HomeKit write with its source', () => {
@@ -2767,7 +2848,7 @@ describe('Write budget, failed-write re-read, and reconnect resync', () => {
     it('does not log the re-read after a write that hit the budget', async () => {
       hangSetPower()
       const pending = internals.createPowerSetter(device)(true, jest.fn())
-      await jest.advanceTimersByTimeAsync(WRITE_BUDGET_MS)
+      await jest.advanceTimersByTimeAsync(WRITE_COALESCE_MS + WRITE_BUDGET_MS)
       await pending
 
       await jest.advanceTimersByTimeAsync(WRITE_FAILURE_RECHECK_MS)

@@ -198,7 +198,7 @@ Zone One: OFF (Plugin poll | Round trip: 310ms)
 
 | Label | Meaning |
 |-------|---------|
-| `HomeKit` | A write sent by this plugin. A failed write logs `Zone One: ON (HomeKit) failed after …`. |
+| `HomeKit` | A write sent by this plugin. When one HomeKit action sets both power and brightness (or fan speed), the plugin sends them to Leviton in one request and logs one line, such as `Zone One: ON 40% (HomeKit …)`. A failed write logs `Zone One: ON (HomeKit) failed after …`. |
 | `At switch` | The switch reported a power change on its own, with no cloud command in the 3 seconds before it. This covers rocker presses and Leviton schedules. |
 | `Leviton` | A power change sent through Leviton's cloud, such as the My Leviton app, the web app, or a scene. |
 | `Leviton or switch` | A brightness or fan speed change alone. Leviton's messages look the same for both, so the plugin can't tell them apart. |
@@ -532,6 +532,7 @@ Handles all communication with My Leviton cloud.
 - `getResidences(residenceObjectId, token)` — v2 residences fallback
 - `getDevices(residenceId, token)` — Fetch devices (`iotSwitches`)
 - `getDeviceStatus(deviceId, token)` — Read power, brightness, motion, occupancy
+- `setDeviceState(deviceId, token, { power, brightness })` — Set power, level, or both in one request (used for HomeKit writes)
 - `setPower(deviceId, token, power)` — Turn device on/off
 - `setBrightness(deviceId, token, brightness)` — Set dimmer level
 

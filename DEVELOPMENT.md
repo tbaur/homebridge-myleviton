@@ -140,6 +140,7 @@ Handles all communication with the Leviton cloud.
 | `getResidentialAccount(accountId, token)` | Get residence info |
 | `getDevices(residenceId, token)` | Fetch all devices |
 | `getDeviceStatus(deviceId, token)` | Get device state |
+| `setDeviceState(deviceId, token, { power, brightness })` | Set power, level, or both in one request (used for HomeKit writes) |
 | `setPower(deviceId, token, power)` | Turn device on/off |
 | `setBrightness(deviceId, token, brightness)` | Set dimmer level |
 
