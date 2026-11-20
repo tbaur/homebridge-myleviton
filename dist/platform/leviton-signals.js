@@ -67,8 +67,10 @@ class LevitonSignals {
         }, this.graceMs);
     }
     /**
-     * Report the outcome of a sign-in. Leviton answered either way, so this
-     * also counts as reaching the cloud.
+     * Report the outcome of a sign-in. A rejection counts as reaching the cloud,
+     * so one cause sends one page. An accepted sign-in does not: the plugin can
+     * still fail to load or control devices afterwards, and only
+     * `setCloudReachable(true)` from discovery, polls or push ends an outage.
      */
     recordSignInResult(isRejected) {
         if (this.isClosed) {
@@ -76,7 +78,12 @@ class LevitonSignals {
         }
         this.isAuthRejected = isRejected;
         this.writer.write(exports.SIGNAL_AUTH_FAILED, { active: isRejected, severity: 'critical', summary: AUTH_FAILED_SUMMARY });
-        this.setCloudReachable(true);
+        if (isRejected) {
+            this.setCloudReachable(true);
+        }
+        else {
+            this.writeCloudOffline();
+        }
     }
     /** Stop the grace timer and close the store. Never clears a signal. */
     close() {

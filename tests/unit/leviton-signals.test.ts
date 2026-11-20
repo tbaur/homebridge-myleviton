@@ -139,6 +139,15 @@ describe('LevitonSignals', () => {
 
       expect(lastState(writer, SIGNAL_AUTH_FAILED)).toMatchObject({ active: false })
     })
+
+    it('does not stop the cloud-offline grace period, because devices may still fail to load', () => {
+      signals.start()
+      jest.advanceTimersByTime(CLOUD_OFFLINE_GRACE_MS - 1000)
+      signals.recordSignInResult(false)
+      jest.advanceTimersByTime(1000)
+
+      expect(lastState(writer, SIGNAL_CLOUD_OFFLINE)).toMatchObject({ active: true })
+    })
   })
 
   describe('close', () => {
