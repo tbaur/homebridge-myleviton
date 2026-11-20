@@ -383,34 +383,63 @@ describe('LevitonWebSocket', () => {
       ws.close()
     })
 
-    it('should flag rssi and client_id without passing their values on', () => {
-      const ws = new LevitonWebSocket(
-        loginResponse,
-        devices,
-        mockCallback,
-        mockLogger,
-      )
+    describe('frame sender and change reason', () => {
+      const SWITCH_DST = { dstStart: 1700000000, dstEnd: 1700040000, dstOffset: 60 }
+      const CLOUD_DST = { dstStart: 0, dstEnd: 0, dstOffset: 0 }
+      const deliver = (data: object): void => {
+        const ws = new LevitonWebSocket(loginResponse, devices, mockCallback, mockLogger)
+        ws.connect()
+        const mock = getLastMockInstance()
+        mock.triggerOpen()
+        mock.triggerMessage({ type: 'notification', notification: { modelId: 'dev1', data } })
+        ws.close()
+      }
 
-      ws.connect()
-      const mock = getLastMockInstance()
-      mock.triggerOpen()
-      mock.triggerMessage({
-        type: 'notification',
-        notification: { modelId: 'dev1', data: { power: 'ON', rssi: -60 } },
-      })
-      mock.triggerMessage({
-        type: 'notification',
-        notification: { modelId: 'dev1', data: { power: 'OFF', client_id: 'test-client' } },
-      })
-      mock.triggerMessage({
-        type: 'notification',
-        notification: { modelId: 'dev1', data: { rssi: -60 } },
+      it('marks a cloud command by its zeroed DST fields, with or without a client_id', () => {
+        deliver({ power: 'ON', ...CLOUD_DST })
+        deliver({ power: 'OFF', client_id: 'test-client', client_secret: 'test-secret', ...CLOUD_DST })
+
+        expect(mockCallback).toHaveBeenNthCalledWith(1, { id: 'dev1', power: 'ON', sender: 'cloud' })
+        expect(mockCallback).toHaveBeenNthCalledWith(2, { id: 'dev1', power: 'OFF', sender: 'cloud', hasClientId: true })
       })
 
-      expect(mockCallback).toHaveBeenCalledTimes(2)
-      expect(mockCallback).toHaveBeenNthCalledWith(1, { id: 'dev1', power: 'ON', rssiInFrame: true })
-      expect(mockCallback).toHaveBeenNthCalledWith(2, { id: 'dev1', power: 'OFF', hasClientId: true })
-      ws.close()
+      it('marks a switch report by rssi, chgReason, or real DST dates, and passes chgReason on', () => {
+        deliver({ power: 'ON', rssi: -60, chgReason: 1, ...SWITCH_DST })
+        deliver({ power: 'ON', brightness: 30, chgReason: 3, ...SWITCH_DST })
+        deliver({ power: 'OFF', ...SWITCH_DST })
+        deliver({ power: 'OFF', rssi: -60 })
+
+        expect(mockCallback.mock.calls.map(([payload]) => payload)).toEqual([
+          { id: 'dev1', power: 'ON', sender: 'switch', changeReason: 1 },
+          { id: 'dev1', power: 'ON', brightness: 30, sender: 'switch', changeReason: 3 },
+          { id: 'dev1', power: 'OFF', sender: 'switch' },
+          { id: 'dev1', power: 'OFF', sender: 'switch' },
+        ])
+      })
+
+      it('leaves the sender out when the frame shows none, and drops a non-integer chgReason', () => {
+        deliver({ power: 'ON' })
+        deliver({ power: 'OFF', chgReason: '3', ...SWITCH_DST })
+        deliver({ power: 'ON', chgReason: 1.5, ...SWITCH_DST })
+
+        expect(mockCallback.mock.calls.map(([payload]) => payload)).toEqual([
+          { id: 'dev1', power: 'ON' },
+          { id: 'dev1', power: 'OFF', sender: 'switch' },
+          { id: 'dev1', power: 'ON', sender: 'switch' },
+        ])
+      })
+
+      it('ignores a switch report that carries no state', () => {
+        deliver({ rssi: -60, chgReason: 3, ...SWITCH_DST })
+
+        expect(mockCallback).not.toHaveBeenCalled()
+      })
+
+      it('shows the sender and change reason in the debug line', () => {
+        deliver({ power: 'ON', brightness: 30, chgReason: 3, ...SWITCH_DST })
+
+        expect(mockLogger.debug).toHaveBeenCalledWith('Device update: dev1 power=ON brightness=30 sender=switch changeReason=3')
+      })
     })
 
     it('should ignore a payload whose only fields are invalid', () => {

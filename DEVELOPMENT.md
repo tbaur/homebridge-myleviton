@@ -119,7 +119,7 @@ applyDeviceUpdate(payload, origin) // Apply a push or status read and log its so
 isStaleStatus(deviceId, requestedAt, status) // Drop a status read older than the last push
 ```
 
-Change sources come from three fields of each WebSocket message. `rssi` is only sent by the switch itself. `client_id` is only present on changes written by an API client. `lastUpdated` gives the delivery time. `websocket.ts` passes on whether `rssi` and `client_id` were present (`rssiInFrame`, `hasClientId`), never their values. See "Change Log Lines" in `docs/README-DETAILED.md` for the labels.
+Change sources come from the fields of each WebSocket message. A cloud command has `client_id` (API clients only) and zeroed `dstStart`/`dstEnd`. A switch report has `rssi`, `chgReason`, or a non-zero `dstStart`, and often all three. `websocket.ts` passes on who sent the message (`sender`), the switch's `chgReason` (`changeReason`), and whether a `client_id` was present (`hasClientId`), never the `client_id` value. `lastUpdated` gives the delivery time. `classifyPush` in `platform.ts` turns these into a label. See "Change Log Lines" in `docs/README-DETAILED.md` for the labels.
 
 **Device models** live in `src/platform/device-models.ts` (imported by the platform):
 

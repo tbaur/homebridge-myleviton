@@ -97,6 +97,7 @@ describe('DiagnosticsCollector', () => {
       collector.command()
       collector.externalChange('atSwitch')
       collector.externalChange('atSwitch')
+      collector.externalChange('switchCommand')
       collector.externalChange('pluginPoll')
       collector.retry()
       collector.tokenRefresh()
@@ -111,9 +112,16 @@ describe('DiagnosticsCollector', () => {
       expect(first.polling.failed).toBe(1)
       expect(first.polling.lastDurationMs).toBe(42)
       expect(first.activity.commandsSent).toBe(2)
-      expect(first.activity.externalChanges).toBe(3)
+      expect(first.activity.externalChanges).toBe(4)
       expect(first.activity.externalChangesBySource).toEqual({
-        atSwitch: 2, leviton: 0, levitonOrSwitch: 0, otherApiClient: 0, pluginPoll: 1,
+        atSwitch: 2,
+        switchCommand: 1,
+        switchTimer: 0,
+        switchSchedule: 0,
+        leviton: 0,
+        levitonOrSwitch: 0,
+        otherApiClient: 0,
+        pluginPoll: 1,
       })
       expect(first.activity.retries).toBe(1)
       expect(first.token.refreshes).toBe(1)

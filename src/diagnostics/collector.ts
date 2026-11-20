@@ -26,7 +26,16 @@ const LATENCY_WINDOW = 200
 const OUTCOME_WINDOW = 50
 
 /** Every change source, in the order diagnostics report them. */
-const CHANGE_SOURCES: readonly ChangeSource[] = ['atSwitch', 'leviton', 'levitonOrSwitch', 'otherApiClient', 'pluginPoll']
+const CHANGE_SOURCES: readonly ChangeSource[] = [
+  'atSwitch',
+  'switchCommand',
+  'switchTimer',
+  'switchSchedule',
+  'leviton',
+  'levitonOrSwitch',
+  'otherApiClient',
+  'pluginPoll',
+]
 
 /** Minimum recent requests before the API error rate can mark health degraded. */
 const API_ERROR_MIN_SAMPLES = 10
@@ -446,7 +455,16 @@ interface CounterValues {
 
 /** A zero count for every change source. */
 function emptySourceCounts(): Record<ChangeSource, number> {
-  return { atSwitch: 0, leviton: 0, levitonOrSwitch: 0, otherApiClient: 0, pluginPoll: 0 }
+  return {
+    atSwitch: 0,
+    switchCommand: 0,
+    switchTimer: 0,
+    switchSchedule: 0,
+    leviton: 0,
+    levitonOrSwitch: 0,
+    otherApiClient: 0,
+    pluginPoll: 0,
+  }
 }
 
 /** Per-source counts in `current` minus those in `previous`. */

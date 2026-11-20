@@ -190,22 +190,27 @@ Each state change is logged with where it came from:
 ```text
 Zone One: ON (HomeKit | Round trip: 520ms)
 Zone One: OFF (At switch | Delivery: 43ms)
+Zone One: ON 30% (Switch applied command | Delivery: 48ms)
 Zone One: ON (Leviton | Delivery: 42ms)
-Zone One: 40% (Leviton or switch | Delivery: 45ms)
 Zone One: ON (Other API client | Delivery: 45ms)
 Zone One: OFF (Plugin poll | Round trip: 310ms)
 ```
 
+A change to both power and brightness (or fan speed) is logged as one line.
+
 | Label | Meaning |
 |-------|---------|
-| `HomeKit` | A write sent by this plugin. When one HomeKit action sets both power and brightness (or fan speed), the plugin sends them to Leviton in one request and logs one line, such as `Zone One: ON 40% (HomeKit …)`. A failed write logs `Zone One: ON (HomeKit) failed after …`. |
-| `At switch` | The switch reported a power change on its own, with no cloud command in the 3 seconds before it. This covers rocker presses and Leviton schedules. |
-| `Leviton` | A power change sent through Leviton's cloud, such as the My Leviton app, the web app, or a scene. |
-| `Leviton or switch` | A brightness or fan speed change alone. Leviton's messages look the same for both, so the plugin can't tell them apart. |
-| `Other API client` | A change written by another program that uses the Leviton API, not this plugin. |
+| `HomeKit` | A write sent by this plugin. When one HomeKit action sets both power and brightness (or fan speed), the plugin sends them to Leviton in one request. A failed write logs `Zone One: ON (HomeKit) failed after …`. |
+| `At switch` | The switch reported a change of its own, such as a paddle press. Changes from a Leviton schedule can also show this label. |
+| `Switch applied command` | The switch reported that it applied a command from the cloud, and no cloud command for it arrived in the 3 seconds before. Seen right after a paddle press, it means the switch applied an older command late. |
+| `Switch timer` | The switch's auto-off timer turned it off. |
+| `Switch schedule` | A schedule stored on the switch changed it. |
+| `Leviton` | A command sent through Leviton's cloud, such as the My Leviton app, the web app, or a scene. |
+| `Other API client` | A command written by another program that uses the Leviton API, not this plugin. |
+| `Leviton or switch` | The message did not show whether the cloud or the switch sent it. |
 | `Plugin poll` | A change found by the regular status read rather than a WebSocket update. |
 
-A report from the switch within 3 seconds of a cloud command gets that command's label, because the switch confirms each command about a second after it arrives.
+The plugin tells the cloud's messages from the switch's by their fields. A cloud command has zeroed daylight-saving fields, plus a `client_id` when an API client sent it. A switch report has the residence's daylight-saving dates, and usually its signal strength (`rssi`) and a change reason (`chgReason`). When the switch confirms a cloud command within 3 seconds and agrees with it, the confirmation gets the command's label. With `loglevel: debug`, each `Device update:` line shows the `sender` and `changeReason` the plugin read.
 
 `Round trip` is the time from sending the request to Leviton's reply. `Delivery` is the time from Leviton's `lastUpdated` on the change to the moment the plugin received it. The plugin leaves `Delivery` out when that time is missing, negative, or over 60 seconds. Echoes of a HomeKit write within 5 seconds are not logged again.
 
@@ -301,7 +306,7 @@ Health is `degraded` (otherwise `healthy`) if any of the following hold, and eac
 | `polling` | `cadenceSec`, `lastDurationMs` (gauges); `ok`, `failed` (deltas) | mixed |
 | `token` | `expiresInSec`, `lastRefreshAt` (gauges); `refreshes` (delta) | mixed |
 | `api` | `p50Ms`, `p95Ms` (gauges over a bounded recent-latency window); `requests`, `errors` (deltas) | mixed |
-| `activity` | `commandsSent`, `externalChanges`, `externalChangesBySource` (`atSwitch`, `leviton`, `levitonOrSwitch`, `otherApiClient`, `pluginPoll`), `retries` | deltas |
+| `activity` | `commandsSent`, `externalChanges`, `externalChangesBySource` (`atSwitch`, `switchCommand`, `switchTimer`, `switchSchedule`, `leviton`, `levitonOrSwitch`, `otherApiClient`, `pluginPoll`), `retries` | deltas |
 
 Device counts: `cloud`, `stateless`, and `excluded` are included in structured JSON (`devices` group) and in the one-time discovery log at startup; the human-readable diagnostics line shows only the live `on/total` gauge. At discovery, `cloud` counts all devices returned by the API; `total` is the controllable HomeKit accessory count (excludes connectivity sensor and stateless controllers); `stateless` and `excluded` are breakdown counters from the last discovery pass.
 
@@ -330,7 +335,7 @@ Device counts: `cloud`, `stateless`, and `excluded` are included in structured J
   "activity": {
     "commandsSent": 2,
     "externalChanges": 1,
-    "externalChangesBySource": { "atSwitch": 1, "leviton": 0, "levitonOrSwitch": 0, "otherApiClient": 0, "pluginPoll": 0 },
+    "externalChangesBySource": { "atSwitch": 1, "switchCommand": 0, "switchTimer": 0, "switchSchedule": 0, "leviton": 0, "levitonOrSwitch": 0, "otherApiClient": 0, "pluginPoll": 0 },
     "retries": 0
   }
 }

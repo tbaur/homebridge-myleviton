@@ -86,12 +86,10 @@ export declare class LevitonDecoraSmartPlatform {
      */
     private handleWebSocketUpdate;
     /**
-     * Works out where a WebSocket update came from. A client_id means an API
-     * client wrote it. A power change without the switch's rssi is a command
-     * from Leviton (app, web, scenes). A report from the switch shortly after a
-     * command belongs to that command; otherwise a power change with rssi
-     * happened at the switch (rocker or schedule). A level change alone cannot
-     * be told apart.
+     * Works out where a WebSocket update came from. A cloud message is a command:
+     * from an API client when it has a client_id, otherwise from Leviton (app,
+     * web, scenes). A switch message is labeled by its chgReason, except that a
+     * confirmation of a cloud command just before it gets that command's label.
      */
     private classifyPush;
     /** Text inside the parentheses after a change, such as `At switch | Delivery: 40ms`. */
