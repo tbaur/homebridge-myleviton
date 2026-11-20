@@ -66,8 +66,7 @@ The `ws` library surfaces the failed handshake as an `error` event; the plugin l
 3. After **10** quick attempts, continues retrying every **60s** indefinitely (long-tail retry)
 4. Keeps **REST polling** (default every **30s**) so HomeKit state stays current while push reconnects
 5. Re-reads every device as soon as the WebSocket reconnects, so changes made during the drop show up within seconds instead of at the next poll
-
-v3.7.8+ also reduces spurious connectivity flapping during token refresh and reconnect ([changelog #35](https://github.com/tbaur/homebridge-myleviton/pull/35)).
+6. Does not report the cloud as offline for the deliberate reconnect after a token refresh
 
 ### When to ignore it
 
@@ -114,7 +113,7 @@ This plugin slows down Homebridge. The write handler for the characteristic 'On'
 Often near WebSocket `1006` drops, and followed by a normal result line:
 
 ```
-[myleviton] <name>: OFF (Latency: 4200ms)
+[myleviton] <name>: OFF (HomeKit | Round trip: 4200ms)
 ```
 
 ### What it means
@@ -126,15 +125,13 @@ The plugin does not answer HomeKit before Leviton confirms the change. If it did
 ### What the plugin does
 
 1. Finishes every write within **8 seconds**, below HomeKit's 9-second limit, so HomeKit always gets the real result
-2. If Leviton has not confirmed the change by then, cancels the request and reports a failure; Home keeps showing the last confirmed state, and the log shows `<name>: ON failed after ...`
+2. If Leviton has not confirmed the change by then, cancels the request and reports a failure; Home keeps showing the last confirmed state, and the log shows `<name>: ON (HomeKit) failed after ...`
 3. Re-reads that device **3 seconds** after a failed write, because Leviton sometimes applies a change after the request failed
-
-Earlier versions could also log `didn't respond at all!`, because a write could keep retrying for up to 30 seconds.
 
 ### When to ignore it
 
 - Occasional warnings that line up with WebSocket drops or other signs of Leviton slowness
-- The `Latency:` line or the next state update shows the device in the state you asked for
+- The `Round trip:` line or the next state update shows the device in the state you asked for
 
 ### When to follow up
 
