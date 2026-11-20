@@ -41,8 +41,10 @@ export declare class LevitonSignals {
     /** Report whether the Leviton cloud is currently reachable. */
     setCloudReachable(isReachable: boolean): void;
     /**
-     * Report the outcome of a sign-in. Leviton answered either way, so this
-     * also counts as reaching the cloud.
+     * Report the outcome of a sign-in. A rejection counts as reaching the cloud,
+     * so one cause sends one page. An accepted sign-in does not: the plugin can
+     * still fail to load or control devices afterwards, and only
+     * `setCloudReachable(true)` from discovery, polls or push ends an outage.
      */
     recordSignInResult(isRejected: boolean): void;
     /** Stop the grace timer and close the store. Never clears a signal. */

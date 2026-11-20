@@ -2512,6 +2512,22 @@ describeWithSqlite('PagerDuty signals', () => {
       jest.useRealTimers()
     }
   })
+
+  it('turns on cloud-offline when sign-in works but discovery keeps failing', async () => {
+    jest.useFakeTimers()
+    try {
+      mocks.mockClient.getResidentialPermissions.mockRejectedValue(new Error('502 Bad Gateway'))
+      new LevitonDecoraSmartPlatform(mocks.mockLog, signalsConfig, mocks.mockAPI)
+      mocks.mockAPI.emit('didFinishLaunching')
+
+      await jest.advanceTimersByTimeAsync(CLOUD_OFFLINE_GRACE_MS)
+
+      expect(readActive()).toEqual({ 'auth-failed': 0, 'cloud-offline': 1 })
+    } finally {
+      mocks.mockAPI.emit('shutdown')
+      jest.useRealTimers()
+    }
+  })
 })
 
 describe('Write budget, failed-write re-read, and reconnect resync', () => {
