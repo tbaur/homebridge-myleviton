@@ -117,6 +117,28 @@ describe('CircuitBreaker', () => {
       expect(breaker.canRequest()).toBe(false)
     })
 
+    it('reopens a half-open slot when a probe is released', () => {
+      const breaker = new CircuitBreaker({
+        failureThreshold: 1,
+        resetTimeout: 1000,
+        halfOpenMax: 1,
+      })
+
+      breaker.recordFailure()
+      jest.advanceTimersByTime(1100)
+      expect(breaker.canRequest()).toBe(true)
+      breaker.trackHalfOpenRequest()
+      expect(breaker.canRequest()).toBe(false)
+
+      breaker.releaseHalfOpenRequest()
+      expect(breaker.canRequest()).toBe(true)
+      expect(breaker.state).toBe(CircuitState.HALF_OPEN)
+
+      // A release with no slot taken does nothing.
+      breaker.releaseHalfOpenRequest()
+      expect(breaker.getStatus().halfOpenRequests).toBe(0)
+    })
+
     it('should close after enough successes in half-open', () => {
       const breaker = new CircuitBreaker({ 
         failureThreshold: 1,

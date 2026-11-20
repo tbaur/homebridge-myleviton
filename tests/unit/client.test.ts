@@ -622,6 +622,67 @@ describe('LevitonApiClient', () => {
     })
   })
 
+  describe('circuit breaker recovery', () => {
+    let now: number
+    let nowSpy: jest.SpyInstance
+
+    beforeEach(() => {
+      now = 1_000_000
+      nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+    })
+
+    afterEach(() => {
+      nowSpy.mockRestore()
+    })
+
+    const tripBreaker = async (breakerClient: LevitonApiClient): Promise<void> => {
+      for (let i = 0; i < 5; i++) {
+        mockErrorResponse(500, 'Server Error')
+        await expect(breakerClient.getDevices('res1', 'token123')).rejects.toThrow(ApiResponseError)
+      }
+      await expect(breakerClient.getDevices('res1', 'token123')).rejects.toThrow('circuit breaker open')
+      now += 30_000
+    }
+
+    it('closes after Leviton answers half-open probes with client errors', async () => {
+      const breakerClient = new LevitonApiClient({ timeout: 1000, maxRetryAttempts: 1 })
+      await tripBreaker(breakerClient)
+
+      for (let i = 0; i < 3; i++) {
+        mockErrorResponse(404, 'Not Found')
+        await expect(breakerClient.getDevices('res1', 'token123')).rejects.toThrow('404')
+      }
+
+      mockJsonResponse([])
+      await expect(breakerClient.getDevices('res1', 'token123')).resolves.toEqual([])
+      expect(breakerClient.getStatus().circuitBreaker.state).toBe('CLOSED')
+    })
+
+    it('gives back the half-open slot when the caller cancels a probe', async () => {
+      const breakerClient = new LevitonApiClient({ timeout: 60000, maxRetryAttempts: 1 })
+      await tripBreaker(breakerClient)
+
+      for (let i = 0; i < 3; i++) {
+        const controller = new AbortController()
+        mockFetch.mockImplementationOnce((_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => {
+              const error = new Error('aborted')
+              error.name = 'AbortError'
+              reject(error)
+            })
+          }),
+        )
+        const pending = breakerClient.setPower('dev1', 'token123', true, { signal: controller.signal })
+        controller.abort(new Error('cancelled'))
+        await expect(pending).rejects.toThrow('cancelled')
+      }
+
+      mockJsonResponse([])
+      await expect(breakerClient.getDevices('res1', 'token123')).resolves.toEqual([])
+    })
+  })
+
   describe('cache management', () => {
     it('should clear cache', () => {
       client.clearCache()

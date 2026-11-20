@@ -14,6 +14,7 @@ import {
   ApiParseError,
   ApiResponseError,
   createApiError,
+  LevitonError,
   ValidationError,
 } from '../errors'
 import { RateLimiter } from './rate-limiter'
@@ -370,8 +371,8 @@ export class LevitonApiClient {
       }
     }
 
-    // Track half-open request
-    if (!bypassCircuitBreaker && this.circuitBreaker.state === CircuitState.HALF_OPEN) {
+    const isHalfOpenProbe = !bypassCircuitBreaker && this.circuitBreaker.state === CircuitState.HALF_OPEN
+    if (isHalfOpenProbe) {
       this.circuitBreaker.trackHalfOpenRequest()
     }
 
@@ -412,8 +413,16 @@ export class LevitonApiClient {
     } catch (error) {
       // A single failure is recorded per logical request after retries are
       // exhausted, so retries don't artificially accelerate the breaker.
-      if (!bypassCircuitBreaker && isCircuitBreakerFailure(error)) {
-        this.circuitBreaker.recordFailure()
+      if (!bypassCircuitBreaker) {
+        if (isCircuitBreakerFailure(error)) {
+          this.circuitBreaker.recordFailure()
+        } else if (error instanceof LevitonError && error.httpStatus !== undefined) {
+          // Leviton answered, so the service is up even though it refused
+          // this request. In half-open this counts toward closing the circuit.
+          this.circuitBreaker.recordSuccess()
+        } else if (isHalfOpenProbe) {
+          this.circuitBreaker.releaseHalfOpenRequest()
+        }
       }
       throw error
     }

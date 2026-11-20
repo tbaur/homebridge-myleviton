@@ -101,6 +101,12 @@ export declare class CircuitBreaker {
      */
     trackHalfOpenRequest(): void;
     /**
+     * Give back a half-open slot for a request that ended without telling us
+     * whether the service is healthy (for example, the caller cancelled it).
+     * Without this the slots run out and the circuit stays half-open for good.
+     */
+    releaseHalfOpenRequest(): void;
+    /**
      * Reset the circuit breaker to closed state
      */
     reset(): void;
