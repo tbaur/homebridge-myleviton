@@ -458,8 +458,16 @@ export class LevitonDecoraSmartPlatform {
           continue
         }
 
+        // Button controllers have no on/off or level to show. Older versions
+        // registered them as empty accessories, which HomeKit shows as "Not
+        // Supported", so drop any such cached accessory.
         if (isStatelessControllerModel(device.model)) {
+          const existingAccessory = this.findAccessoryByDevice(device)
+          if (existingAccessory) {
+            this.removeCachedAccessory(existingAccessory)
+          }
           statelessCount++
+          continue
         }
 
         // Check if we have a cached accessory for this device
@@ -1965,7 +1973,7 @@ export class LevitonDecoraSmartPlatform {
 
     const pollTargets = this.accessories
       .map(accessory => accessory.context?.device)
-      .filter((device): device is DeviceInfo => Boolean(device?.id))
+      .filter((device): device is DeviceInfo => Boolean(device?.id) && !isStatelessControllerModel(device?.model))
 
     // Track whether any device fetch succeeded this cycle so the polling loop
     // can double as a cloud-reachability heartbeat for the connectivity sensor.
