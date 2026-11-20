@@ -56,7 +56,7 @@ This document is a **point-in-time assessment** after a distinguished/principal-
 | Area | Status | Notes |
 |------|--------|-------|
 | **Leveled / Structured Logs** | ✅ | Plain-text lines stay human-readable; structured JSON context is emitted only when `structuredLogs` is enabled |
-| **Diagnostics** | ✅ | Null WebSocket no longer false-positives `webSocketDown`; health rollup documented |
+| **Diagnostics** | ✅ | A missing WebSocket does not report a false `webSocketDown`; health rollup documented |
 | **Config Schema ↔ Validators** | ✅ | `diagnosticsInterval` 1–29 documented as runtime-rejected; deprecated `pollingInterval` in schema |
 | **Status Endpoints** | ✅ | `client.getStatus()`, `ws.getStatus()`, `persistence.getStats()` |
 | **Integration Smoke Tests** | ✅ | `tests/integration/smoke.test.ts` (no live API) |
