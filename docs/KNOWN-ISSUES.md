@@ -97,7 +97,9 @@ These are also common on Leviton's endpoint and handled the same way (reconnect 
 | Connection dropped | `WebSocket closed: 1006 (connection dropped)` | The server or a proxy ended the connection without a close frame; reconnect scheduled |
 | Silent connection | `WebSocket silent for 61s; reconnecting` | Nothing arrived for two 30s ping cycles; the plugin closes the socket and reconnects |
 | Connection timeout | `WebSocket connection timeout` | No response within `connectionTimeout` (default 10s); reconnect scheduled |
-| Token refresh reconnect | `WebSocket closed by user` then reconnect | Deliberate reconnect after token refresh; not an outage |
+| Never ready | `WebSocket opened but was not ready in time; reconnecting` | The socket opened but Leviton did not finish sign-in within `connectionTimeout`; reconnect scheduled |
+| Auth close | `WebSocket auth failed: 1008 ...; retrying in 60s` | Leviton refused the token on the socket. The plugin retries every 60s and reconnects right away after the next token refresh. Only the first one in a row is a warning |
+| Token refresh reconnect | `WebSocket authenticated and ready` with no close line before it | Deliberate reconnect after token refresh; not an outage |
 
 Ensure your network allows outbound **HTTPS/WSS** to `my.leviton.com` if disconnects are constant (not occasional).
 
