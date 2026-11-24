@@ -5,6 +5,13 @@ All notable changes to homebridge-myleviton will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.3.0](https://github.com/tbaur/homebridge-myleviton/compare/v4.2.4...v4.3.0) (2026-11-24)
+
+
+### Features
+
+* log WebSocket connection length and load balancer address changes ([53ea345](https://github.com/tbaur/homebridge-myleviton/commit/53ea345f3d86dca987edc8feceb62c384e0624d6))
+
 ## [4.2.4](https://github.com/tbaur/homebridge-myleviton/compare/v4.2.3...v4.2.4) (2026-11-20)
 
 
