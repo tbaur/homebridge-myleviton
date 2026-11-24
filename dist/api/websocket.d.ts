@@ -11,6 +11,7 @@
  * 2. Send the ENTIRE login response as token, not just the id
  * 3. Include Origin header for authentication
  */
+import { type LookupAddress, type LookupOptions } from 'dns';
 import type { WebSocketPayload, DeviceInfo, Logger, LoginResponse } from '../types';
 /**
  * WebSocket configuration
@@ -34,7 +35,11 @@ export interface WebSocketConfig {
      * Used to surface real-time connectivity (e.g. a HomeKit status sensor).
      */
     onConnectionChange?: (connected: boolean) => void;
+    /** Resolves every address of a host. Defaults to the system resolver. */
+    resolveAll?: (host: string, options: LookupOptions) => Promise<LookupAddress[]>;
 }
+/** Formats a duration as "45s", "12m 5s" or "3h 12m". */
+export declare function formatDuration(ms: number): string;
 /**
  * Default WebSocket configuration
  * Note: Uses native WebSocket endpoint, NOT SockJS
@@ -70,6 +75,13 @@ export declare class LevitonWebSocket {
     private pingTimer;
     private handshakeTimer;
     private consecutiveAuthCloses;
+    /** Server address of the current connection, from the upgrade response. */
+    private remoteAddress;
+    private openedAt;
+    /** Sorted addresses from the last successful lookup of the socket host. */
+    private knownAddresses;
+    /** Increments for each new socket so a late lookup from an old one is ignored. */
+    private connectionGeneration;
     private isConnecting;
     private isClosed;
     /**
@@ -110,6 +122,14 @@ export declare class LevitonWebSocket {
      * Setup WebSocket event handlers
      */
     private setupEventHandlers;
+    /**
+     * DNS lookup for one socket. Resolves every address so a change in Leviton's
+     * load balancer addresses can be logged, then hands the socket the same
+     * answer the default lookup would.
+     */
+    private createLookup;
+    private lookup;
+    private recordAddresses;
     /**
      * Handle incoming message
      */

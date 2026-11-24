@@ -17,10 +17,29 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.LevitonWebSocket = exports.DEFAULT_WEBSOCKET_CONFIG = void 0;
+exports.formatDuration = formatDuration;
 exports.createWebSocket = createWebSocket;
+const dns_1 = require("dns");
 const ws_1 = __importDefault(require("ws"));
 const sanitizers_1 = require("../utils/sanitizers");
 const validators_1 = require("../utils/validators");
+function resolveAllWithSystemDns(host, options) {
+    return dns_1.promises.lookup(host, { ...options, all: true });
+}
+/** Formats a duration as "45s", "12m 5s" or "3h 12m". */
+function formatDuration(ms) {
+    const totalSec = Math.max(0, Math.round(ms / 1000));
+    const hours = Math.floor(totalSec / 3600);
+    const minutes = Math.floor((totalSec % 3600) / 60);
+    const seconds = totalSec % 60;
+    if (hours > 0) {
+        return `${hours}h ${minutes}m`;
+    }
+    if (minutes > 0) {
+        return `${minutes}m ${seconds}s`;
+    }
+    return `${seconds}s`;
+}
 /**
  * Default WebSocket configuration
  * Note: Uses native WebSocket endpoint, NOT SockJS
@@ -111,6 +130,13 @@ class LevitonWebSocket {
     pingTimer = null;
     handshakeTimer = null;
     consecutiveAuthCloses = 0;
+    /** Server address of the current connection, from the upgrade response. */
+    remoteAddress = null;
+    openedAt = null;
+    /** Sorted addresses from the last successful lookup of the socket host. */
+    knownAddresses = null;
+    /** Increments for each new socket so a late lookup from an old one is ignored. */
+    connectionGeneration = 0;
     isConnecting = false;
     isClosed = false;
     /**
@@ -214,6 +240,7 @@ class LevitonWebSocket {
                     'Pragma': 'no-cache',
                     'Cache-Control': 'no-cache',
                 },
+                lookup: this.createLookup(++this.connectionGeneration),
             });
             this.setupEventHandlers();
         }
@@ -257,16 +284,27 @@ class LevitonWebSocket {
         }, this.config.connectionTimeout);
         this.timers.push(connectionTimeout);
         this.handshakeTimer = connectionTimeout;
+        this.ws.on('upgrade', (response) => {
+            this.remoteAddress = response.socket?.remoteAddress ?? null;
+        });
         this.ws.on('open', () => {
             this.reconnectTimer = null;
             isOpen = true;
             this.isConnecting = false;
+            this.openedAt = Date.now();
+            if (this.remoteAddress) {
+                const dns = this.knownAddresses ? ` (DNS: ${this.knownAddresses.join(', ')})` : '';
+                this.logger.debug(`WebSocket server: ${this.remoteAddress}${dns}`);
+            }
             this.logger.debug(`WebSocket connected (token: ${(0, sanitizers_1.maskToken)(this.loginResponse.id)})`);
         });
         this.ws.on('close', (code, reason) => {
             this.clearTimers();
+            const after = isOpen && this.openedAt !== null ? ` after ${formatDuration(Date.now() - this.openedAt)}` : '';
             isOpen = false;
             this.isConnecting = false;
+            this.remoteAddress = null;
+            this.openedAt = null;
             const reasonStr = reason?.toString() || '';
             // Closed externally
             if (this.isClosed) {
@@ -294,12 +332,12 @@ class LevitonWebSocket {
             }
             // Remote normal closes still require reconnecting to preserve push updates.
             if (code === 1000) {
-                this.logger.info('WebSocket closed normally by remote');
+                this.logger.info(`WebSocket closed normally by remote${after}`);
                 this.scheduleReconnect();
                 return;
             }
             const codeDesc = CLOSE_CODES[code] || 'unknown';
-            this.logger.info(`WebSocket closed: ${code} (${codeDesc})`);
+            this.logger.info(`WebSocket closed: ${code} (${codeDesc})${after}`);
             this.scheduleReconnect();
         });
         this.ws.on('error', (error) => {
@@ -325,6 +363,41 @@ class LevitonWebSocket {
         this.ws.on('ping', () => {
             this.lastInboundAt = Date.now();
         });
+    }
+    /**
+     * DNS lookup for one socket. Resolves every address so a change in Leviton's
+     * load balancer addresses can be logged, then hands the socket the same
+     * answer the default lookup would.
+     */
+    createLookup(generation) {
+        return (hostname, options, callback) => this.lookup(generation, hostname, options, callback);
+    }
+    lookup(generation, ...[hostname, options, callback]) {
+        const resolveAll = this.config.resolveAll ?? resolveAllWithSystemDns;
+        resolveAll(hostname, options).then(addresses => {
+            const first = addresses[0];
+            if (!first) {
+                callback(Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), { code: 'ENOTFOUND' }), '');
+                return;
+            }
+            if (generation === this.connectionGeneration) {
+                this.recordAddresses(addresses.map(entry => entry.address));
+            }
+            if (options.all) {
+                callback(null, addresses);
+            }
+            else {
+                callback(null, first.address, first.family);
+            }
+        }, (error) => callback(error instanceof Error ? error : new Error(String(error)), ''));
+    }
+    recordAddresses(addresses) {
+        const current = [...new Set(addresses)].sort();
+        const previous = this.knownAddresses;
+        this.knownAddresses = current;
+        if (previous && previous.join(',') !== current.join(',')) {
+            this.logger.info(`Load balancer addresses changed: ${current.join(', ')} (was ${previous.join(', ')})`);
+        }
     }
     /**
      * Handle incoming message

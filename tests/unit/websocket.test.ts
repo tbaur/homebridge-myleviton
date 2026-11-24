@@ -20,8 +20,11 @@ class MockWebSocket extends EventEmitter {
   ping = jest.fn()
   terminate = jest.fn(() => this.triggerClose(1006, ''))
 
-  constructor(_url: string, _options?: unknown) {
+  options: { lookup?: (host: string, opts: object, cb: (...args: unknown[]) => void) => void } | undefined
+
+  constructor(_url: string, options?: MockWebSocket['options']) {
     super()
+    this.options = options
     MockWebSocket.mockConstructor()
     MockWebSocket.instances.push(this)
   }
@@ -60,7 +63,7 @@ class MockWebSocket extends EventEmitter {
 // Mock the ws module before importing
 jest.mock('ws', () => MockWebSocket)
 
-import { LevitonWebSocket, createWebSocket } from '../../src/api/websocket'
+import { LevitonWebSocket, createWebSocket, formatDuration } from '../../src/api/websocket'
 import type { LoginResponse } from '../../src/types'
 
 describe('LevitonWebSocket', () => {
@@ -1262,5 +1265,134 @@ describe('createWebSocket', () => {
     expect(ws).toBeInstanceOf(LevitonWebSocket)
     expect(MockWebSocket.mockConstructor).toHaveBeenCalled()
     ws.close()
+  })
+})
+
+describe('LevitonWebSocket load balancer logging', () => {
+  const login: LoginResponse = { id: 'token123', userId: 'user456', ttl: 1209600 }
+  let logger: { debug: jest.Mock; info: jest.Mock; warn: jest.Mock; error: jest.Mock }
+
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+  })
+
+  const infoLines = () => logger.info.mock.calls.map(call => String(call[0]))
+  const debugLines = () => logger.debug.mock.calls.map(call => String(call[0]))
+  const lastSocket = () => MockWebSocket.instances[MockWebSocket.instances.length - 1]
+  const runLookup = (opts: object = {}) => new Promise<unknown[]>(resolve => {
+    lastSocket().options?.lookup?.('my.leviton.com', opts, (...args: unknown[]) => resolve(args))
+  })
+  const addrs = (...list: string[]) => list.map(address => ({ address, family: 4 }))
+
+  it('adds the connection length to the close line', () => {
+    const ws = new LevitonWebSocket(login, [], jest.fn(), logger)
+    ws.connect()
+    lastSocket().triggerOpen()
+    lastSocket().triggerClose(1006)
+
+    expect(infoLines()).toContainEqual(expect.stringMatching(/^WebSocket closed: 1006 \(connection dropped\) after \d+s$/))
+    ws.close()
+  })
+
+  it('leaves the length off when the socket never opened', () => {
+    const ws = new LevitonWebSocket(login, [], jest.fn(), logger)
+    ws.connect()
+    lastSocket().triggerClose(1006)
+
+    expect(infoLines()).toContain('WebSocket closed: 1006 (connection dropped)')
+    ws.close()
+  })
+
+  it('logs the server and DNS addresses at debug on connect', async () => {
+    const resolveAll = jest.fn().mockResolvedValue(addrs('192.0.2.11', '192.0.2.10'))
+    const ws = new LevitonWebSocket(login, [], jest.fn(), logger, { resolveAll })
+    ws.connect()
+    await expect(runLookup()).resolves.toEqual([null, '192.0.2.11', 4])
+    lastSocket().emit('upgrade', { socket: { remoteAddress: '192.0.2.11' } })
+    lastSocket().triggerOpen()
+
+    expect(debugLines()).toContain('WebSocket server: 192.0.2.11 (DNS: 192.0.2.10, 192.0.2.11)')
+    expect(infoLines().some(line => line.startsWith('Load balancer'))).toBe(false)
+    ws.close()
+  })
+
+  it('logs one line when the addresses change between connections', async () => {
+    const resolveAll = jest.fn()
+      .mockResolvedValueOnce(addrs('192.0.2.10', '192.0.2.11'))
+      .mockResolvedValueOnce(addrs('192.0.2.21', '192.0.2.20'))
+    const ws = new LevitonWebSocket(login, [], jest.fn(), logger, { resolveAll })
+    ws.connect()
+    await runLookup()
+    ws.forceReconnect()
+    await runLookup()
+
+    expect(infoLines().filter(line => line.startsWith('Load balancer'))).toEqual([
+      'Load balancer addresses changed: 192.0.2.20, 192.0.2.21 (was 192.0.2.10, 192.0.2.11)',
+    ])
+    ws.close()
+  })
+
+  it('logs nothing when the same addresses come back in a different order', async () => {
+    const resolveAll = jest.fn()
+      .mockResolvedValueOnce(addrs('192.0.2.10', '192.0.2.11'))
+      .mockResolvedValueOnce(addrs('192.0.2.11', '192.0.2.10'))
+    const ws = new LevitonWebSocket(login, [], jest.fn(), logger, { resolveAll })
+    ws.connect()
+    await runLookup()
+    ws.forceReconnect()
+    await runLookup()
+
+    expect(infoLines().some(line => line.startsWith('Load balancer'))).toBe(false)
+    ws.close()
+  })
+
+  it('ignores a lookup that finishes after a newer connection started', async () => {
+    let finishStale: (value: Array<{ address: string; family: number }>) => void = () => {}
+    const resolveAll = jest.fn()
+      .mockResolvedValue(addrs('192.0.2.10', '192.0.2.11'))
+      .mockResolvedValueOnce(addrs('192.0.2.10', '192.0.2.11'))
+      .mockReturnValueOnce(new Promise(resolve => { finishStale = resolve }))
+      .mockResolvedValueOnce(addrs('192.0.2.10', '192.0.2.11'))
+    const ws = new LevitonWebSocket(login, [], jest.fn(), logger, { resolveAll })
+    ws.connect()
+    await runLookup()
+    ws.forceReconnect()
+    const staleLookup = runLookup()
+    ws.forceReconnect()
+    await runLookup()
+    finishStale(addrs('192.0.2.20', '192.0.2.21'))
+    await staleLookup
+    ws.forceReconnect()
+    await runLookup()
+
+    expect(infoLines().some(line => line.startsWith('Load balancer'))).toBe(false)
+    ws.close()
+  })
+
+  it('returns every address when the socket asks for all of them', async () => {
+    const resolveAll = jest.fn().mockResolvedValue(addrs('192.0.2.10', '192.0.2.11'))
+    const ws = new LevitonWebSocket(login, [], jest.fn(), logger, { resolveAll })
+    ws.connect()
+
+    await expect(runLookup({ all: true })).resolves.toEqual([null, addrs('192.0.2.10', '192.0.2.11')])
+    ws.close()
+  })
+
+  it('passes lookup errors to the socket without logging', async () => {
+    const error = Object.assign(new Error('getaddrinfo ENOTFOUND my.leviton.com'), { code: 'ENOTFOUND' })
+    const resolveAll = jest.fn().mockRejectedValue(error)
+    const ws = new LevitonWebSocket(login, [], jest.fn(), logger, { resolveAll })
+    ws.connect()
+
+    await expect(runLookup()).resolves.toEqual([error, ''])
+    expect(infoLines()).toEqual([])
+    ws.close()
+  })
+
+  it('formats durations', () => {
+    expect(formatDuration(45_000)).toBe('45s')
+    expect(formatDuration(725_000)).toBe('12m 5s')
+    expect(formatDuration(11_520_000)).toBe('3h 12m')
   })
 })

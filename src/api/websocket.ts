@@ -12,6 +12,9 @@
  * 3. Include Origin header for authentication
  */
 
+import { promises as dnsPromises, type LookupAddress, type LookupOptions } from 'dns'
+import type { IncomingMessage } from 'http'
+import type { LookupFunction } from 'net'
 import WebSocket from 'ws'
 import { maskToken, createResponsePreview } from '../utils/sanitizers'
 import { parseTimestamp } from '../utils/validators'
@@ -39,6 +42,27 @@ export interface WebSocketConfig {
    * Used to surface real-time connectivity (e.g. a HomeKit status sensor).
    */
   onConnectionChange?: (connected: boolean) => void
+  /** Resolves every address of a host. Defaults to the system resolver. */
+  resolveAll?: (host: string, options: LookupOptions) => Promise<LookupAddress[]>
+}
+
+function resolveAllWithSystemDns(host: string, options: LookupOptions): Promise<LookupAddress[]> {
+  return dnsPromises.lookup(host, { ...options, all: true })
+}
+
+/** Formats a duration as "45s", "12m 5s" or "3h 12m". */
+export function formatDuration(ms: number): string {
+  const totalSec = Math.max(0, Math.round(ms / 1000))
+  const hours = Math.floor(totalSec / 3600)
+  const minutes = Math.floor((totalSec % 3600) / 60)
+  const seconds = totalSec % 60
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`
+  }
+  return `${seconds}s`
 }
 
 /**
@@ -149,6 +173,13 @@ export class LevitonWebSocket {
   private pingTimer: ReturnType<typeof setInterval> | null = null
   private handshakeTimer: ReturnType<typeof setTimeout> | null = null
   private consecutiveAuthCloses = 0
+  /** Server address of the current connection, from the upgrade response. */
+  private remoteAddress: string | null = null
+  private openedAt: number | null = null
+  /** Sorted addresses from the last successful lookup of the socket host. */
+  private knownAddresses: string[] | null = null
+  /** Increments for each new socket so a late lookup from an old one is ignored. */
+  private connectionGeneration = 0
   private isConnecting = false
   private isClosed = false
 
@@ -269,6 +300,7 @@ export class LevitonWebSocket {
           'Pragma': 'no-cache',
           'Cache-Control': 'no-cache',
         },
+        lookup: this.createLookup(++this.connectionGeneration),
       })
 
       this.setupEventHandlers()
@@ -312,17 +344,29 @@ export class LevitonWebSocket {
     this.timers.push(connectionTimeout)
     this.handshakeTimer = connectionTimeout
 
+    this.ws.on('upgrade', (response: IncomingMessage) => {
+      this.remoteAddress = response.socket?.remoteAddress ?? null
+    })
+
     this.ws.on('open', () => {
       this.reconnectTimer = null
       isOpen = true
       this.isConnecting = false
+      this.openedAt = Date.now()
+      if (this.remoteAddress) {
+        const dns = this.knownAddresses ? ` (DNS: ${this.knownAddresses.join(', ')})` : ''
+        this.logger.debug(`WebSocket server: ${this.remoteAddress}${dns}`)
+      }
       this.logger.debug(`WebSocket connected (token: ${maskToken(this.loginResponse.id)})`)
     })
 
     this.ws.on('close', (code: number, reason: Buffer) => {
       this.clearTimers()
+      const after = isOpen && this.openedAt !== null ? ` after ${formatDuration(Date.now() - this.openedAt)}` : ''
       isOpen = false
       this.isConnecting = false
+      this.remoteAddress = null
+      this.openedAt = null
 
       const reasonStr = reason?.toString() || ''
 
@@ -354,13 +398,13 @@ export class LevitonWebSocket {
 
       // Remote normal closes still require reconnecting to preserve push updates.
       if (code === 1000) {
-        this.logger.info('WebSocket closed normally by remote')
+        this.logger.info(`WebSocket closed normally by remote${after}`)
         this.scheduleReconnect()
         return
       }
 
       const codeDesc = CLOSE_CODES[code] || 'unknown'
-      this.logger.info(`WebSocket closed: ${code} (${codeDesc})`)
+      this.logger.info(`WebSocket closed: ${code} (${codeDesc})${after}`)
       this.scheduleReconnect()
     })
 
@@ -388,6 +432,46 @@ export class LevitonWebSocket {
     this.ws.on('ping', () => {
       this.lastInboundAt = Date.now()
     })
+  }
+
+  /**
+   * DNS lookup for one socket. Resolves every address so a change in Leviton's
+   * load balancer addresses can be logged, then hands the socket the same
+   * answer the default lookup would.
+   */
+  private createLookup(generation: number): LookupFunction {
+    return (hostname, options, callback) => this.lookup(generation, hostname, options, callback)
+  }
+
+  private lookup(generation: number, ...[hostname, options, callback]: Parameters<LookupFunction>): void {
+    const resolveAll = this.config.resolveAll ?? resolveAllWithSystemDns
+    resolveAll(hostname, options).then(
+      addresses => {
+        const first = addresses[0]
+        if (!first) {
+          callback(Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), { code: 'ENOTFOUND' }), '')
+          return
+        }
+        if (generation === this.connectionGeneration) {
+          this.recordAddresses(addresses.map(entry => entry.address))
+        }
+        if (options.all) {
+          callback(null, addresses)
+        } else {
+          callback(null, first.address, first.family)
+        }
+      },
+      (error: unknown) => callback(error instanceof Error ? error : new Error(String(error)), ''),
+    )
+  }
+
+  private recordAddresses(addresses: string[]): void {
+    const current = [...new Set(addresses)].sort()
+    const previous = this.knownAddresses
+    this.knownAddresses = current
+    if (previous && previous.join(',') !== current.join(',')) {
+      this.logger.info(`Load balancer addresses changed: ${current.join(', ')} (was ${previous.join(', ')})`)
+    }
   }
 
   /**
