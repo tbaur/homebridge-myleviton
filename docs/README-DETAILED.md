@@ -182,6 +182,7 @@ Advanced documentation for power users, developers, and troubleshooting.
 4. Auto-reconnects with exponential backoff on disconnect
 5. Polling runs continuously as a safety net (also refreshing motion/occupancy): every `connectedPollInterval` seconds (default 120) while the WebSocket is connected, and every `pollInterval` seconds (default 30) while it is down. After a reconnect, every device is read once right away.
 6. Leviton's REST API can return a device's old state for about 30 seconds after a change at the switch or in the app. For 60 seconds after a WebSocket update, a status read that disagrees with that update is dropped, so a stale read cannot undo the change. With `loglevel: debug`, each dropped read logs `Ignored status read for …`.
+7. Each close line says how long the connection lasted, for example `WebSocket closed: 1006 (connection dropped) after 3h 12m`. Each connection looks up every address of `my.leviton.com`. If Leviton's load balancer addresses differ from the last connection, the plugin logs `Load balancer addresses changed: 203.0.113.21, 203.0.113.22 (was 203.0.113.10, 203.0.113.11)` and connects to the new addresses. With `loglevel: debug`, each connection also logs `WebSocket server: <address> (DNS: <addresses>)`.
 
 ### Change Log Lines
 
